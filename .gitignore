@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+ 
+# Entorno virtual
+.venv/
+venv/
+ 
+# uv
+.uv/
+ 
+# Variables de entorno
+.env
+.env.*
+!.env.example
+ 
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+ 
+# IDEs
+.vscode/
+.idea/
+*.swp
+ 
+# OS
+.DS_Store
+Thumbs.db
+ 
+# Logs
+*.log
+ 
