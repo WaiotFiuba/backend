@@ -23,6 +23,18 @@ uv run uvicorn app.main:app --reload
 La API queda disponible en `http://localhost:8000`.  
 La documentación interactiva en `http://localhost:8000/docs`.
  
+### Tests
+ 
+```bash
+uv run --with pytest pytest
+```
+
+### Linter
+
+```bash
+uv run --with ruff ruff check .
+```
+
 ### Variables de entorno
  
 ```bash
@@ -30,13 +42,8 @@ cp .env.example .env
 # editá .env con tus valores
 ```
  
-### Tests
- 
-```bash
-uv run pytest
-```
- 
 ---
+
  
 ## Con Docker
  
