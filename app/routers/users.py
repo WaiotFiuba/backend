@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.core.deps import get_current_user, require_roles
-from app.core.roles import Role
+from app.core.roles import RoleId
 from app.models.user import User
 from app.schemas.user import UserRead
 
@@ -16,6 +16,6 @@ async def read_current_user(current_user: User = Depends(get_current_user)) -> U
 
 @router.get("/admin-only")
 async def admin_only(
-    current_user: User = require_roles([Role.admin]),
+    current_user: User = require_roles([RoleId.superadmin]),
 ) -> dict:
     return {"message": f"Hello {current_user.email}, you are an admin."}

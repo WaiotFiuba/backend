@@ -23,9 +23,12 @@ class UserService:
             raise ValueError("Email already registered")
 
         user = User(
+            name="Usuario",
+            language="es",
             email=user_in.email,
-            hashed_password=get_password_hash(user_in.password),
-            role=user_in.role.value,
+            password=get_password_hash(user_in.password),
+            role_id=int(user_in.role_id),
+            available=True,
         )
         db.add(user)
         await db.flush()
@@ -38,7 +41,7 @@ class UserService:
         user = await self.get_user_by_email(db, email)
         if user is None:
             return None
-        if not verify_password(password, user.hashed_password):
+        if not verify_password(password, user.password):
             return None
         return user
 

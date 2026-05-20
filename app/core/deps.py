@@ -1,4 +1,4 @@
-from typing import Iterable, List
+from typing import Iterable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.roles import Role
+from app.core.roles import RoleId
 from app.core.security import ALGORITHM
 from app.models.user import User
 from app.services.user_service import user_service
@@ -35,14 +35,14 @@ async def get_current_user(
         raise credentials_exception from exc
 
     user = await user_service.get_user_by_id(db, int(user_id))
-    if user is None or not user.is_active:
+    if user is None or not user.available:
         raise credentials_exception
     return user
 
 
-def require_roles(roles: Iterable[Role]) -> Depends:
+def require_roles(roles: Iterable[RoleId]) -> Depends:
     async def _role_guard(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in [role.value for role in roles]:
+        if current_user.role_id not in [int(role) for role in roles]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not enough permissions",
