@@ -33,3 +33,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Otros
+.agents
+skills-lock.json
+
