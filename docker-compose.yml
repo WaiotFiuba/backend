@@ -8,3 +8,32 @@ services:
     volumes:
       - ./app:/app/app
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgis:
+        condition: service_healthy
+        required: false    # no falla si postgis no levanta
+
+  postgis:
+    profiles:
+      - map              # solo levanta si se utiliza docker-compose --profile map up
+    build:
+      context: .
+      dockerfile: Dockerfile.postgis
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+      - ./db/datos:/datos
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgis_data:
