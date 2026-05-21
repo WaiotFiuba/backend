@@ -16,6 +16,11 @@ venv/
 .env.*
 !.env.example
 
+# Datos
+db/datos/*.json
+db/datos/*.csv
+db/datos/*.geojson
+
 # Tests
 .pytest_cache/
 .ruff_cache/
