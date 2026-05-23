@@ -7,7 +7,15 @@ services:
       - .env
     volumes:
       - ./app:/app/app
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./db:/app/db
+    command: >
+      sh -c "
+      uv run alembic upgrade head &&
+      uv run python -m app.commands.seed &&
+      uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
     depends_on:
       postgis:
         condition: service_healthy
@@ -16,9 +24,7 @@ services:
   postgis:
     profiles:
       - map              # solo levanta si se utiliza docker-compose --profile map up
-    build:
-      context: .
-      dockerfile: Dockerfile.postgis
+    image: postgis/postgis:16-3.4
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -27,8 +33,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
       - ./db/datos:/datos
+      - ./db:/app/db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
