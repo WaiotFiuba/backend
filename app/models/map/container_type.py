@@ -56,7 +56,9 @@ class ContainerType(MapBase):
         nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    containers: Mapped[list[Container]] = relationship(back_populates="container_type")
-    waste_types: Mapped[list[WasteType]] = relationship(
+    containers: Mapped[list["Container"]] = relationship(
+        back_populates="container_type"
+    )
+    waste_types: Mapped[list["WasteType"]] = relationship(
         secondary=container_type_waste_types, back_populates="container_types"
     )

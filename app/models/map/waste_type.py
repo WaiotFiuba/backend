@@ -28,7 +28,7 @@ class WasteType(MapBase):
         onupdate=func.now(),
         nullable=False,
     )
-    container_types: Mapped[list[ContainerType]] = relationship(
+    container_types: Mapped[list["ContainerType"]] = relationship(
         secondary=container_type_waste_types,
         back_populates="waste_types",
     )

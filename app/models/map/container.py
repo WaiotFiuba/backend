@@ -56,4 +56,4 @@ class Container(MapBase):
         nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    container_type: Mapped[ContainerType] = relationship(back_populates="containers")
+    container_type: Mapped["ContainerType"] = relationship(back_populates="containers")
