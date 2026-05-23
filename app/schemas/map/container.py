@@ -24,3 +24,9 @@ class ContainersMapOutputSchema(BaseModel):
     current_level: int
     available: bool
     container_type: ContainersMapTypeSchema
+
+
+class ContainerCluster(BaseModel):
+    latitude: float
+    longitude: float
+    total: int

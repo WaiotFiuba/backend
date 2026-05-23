@@ -1,19 +1,25 @@
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from geoalchemy2 import functions as geo_funcs
 
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.waste_type import WasteType
-from app.schemas.map.container import ContainersMapOutputSchema
+from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
 
 
-def _zoom_to_precision(zoom: int) -> int | None:
+def _zoom_to_grid_size(zoom: int) -> float | None:
+    """
+    Retorna el tamaño de la celda en grados para ST_SnapToGrid.
+    Ajustamos los rangos para la escala de Buenos Aires.
+    """
     if zoom < 11:
-        return 2  # 10km por celda
+        return 0.05  # ~5km por celda
     elif zoom < 13:
-        return 3  # 1km por celda
+        return 0.01  # ~1km por celda
     elif zoom < 15:
-        return 4  # 100m por celda
+        return 0.002  # ~200m por celda
     else:
         return None  # puntos exactos
 
@@ -68,3 +74,77 @@ async def get_all_containers(
     result = await db.execute(_base_select())
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
+
+
+async def get_containers_in_bbox(
+    db: AsyncSession,
+    lat_min: float,
+    lat_max: float,
+    lng_min: float,
+    lng_max: float,
+    limit: int = 500,
+) -> list[ContainersMapOutputSchema]:
+    # Usamos GeoAlchemy2 para armar el filtro espacial usando el índice GIST de la columna 'geom'
+    # Pasamos las coordenadas en el orden correcto de PostGIS: (LngMin, LatMin, LngMax, LatMax, SRID)
+    bbox_filter = geo_funcs.ST_Within(
+        Container.geom,
+        geo_funcs.ST_MakeEnvelope(lng_min, lat_min, lng_max, lat_max, 4326),
+    )
+
+    query = _base_select().where(bbox_filter).limit(limit)
+
+    result = await db.execute(query)
+    rows = result.mappings().all()
+    return [_row_to_container(row) for row in rows]
+
+
+async def get_containers_clustered(
+    db: AsyncSession,
+    lat_min: float,
+    lat_max: float,
+    lng_min: float,
+    lng_max: float,
+    zoom: int,
+    limit: int = 500,
+) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
+    grid_size = _zoom_to_grid_size(zoom)
+
+    # Si el zoom es muy cercano, delegamos al BBox de puntos exactos
+    if grid_size is None:
+        return await get_containers_in_bbox(
+            db, lat_min, lat_max, lng_min, lng_max, limit
+        )
+
+    # Query optimizada con ST_SnapToGrid y ST_Centroid para obtener el centro real del cluster
+    query = text("""
+        SELECT
+            ST_Y(ST_Centroid(ST_Collect(geom))) AS cluster_lat,
+            ST_X(ST_Centroid(ST_Collect(geom))) AS cluster_lng,
+            COUNT(*) AS total
+        FROM containers
+        WHERE geom && ST_MakeEnvelope(:lng_min, :lat_min, :lng_max, :lat_max, 4326)
+        GROUP BY ST_SnapToGrid(geom, :grid_size)
+        LIMIT :limit;
+    """)
+
+    result = await db.execute(
+        query,
+        {
+            "grid_size": grid_size,
+            "lat_min": lat_min,
+            "lat_max": lat_max,
+            "lng_min": lng_min,
+            "lng_max": lng_max,
+            "limit": limit,
+        },
+    )
+
+    rows = result.mappings().all()
+    return [
+        ContainerCluster(
+            latitude=row["cluster_lat"],
+            longitude=row["cluster_lng"],
+            total=row["total"],
+        )
+        for row in rows
+    ]

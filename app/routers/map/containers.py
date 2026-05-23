@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.core.map_database import get_map_db
-from app.schemas.map.container import ContainersMapOutputSchema
-from app.services.map.container_service import get_all_containers
+from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
+from app.services.map.container_service import (
+    get_all_containers,
+    get_containers_clustered,
+)
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 
@@ -19,3 +22,26 @@ async def read_all_containers(
     db: AsyncSession = Depends(get_map_db),
 ) -> list[ContainersMapOutputSchema]:
     return await get_all_containers(db)
+
+
+@router.get(
+    "/bbox", response_model=list[ContainerCluster] | list[ContainersMapOutputSchema]
+)
+async def get_containers_by_bbox(
+    lat_min: float = Query(...),
+    lat_max: float = Query(...),
+    lng_min: float = Query(...),
+    lng_max: float = Query(...),
+    zoom: int = Query(..., ge=0, le=22),
+    limit: int = Query(500, ge=1, le=2000),
+    db: AsyncSession = Depends(get_map_db),
+) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
+    return await get_containers_clustered(
+        db=db,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        zoom=zoom,
+        limit=limit,
+    )
