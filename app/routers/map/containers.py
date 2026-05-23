@@ -3,10 +3,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.core.map_database import get_map_db
-from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
+from app.schemas.map.container import (
+    ContainersMapOutputSchema,
+    ContainerCluster,
+    ContainerDetailOutputSchema,
+)
 from app.services.map.container_service import (
     get_all_containers,
     get_containers_clustered,
+    get_container_by_id,
 )
 
 router = APIRouter(prefix="/containers", tags=["containers"])
@@ -45,3 +50,20 @@ async def get_containers_by_bbox(
         zoom=zoom,
         limit=limit,
     )
+
+
+@router.get(
+    "/{container_id}",
+    response_model=ContainerDetailOutputSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener el detalle de un contenedor específico",
+    responses={
+        200: {"description": "Detalle del contenedor encontrado con éxito."},
+        404: {"description": "El contenedor solicitado no existe en el sistema."},
+    },
+)
+async def read_container_detail(
+    container_id: int,
+    db: AsyncSession = Depends(get_map_db),
+) -> ContainerDetailOutputSchema:
+    return await get_container_by_id(db, container_id)

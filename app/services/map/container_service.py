@@ -1,4 +1,7 @@
+from fastapi import HTTPException, status
+
 from sqlalchemy import select, text
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from geoalchemy2 import functions as geo_funcs
@@ -148,3 +151,24 @@ async def get_containers_clustered(
         )
         for row in rows
     ]
+
+
+async def get_container_by_id(db: AsyncSession, container_id: int) -> Container:
+    stmt = (
+        select(Container)
+        .where(Container.id == container_id)
+        .options(
+            joinedload(Container.container_type).selectinload(ContainerType.waste_types)
+        )
+    )
+
+    result = await db.execute(stmt)
+    container = result.scalar_one_or_none()
+
+    if not container:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Contenedor con ID {container_id} no fue encontrado.",
+        )
+
+    return container
