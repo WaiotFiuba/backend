@@ -10,6 +10,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
+    name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8, max_length=72)
     role_id: RoleId = RoleId.client
 

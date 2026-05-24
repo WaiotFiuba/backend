@@ -23,7 +23,7 @@ class UserService:
             raise ValueError("Email already registered")
 
         user = User(
-            name="Usuario",
+            name=user_in.name,
             language="es",
             email=user_in.email,
             password=get_password_hash(user_in.password),
