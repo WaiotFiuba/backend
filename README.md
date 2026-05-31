@@ -70,16 +70,30 @@ La API queda disponible en `http://localhost:8000`.
 - construye la imagen `api` desde el backend
 - monta los datos en `./db/datos` y expone `postgis` en el puerto `5432`
 - levanta una base PostGIS llamada `waiot_map`
+- importa automáticamente los archivos GeoJSON (`barrios`, `calles`, `comunas`, `manzanas`, `parcelas`) desde `db/datos` a la base de datos al inicializar por primera vez el contenedor.
 - corre el seed con los datos del contenedor si se activa el perfil y los datos no estan ya insertados
 
-### Inicialización de la base PostGIS
+### Inicialización e Importación de Datos GeoJSON
 
+La carga inicial de archivos GeoJSON se realiza automáticamente cuando el contenedor de PostGIS se inicializa desde cero (volumen de base de datos vacío).
 
-Si necesitas reiniciar la base y recargar datos:
+Si necesitas reiniciar la base de datos completa y recargar todos los datos GeoJSON:
 
 ```bash
 docker-compose --profile map down -v
 docker-compose --profile map up --build
+```
+
+#### Importación Manual sin Borrar la Base de Datos
+
+Si has modificado o agregado archivos GeoJSON en `db/datos` y quieres cargarlos o sobreescribirlos sin destruir los datos existentes en la base de datos, podés ejecutar el script de importación directamente dentro del contenedor:
+
+```bash
+# Importar solo archivos nuevos (las tablas existentes se omiten)
+docker-compose exec postgis bash /docker-entrypoint-initdb.d/20_import_geojson.sh
+
+# Forzar la sobreescritura de todas las tablas GeoJSON
+docker-compose exec postgis bash /docker-entrypoint-initdb.d/20_import_geojson.sh --force
 ```
 
 ### Variables de Entorno

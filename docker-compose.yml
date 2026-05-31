@@ -24,7 +24,10 @@ services:
   postgis:
     profiles:
       - map              # solo levanta si se utiliza docker-compose --profile map up
-    image: postgis/postgis:16-3.4
+    build:
+      context: .
+      dockerfile: db/Dockerfile.postgis
+    image: postgis-ogr2ogr:16-3.4
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -35,6 +38,7 @@ services:
       - postgis_data:/var/lib/postgresql/data
       - ./db/datos:/datos
       - ./db:/app/db
+      - ./db/import_geojson.sh:/docker-entrypoint-initdb.d/20_import_geojson.sh
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
