@@ -42,3 +42,11 @@ class UserRead(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class TokenPair(Token):
+    refresh_token: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str

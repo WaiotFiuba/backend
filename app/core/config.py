@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./dev.db"
     secret_key: str = "change-me"
     access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 7
     db_echo: bool = False
     auto_create_db: bool = True
     map_database_url: str = (
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 @lru_cache()
