@@ -43,6 +43,60 @@ uv run --with pre-commit pre-commit run --all-files
 uv run --with ruff ruff check .
 ```
 
+### Generador de datos sintéticos
+
+Con el backend levantado, el generador puede leer los contenedores desde el endpoint
+`/map/containers/` y generar archivos offline:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --backend-url http://localhost:8000 \
+  --container-limit 100 \
+  --scenario app/digital_twin/synthetic_data/config/semana_normal.yaml \
+  --output datos/sinteticos_backend \
+  --api-payloads
+```
+
+Para una prueba acotada:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --container-limit 20 \
+  --output datos/sinteticos_backend
+```
+
+Si se omite `--from-backend`, el módulo genera una topología sintética mínima para
+tests o desarrollo local.
+
+El escenario base es `semana_normal.yaml`. En esta primera iteración las fallas raras
+como incendio, sensor trabado o pérdida de señal quedan desactivadas por defecto.
+`reading_jitter_minutes` permite que cada sensor reporte algunos minutos antes o
+después de la hora base, evitando timestamps idénticos para todos los dispositivos.
+También se puede definir `end` para simular rangos históricos; si está presente,
+`periods` se calcula desde `start`, `end` y `frequency_minutes`.
+
+Cuando se usa `--from-backend`, solo se exportan mediciones, recolecciones, alarmas y
+payloads. Para guardar también un snapshot de `sites`, `containers` y `devices`:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --include-topology \
+  --output datos/sinteticos_backend
+```
+
+Por defecto, `measurements`, `collections` y `alarms` se exportan en CSV. Para generar
+Parquet:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --format parquet \
+  --output datos/sinteticos_backend
+```
+
 ### Variables de entorno
 
 ```bash
@@ -64,6 +118,12 @@ docker-compose up --build
 ```
 
 La API queda disponible en `http://localhost:8000`.
+
+Para levantar la API junto con PostGIS y el mapa:
+
+```bash
+docker compose --profile map up --build
+```
 
 ### Qué hace Docker Compose
 

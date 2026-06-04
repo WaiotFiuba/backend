@@ -31,13 +31,18 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
     return ContainersMapOutputSchema(
         id=row["id"],
         site_id=row["site_id"],
+        site_name=row["site_name"],
+        device_imei=row["device_imei"],
         latitude=row["latitude"],
         longitude=row["longitude"],
         current_level=row["current_level"],
         available=row["available"],
         # Construimos el objeto anidado para ContainerType y su lista de WasteTypes
         container_type={
-            "name": row["container_type"],
+            "name": row["container_type"] or "",
+            "height_cm": row["height_cm"],
+            "volume_m3": row["volume_m3"],
+            "overflow_zone_cm": row["overflow_zone_cm"],
             "waste_types": [
                 {"name": row["waste_type_name"], "color": row["waste_type_color"]}
             ]
@@ -52,11 +57,16 @@ def _base_select():
         select(
             Container.id,
             Container.site_id,
+            Container.site_name,
+            Container.device_imei,
             Container.latitude,
             Container.longitude,
             Container.current_level,
             Container.available,
             ContainerType.name.label("container_type"),
+            ContainerType.height_cm,
+            ContainerType.volume_m3,
+            ContainerType.overflow_zone_cm,
             WasteType.name.label("waste_type_name"),
             WasteType.color.label("waste_type_color"),
         )
@@ -73,8 +83,15 @@ def _base_select():
 
 async def get_all_containers(
     db: AsyncSession,
+    limit: int = 500,
+    offset: int = 0,
 ) -> list[ContainersMapOutputSchema]:
-    result = await db.execute(_base_select())
+    result = await db.execute(
+        _base_select()
+        .order_by(Container.id)
+        .limit(limit)
+        .offset(offset)
+    )
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
 

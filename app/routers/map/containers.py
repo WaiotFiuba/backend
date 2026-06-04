@@ -24,9 +24,11 @@ router = APIRouter(prefix="/containers", tags=["containers"])
     summary="Obtener todos los contenedores para el mapa",
 )
 async def read_all_containers(
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_map_db),
 ) -> list[ContainersMapOutputSchema]:
-    return await get_all_containers(db)
+    return await get_all_containers(db, limit=limit, offset=offset)
 
 
 @router.get(

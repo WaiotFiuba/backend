@@ -14,6 +14,9 @@ class WasteTypeMapSchema(BaseModel):
 
 class ContainersMapTypeSchema(BaseModel):
     name: str
+    height_cm: int | None = None
+    volume_m3: float | None = None
+    overflow_zone_cm: int | None = None
     waste_types: List[WasteTypeMapSchema]
 
     model_config = ConfigDict(from_attributes=True)
@@ -22,6 +25,8 @@ class ContainersMapTypeSchema(BaseModel):
 class ContainersMapOutputSchema(BaseModel):
     id: int
     site_id: str
+    site_name: str | None = None
+    device_imei: str | None = None
     latitude: float
     longitude: float
     current_level: int
