@@ -23,6 +23,7 @@ from app.digital_twin.synthetic_data.topology import (
     topology_from_backend_records,
 )
 from app.digital_twin.synthetic_data.transport.backend_http import (
+    StreamingInterrupted,
     send_result_batch,
     stream_result,
 )
@@ -374,6 +375,35 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(report.requests, 3)
         self.assertEqual(posted_timestamps, sorted(posted_timestamps))
         self.assertEqual(sleeps, [0.25, 0.25])
+
+    def test_stream_interruption_keeps_partial_report(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=8,
+                periods=3,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=1,
+            )
+        ).run()
+
+        def fake_post(url, payload, token, timeout_seconds):
+            return {"updated": 1, "not_found": 0}
+
+        def interrupt(_seconds):
+            raise KeyboardInterrupt
+
+        with self.assertRaises(StreamingInterrupted) as context:
+            stream_result(
+                result,
+                backend_url="http://backend",
+                delay_seconds=1,
+                sleep=interrupt,
+                post_json=fake_post,
+            )
+
+        self.assertEqual(context.exception.report.sent, 1)
+        self.assertEqual(context.exception.report.updated, 1)
+        self.assertEqual(context.exception.report.requests, 1)
 
     def test_ingest_payload_maps_to_data_level_shape(self) -> None:
         container_type = ContainerType(

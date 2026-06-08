@@ -19,6 +19,12 @@ class BackendDeliveryError(RuntimeError):
     pass
 
 
+class StreamingInterrupted(RuntimeError):
+    def __init__(self, report: DeliveryReport):
+        self.report = report
+        super().__init__("Streaming interrumpido por el usuario.")
+
+
 @dataclass(frozen=True)
 class DeliveryReport:
     sent: int
@@ -80,12 +86,20 @@ def stream_result(
     report = _MutableReport()
     previous: Measurement | None = None
 
-    for measurement in measurements:
-        if previous is not None:
-            sleep(_delay_between(previous, measurement, delay_seconds, speedup))
-        response = sender(endpoint, api_payload_from_measurement(measurement), token, timeout_seconds)
-        report.add(response, sent=1)
-        previous = measurement
+    try:
+        for measurement in measurements:
+            if previous is not None:
+                sleep(_delay_between(previous, measurement, delay_seconds, speedup))
+            response = sender(
+                endpoint,
+                api_payload_from_measurement(measurement),
+                token,
+                timeout_seconds,
+            )
+            report.add(response, sent=1)
+            previous = measurement
+    except KeyboardInterrupt as exc:
+        raise StreamingInterrupted(report.freeze()) from exc
 
     return report.freeze()
 

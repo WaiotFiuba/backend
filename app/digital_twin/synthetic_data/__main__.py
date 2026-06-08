@@ -139,9 +139,10 @@ def main() -> None:
     print(json.dumps({"metrics": report.metrics, **output}, indent=2))
 
 
-def _deliver_to_backend(args, result) -> dict[str, int]:
+def _deliver_to_backend(args, result) -> dict[str, object]:
     from app.digital_twin.synthetic_data.transport.backend_http import (
         BackendDeliveryError,
+        StreamingInterrupted,
         send_result_batch,
         stream_result,
     )
@@ -163,6 +164,10 @@ def _deliver_to_backend(args, result) -> dict[str, int]:
             speedup=args.stream_speedup,
             token=args.backend_token,
         ).to_record()
+    except StreamingInterrupted as exc:
+        interrupted = exc.report.to_record()
+        interrupted["interrupted"] = True
+        return interrupted
     except BackendDeliveryError as exc:
         raise SystemExit(f"Error: {exc}") from None
 
