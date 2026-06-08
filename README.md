@@ -45,85 +45,12 @@ uv run --with ruff ruff check .
 
 ### Generador de datos sintéticos
 
-Con el backend levantado, el generador puede leer los contenedores desde el endpoint
-`/map/containers/` y generar archivos offline:
+El módulo permite generar archivos CSV/Parquet, inyectar históricos, reproducir
+streaming y ejecutar una simulación incremental controlable desde la API. También
+adapta la demanda según población, densidad y barrio.
 
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --backend-url http://localhost:8000 \
-  --container-limit 100 \
-  --scenario app/digital_twin/synthetic_data/config/semana_normal.yaml \
-  --output datos/sinteticos_backend \
-  --api-payloads
-```
-
-Para una prueba acotada:
-
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --container-limit 20 \
-  --output datos/sinteticos_backend
-```
-
-Si se omite `--from-backend`, el módulo genera una topología sintética mínima para
-tests o desarrollo local.
-
-El escenario base es `semana_normal.yaml`. En esta primera iteración las fallas raras
-como incendio, sensor trabado o pérdida de señal quedan desactivadas por defecto.
-`reading_jitter_minutes` permite que cada sensor reporte algunos minutos antes o
-después de la hora base, evitando timestamps idénticos para todos los dispositivos.
-También se puede definir `end` para simular rangos históricos; si está presente,
-`periods` se calcula desde `start`, `end` y `frequency_minutes`.
-
-Cuando se usa `--from-backend`, solo se exportan mediciones, recolecciones, alarmas y
-payloads. Para guardar también un snapshot de `sites`, `containers` y `devices`:
-
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --include-topology \
-  --output datos/sinteticos_backend
-```
-
-Por defecto, `measurements`, `collections` y `alarms` se exportan en CSV. Para generar
-Parquet:
-
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --format parquet \
-  --output datos/sinteticos_backend
-```
-
-También se puede enviar la telemetría generada al backend en vez de escribir archivos.
-Para inyectar un histórico en batch:
-
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --backend-url http://localhost:8000 \
-  --delivery batch \
-  --batch-size 250
-```
-
-Para simular streaming, el generador reproduce las mediciones ordenadas por timestamp:
-
-```bash
-uv run python -m app.digital_twin.synthetic_data \
-  --from-backend \
-  --backend-url http://localhost:8000 \
-  --delivery stream \
-  --stream-delay-seconds 1
-```
-
-`--stream-speedup` permite comprimir el tiempo simulado. Por ejemplo, `--stream-speedup
-3600` envía una hora simulada por cada segundo real. La ingesta HTTP usa
-`/digital-twin/telemetry` para streaming y `/digital-twin/telemetry/batch` para batch.
-Ambos endpoints guardan cada lectura en `data_level`, con una forma compatible con la
-base original, y actualizan el estado actual del contenedor cuando el `container_id` o
-`device_id` coincide con uno existente.
+La documentación completa está en
+[`app/digital_twin/synthetic_data/README.md`](app/digital_twin/synthetic_data/README.md).
 
 ### Variables de entorno
 
@@ -165,7 +92,9 @@ docker compose --profile map up --build
 
 `ENABLE_MAP_DB` controla si la API inicializa la base de mapa al arrancar. En Docker,
 el comando de la API lo activa automáticamente cuando el servicio `postgis` está
-disponible; sin el perfil `map`, queda desactivado.
+disponible; sin el perfil `map`, queda desactivado. El esquema de mapa se administra
+con Alembic; `AUTO_CREATE_MAP_DB` queda desactivado para evitar que `create_all()`
+compita con las migraciones durante autoreload.
 
 ### Inicialización e Importación de Datos GeoJSON
 

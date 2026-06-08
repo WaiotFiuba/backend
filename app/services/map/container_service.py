@@ -9,6 +9,7 @@ from geoalchemy2 import functions as geo_funcs
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.waste_type import WasteType
+from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
 
 
@@ -37,6 +38,8 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
         longitude=row["longitude"],
         current_level=row["current_level"],
         available=row["available"],
+        zone=row["zone"],
+        density_factor=row["density_factor"] or 1.0,
         # Construimos el objeto anidado para ContainerType y su lista de WasteTypes
         container_type={
             "name": row["container_type"] or "",
@@ -69,6 +72,8 @@ def _base_select():
             ContainerType.overflow_zone_cm,
             WasteType.name.label("waste_type_name"),
             WasteType.color.label("waste_type_color"),
+            NeighborhoodDemographic.neighborhood.label("zone"),
+            NeighborhoodDemographic.density_factor,
         )
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
         .outerjoin(
@@ -77,6 +82,10 @@ def _base_select():
         )
         .outerjoin(
             WasteType, container_type_waste_types.c.waste_type_id == WasteType.id
+        )
+        .outerjoin(
+            NeighborhoodDemographic,
+            geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
         )
     )
 

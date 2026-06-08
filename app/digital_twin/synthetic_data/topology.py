@@ -19,6 +19,8 @@ class BackendContainerRecord:
     waste_type: str | None
     height_cm: float | None
     volume_m3: float | None
+    zone: str | None = None
+    demand_base: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -42,10 +44,10 @@ def topology_from_backend_records(records: Sequence[BackendContainerRecord]) -> 
             sites_by_id[site_id] = Site(
                 id=site_id,
                 name=record.site_name or "",
-                zone="",
+                zone=record.zone or "",
                 latitude=record.latitude,
                 longitude=record.longitude,
-                demand_base=1.0,
+                demand_base=record.demand_base,
             )
 
         containers.append(
@@ -115,4 +117,6 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
         waste_type=waste_type_name,
         height_cm=height_cm,
         volume_m3=volume_m3,
+        zone=str(item["zone"]) if item.get("zone") else None,
+        demand_base=float(item.get("density_factor", 1.0)),
     )

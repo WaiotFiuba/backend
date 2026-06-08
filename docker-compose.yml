@@ -52,5 +52,27 @@ services:
       timeout: 5s
       retries: 10
 
+  simulator:
+    profiles:
+      - map
+    build: .
+    env_file:
+      - .env
+    environment:
+      ENABLE_MAP_DB: "true"
+      SIMULATOR_BACKEND_URL: http://api:8000
+    volumes:
+      - ./app:/app/app
+    command: >
+      sh -c "
+      uv run python -m app.commands.wait_for_map_db &&
+      uv run python -m app.digital_twin.synthetic_data.worker
+      "
+    depends_on:
+      api:
+        condition: service_started
+      postgis:
+        condition: service_healthy
+
 volumes:
   postgis_data:

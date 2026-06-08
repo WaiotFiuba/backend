@@ -64,6 +64,29 @@ def send_result_batch(
     return report.freeze()
 
 
+def send_measurements_batch(
+    measurements: Iterable[Measurement],
+    backend_url: str,
+    path: str = "/digital-twin/telemetry/batch",
+    batch_size: int = 250,
+    token: str | None = None,
+    timeout_seconds: float = 30,
+    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]] | None = None,
+) -> DeliveryReport:
+    if batch_size <= 0:
+        raise ValueError("batch_size debe ser mayor a 0.")
+
+    sender = post_json or _post_json
+    endpoint = _endpoint_url(backend_url, path)
+    report = _MutableReport()
+
+    for batch in _chunks(_payloads(measurements), batch_size):
+        response = sender(endpoint, {"measurements": batch}, token, timeout_seconds)
+        report.add(response, sent=len(batch))
+
+    return report.freeze()
+
+
 def stream_result(
     result: SimulationResult,
     backend_url: str,

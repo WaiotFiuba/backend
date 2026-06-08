@@ -14,6 +14,8 @@ def filling_increment(
     container: Container,
     config: ScenarioConfig,
     rng: random.Random,
+    global_demand_multiplier: float | None = None,
+    zone_demand_multiplier: float = 1.0,
 ) -> float:
     hour_factor = _hour_factor(timestamp.hour)
     weekday_factor = _weekday_factor(timestamp.weekday())
@@ -25,7 +27,12 @@ def filling_increment(
         * hour_factor
         * weekday_factor
         * waste_factor
-        * config.high_demand_multiplier
+        * (
+            config.high_demand_multiplier
+            if global_demand_multiplier is None
+            else global_demand_multiplier
+        )
+        * zone_demand_multiplier
         * config.overflow_stress_multiplier
         * noise
     )

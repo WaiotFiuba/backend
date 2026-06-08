@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.error import URLError
 
 from app.digital_twin.synthetic_data.exporters.files import export_simulation
@@ -23,10 +23,13 @@ from app.digital_twin.synthetic_data.topology import (
     topology_from_backend_records,
 )
 from app.digital_twin.synthetic_data.transport.backend_http import (
+    DeliveryReport,
     StreamingInterrupted,
+    send_measurements_batch,
     send_result_batch,
     stream_result,
 )
+from app.digital_twin.synthetic_data.worker import _deliver_tick_measurements
 from app.digital_twin.synthetic_data.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
@@ -347,6 +350,34 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(requests[0][2], "token")
         self.assertEqual(len(requests[0][1]["measurements"]), 2)
 
+    def test_worker_can_send_one_tick_as_a_single_batch(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=4,
+                periods=1,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=3,
+            )
+        ).run()
+        requests = []
+
+        def fake_post(url, payload, token, timeout_seconds):
+            requests.append((url, payload, token, timeout_seconds))
+            return {"updated": len(payload["measurements"]), "not_found": 0}
+
+        report = send_measurements_batch(
+            result.measurements,
+            backend_url="http://backend",
+            batch_size=2,
+            post_json=fake_post,
+        )
+
+        self.assertEqual(report.sent, 3)
+        self.assertEqual(report.updated, 3)
+        self.assertEqual(report.requests, 2)
+        self.assertEqual(len(requests[0][1]["measurements"]), 2)
+        self.assertEqual(len(requests[1][1]["measurements"]), 1)
+
     def test_can_stream_generated_measurements_in_timestamp_order(self) -> None:
         result = SyntheticDataSimulator(
             ScenarioConfig(
@@ -456,6 +487,45 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(row.container_type_name, "RSU Humeda")
         self.assertEqual(row.waste_type_id, 9)
         self.assertEqual(row.waste_type_name, "RSU Fraccion Humeda")
+
+
+class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
+    async def test_checks_session_state_before_each_telemetry_batch(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=4,
+                periods=1,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=5,
+            )
+        ).run()
+        runnable = AsyncMock(return_value=object())
+
+        with (
+            patch(
+                "app.digital_twin.synthetic_data.worker._wait_until_runnable",
+                runnable,
+            ),
+            patch(
+                "app.digital_twin.synthetic_data.worker.send_measurements_batch",
+                return_value=DeliveryReport(
+                    sent=2,
+                    updated=2,
+                    not_found=0,
+                    requests=1,
+                ),
+            ) as send_batch,
+        ):
+            report = await _deliver_tick_measurements(
+                simulation_id=7,
+                measurements=result.measurements,
+                backend_url="http://backend",
+                batch_size=2,
+            )
+
+        self.assertIsNotNone(report)
+        self.assertEqual(runnable.await_count, 3)
+        self.assertEqual(send_batch.call_count, 3)
 
 
 class _FakeResponse:

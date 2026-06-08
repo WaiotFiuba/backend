@@ -7,6 +7,9 @@ from app.core.map_database import MapSessionLocal
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.waste_type import WasteType
+from app.commands.import_neighborhood_demographics import (
+    import_neighborhood_demographics,
+)
 
 
 async def seed_map_data() -> None:
@@ -31,6 +34,7 @@ async def seed_map_data() -> None:
             print(
                 "[INFO] Ya existen contenedores registrados en la DB. Saltando siembra para evitar duplicados."
             )
+            await _seed_neighborhood_demographics(datos_dir)
             return
         print("[OK] Tabla 'containers' vacía. Procediendo con la carga.")
 
@@ -269,4 +273,49 @@ async def seed_map_data() -> None:
         else:
             print(f"[ERROR] Archivo {cont_file.name} NO encontrado. Saltando paso 4.")
 
+    await _seed_neighborhood_demographics(datos_dir)
     print("\n--- SCRIPT DE SIEMBRA FINALIZADO ---")
+
+
+async def _seed_neighborhood_demographics(datos_dir: Path) -> None:
+    print("\n[5/5] Iniciando carga de barrios y poblacion...")
+    geojson_file = next(
+        (
+            path
+            for path in (
+                datos_dir / "barrios.geojson",
+                datos_dir / "barrios.json",
+            )
+            if path.exists()
+        ),
+        None,
+    )
+    population_file = datos_dir / "poblacion_barrios.csv"
+
+    missing = [
+        name
+        for name, path in (
+            ("barrios.geojson o barrios.json", geojson_file),
+            ("poblacion_barrios.csv", population_file if population_file.exists() else None),
+        )
+        if path is None
+    ]
+    if missing:
+        print(
+            "[WARNING] No se cargaron datos demograficos. Archivos faltantes: "
+            + ", ".join(missing)
+        )
+        return
+
+    report = await import_neighborhood_demographics(
+        geojson_path=geojson_file,
+        population_csv_path=population_file,
+    )
+    print(
+        "[OK] Barrios y poblacion cargados. "
+        f"Importados/actualizados: {report['imported']}; "
+        f"sin correspondencia: {len(report['unmatched'])}; "
+        f"densidad mediana: {report['median_density_per_km2']} hab/km2."
+    )
+    if report["unmatched"]:
+        print("[WARNING] Barrios sin poblacion asociada: " + ", ".join(report["unmatched"]))

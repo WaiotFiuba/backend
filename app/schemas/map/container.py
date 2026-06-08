@@ -32,6 +32,8 @@ class ContainersMapOutputSchema(BaseModel):
     current_level: int
     available: bool
     container_type: ContainersMapTypeSchema
+    zone: str | None = None
+    density_factor: float = 1.0
 
 
 class ContainerCluster(BaseModel):

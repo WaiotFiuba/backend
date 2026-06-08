@@ -3,10 +3,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from geoalchemy2 import functions as geo_funcs
 
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
 
 
@@ -19,7 +21,8 @@ async def ingest_telemetry_batch(
 
     for measurement in measurements:
         container = await _find_container(db, measurement)
-        db.add(_data_level_row(measurement, container))
+        neighborhood = await _find_neighborhood(db, container) if container else None
+        db.add(_data_level_row(measurement, container, neighborhood))
         if container is None:
             not_found += 1
             continue
@@ -73,6 +76,7 @@ def _container_select():
 def _data_level_row(
     measurement: TelemetryIngestPayload,
     container: Container | None,
+    neighborhood: NeighborhoodDemographic | None = None,
 ) -> DataLevel:
     container_type = container.container_type if container else None
     waste_type = (
@@ -112,6 +116,8 @@ def _data_level_row(
         container_type_height=container_type.height_cm if container_type else None,
         site_id=container.site_id if container else None,
         site_name=container.site_name if container else None,
+        zone_id=neighborhood.id if neighborhood else None,
+        zone_name=neighborhood.neighborhood if neighborhood else None,
         waste_type_id=waste_type.id if waste_type else None,
         waste_type_name=waste_type.name if waste_type else None,
         rssi=measurement.telemetry.signal_rssi_dbm,
@@ -120,6 +126,18 @@ def _data_level_row(
         device_serial_id=measurement.device_id,
         container_serie_id=container.serie_id if container else None,
     )
+
+
+async def _find_neighborhood(
+    db: AsyncSession,
+    container: Container,
+) -> NeighborhoodDemographic | None:
+    result = await db.execute(
+        select(NeighborhoodDemographic)
+        .where(geo_funcs.ST_Covers(NeighborhoodDemographic.geom, container.geom))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 def _current_volume_m3(volume_m3: float | None, fill_level_pct: float) -> float | None:
