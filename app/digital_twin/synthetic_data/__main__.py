@@ -58,7 +58,7 @@ def main() -> None:
     parser.add_argument(
         "--backend-token",
         default=None,
-        help="Bearer token opcional para consultar el backend.",
+        help="Bearer token opcional para consultar o enviar datos al backend.",
     )
     parser.add_argument(
         "--limit",
@@ -71,6 +71,40 @@ def main() -> None:
         type=int,
         default=None,
         help="Cantidad máxima de contenedores reales a simular cuando se usa --from-backend.",
+    )
+    parser.add_argument(
+        "--delivery",
+        choices=("files", "batch", "stream"),
+        default="files",
+        help="Destino de los datos generados: archivos, ingesta batch o streaming HTTP.",
+    )
+    parser.add_argument(
+        "--ingest-path",
+        default="/digital-twin/telemetry",
+        help="Path del endpoint de ingesta individual para --delivery stream.",
+    )
+    parser.add_argument(
+        "--batch-ingest-path",
+        default="/digital-twin/telemetry/batch",
+        help="Path del endpoint de ingesta batch para --delivery batch.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Cantidad de mediciones por request cuando se usa --delivery batch.",
+    )
+    parser.add_argument(
+        "--stream-delay-seconds",
+        type=float,
+        default=0.0,
+        help="Delay fijo entre mediciones cuando se usa --delivery stream.",
+    )
+    parser.add_argument(
+        "--stream-speedup",
+        type=float,
+        default=None,
+        help="Acelera el tiempo simulado para streaming. Ej: 3600 envia 1 hora simulada por segundo real.",
     )
     args = parser.parse_args()
 
@@ -89,14 +123,48 @@ def main() -> None:
     if not report.ok:
         raise SystemExit("Validacion fallida: " + "; ".join(report.errors))
 
-    paths = export_simulation(
-        result,
-        args.output,
-        api_payloads=args.api_payloads or config.api_payloads,
-        export_format=args.format,
-        include_topology=args.include_topology or not args.from_backend,
+    output: dict[str, object]
+    if args.delivery == "files":
+        paths = export_simulation(
+            result,
+            args.output,
+            api_payloads=args.api_payloads or config.api_payloads,
+            export_format=args.format,
+            include_topology=args.include_topology or not args.from_backend,
+        )
+        output = {"outputs": {key: str(value) for key, value in paths.items()}}
+    else:
+        output = {"delivery": _deliver_to_backend(args, result)}
+
+    print(json.dumps({"metrics": report.metrics, **output}, indent=2))
+
+
+def _deliver_to_backend(args, result) -> dict[str, int]:
+    from app.digital_twin.synthetic_data.transport.backend_http import (
+        BackendDeliveryError,
+        send_result_batch,
+        stream_result,
     )
-    print(json.dumps({"metrics": report.metrics, "outputs": {key: str(value) for key, value in paths.items()}}, indent=2))
+
+    try:
+        if args.delivery == "batch":
+            return send_result_batch(
+                result,
+                backend_url=args.backend_url,
+                path=args.batch_ingest_path,
+                batch_size=args.batch_size,
+                token=args.backend_token,
+            ).to_record()
+        return stream_result(
+            result,
+            backend_url=args.backend_url,
+            path=args.ingest_path,
+            delay_seconds=args.stream_delay_seconds,
+            speedup=args.stream_speedup,
+            token=args.backend_token,
+        ).to_record()
+    except BackendDeliveryError as exc:
+        raise SystemExit(f"Error: {exc}") from None
 
 
 def _load_backend_topology(

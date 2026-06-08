@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import random
 
+from app.digital_twin.synthetic_data.domain.entities import Alarm
+
+
 def pick_sensor_anomaly(rng: random.Random, stuck_probability: float, noisy_probability: float) -> str | None:
     roll = rng.random()
     if roll < stuck_probability:
@@ -12,8 +15,6 @@ def pick_sensor_anomaly(rng: random.Random, stuck_probability: float, noisy_prob
 
 
 def alarm_from_measurement(measurement) -> Alarm | None:
-    from app.digital_twin.synthetic_data.domain.entities import Alarm
-
     if measurement.fill_level_pct >= 95:
         return Alarm(
             timestamp=measurement.timestamp,

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from app.digital_twin.synthetic_data.domain.entities import Measurement
 from app.digital_twin.synthetic_data.simulation.engine import SimulationResult
 
 ExportFormat = str
@@ -44,7 +45,7 @@ def export_simulation(
 
     if api_payloads:
         payload_path = destination / "api_payloads.jsonl"
-        _write_jsonl(payload_path, (_api_payload(item.to_record()) for item in result.measurements))
+        _write_jsonl(payload_path, (api_payload_from_measurement(item) for item in result.measurements))
         paths["api_payloads"] = payload_path
 
     return paths
@@ -152,6 +153,10 @@ def _current_volume_m3(volume_m3: float | None, fill_level_pct: float) -> float 
     if volume_m3 is None:
         return None
     return round(volume_m3 * fill_level_pct / 100, 4)
+
+
+def api_payload_from_measurement(measurement: Measurement) -> dict[str, object]:
+    return _api_payload(measurement.to_record())
 
 
 def _api_payload(row: dict[str, object]) -> dict[str, object]:

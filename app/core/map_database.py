@@ -18,6 +18,7 @@ async def init_map_db() -> None:
     from app.models.map.waste_type import WasteType  # noqa: F401
     from app.models.map.container_type import ContainerType  # noqa: F401
     from app.models.map.container import Container  # noqa: F401
+    from app.models.map.data_level import DataLevel  # noqa: F401
 
     async with map_engine.begin() as conn:
         await conn.run_sync(MapBase.metadata.create_all)

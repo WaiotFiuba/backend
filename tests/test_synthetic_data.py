@@ -13,18 +13,35 @@ from app.digital_twin.synthetic_data.loaders.backend_http import (
     load_topology_from_backend_api,
 )
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig, scenario_from_mapping
+from app.digital_twin.synthetic_data.simulation.scenario import (
+    ScenarioConfig,
+    scenario_from_mapping,
+)
 from app.digital_twin.synthetic_data.topology import (
     BackendContainerRecord,
     topology_from_backend_api,
     topology_from_backend_records,
 )
+from app.digital_twin.synthetic_data.transport.backend_http import (
+    send_result_batch,
+    stream_result,
+)
 from app.digital_twin.synthetic_data.validation.checks import validate_result
+from app.models.map.container import Container as MapContainer
+from app.models.map.container_type import ContainerType
+from app.models.map.waste_type import WasteType
+from app.schemas.digital_twin import TelemetryFlags, TelemetryIngestPayload, TelemetryValues
+from app.services.digital_twin_ingest_service import _data_level_row
 
 
 class SyntheticDataSimulatorTest(unittest.TestCase):
     def test_generates_expected_amount_of_measurements(self) -> None:
-        config = ScenarioConfig(seed=7, periods=24, synthetic_site_count=3, synthetic_containers_per_site=2)
+        config = ScenarioConfig(
+            seed=7,
+            periods=24,
+            synthetic_site_count=3,
+            synthetic_containers_per_site=2,
+        )
 
         result = SyntheticDataSimulator(config).run()
 
@@ -34,7 +51,12 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(len(result.measurements), 24 * 6)
 
     def test_is_reproducible_with_seed(self) -> None:
-        config = ScenarioConfig(seed=99, periods=8, synthetic_site_count=2, synthetic_containers_per_site=2)
+        config = ScenarioConfig(
+            seed=99,
+            periods=8,
+            synthetic_site_count=2,
+            synthetic_containers_per_site=2,
+        )
 
         first = SyntheticDataSimulator(config).run()
         second = SyntheticDataSimulator(config).run()
@@ -55,11 +77,18 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
 
         result = SyntheticDataSimulator(config).run()
 
-        reading_minutes = {measurement.timestamp.minute for measurement in result.measurements}
+        reading_minutes = {
+            measurement.timestamp.minute for measurement in result.measurements
+        }
         self.assertGreater(len(reading_minutes), 1)
 
     def test_validation_report_is_ok_for_default_ranges(self) -> None:
-        config = ScenarioConfig(seed=11, periods=12, synthetic_site_count=2, synthetic_containers_per_site=1)
+        config = ScenarioConfig(
+            seed=11,
+            periods=12,
+            synthetic_site_count=2,
+            synthetic_containers_per_site=1,
+        )
 
         report = validate_result(SyntheticDataSimulator(config).run())
 
@@ -167,7 +196,10 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
                 }
             ]
         )
-        result = SyntheticDataSimulator(ScenarioConfig(seed=3, periods=1), topology=topology).run()
+        result = SyntheticDataSimulator(
+            ScenarioConfig(seed=3, periods=1),
+            topology=topology,
+        ).run()
 
         with TemporaryDirectory() as output_dir:
             paths = export_simulation(result, output_dir, include_topology=False)
@@ -179,7 +211,12 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertIn("Organico", content)
 
     def test_exports_time_series_as_csv_by_default(self) -> None:
-        config = ScenarioConfig(seed=21, periods=2, synthetic_site_count=1, synthetic_containers_per_site=1)
+        config = ScenarioConfig(
+            seed=21,
+            periods=2,
+            synthetic_site_count=1,
+            synthetic_containers_per_site=1,
+        )
         result = SyntheticDataSimulator(config).run()
 
         with TemporaryDirectory() as output_dir:
@@ -191,10 +228,19 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
             self.assertEqual(paths["sites"].name, "sites.csv")
             self.assertEqual(paths["containers"].name, "containers.csv")
             self.assertEqual(paths["devices"].name, "devices.csv")
-            self.assertTrue(paths["measurements"].read_text(encoding="utf-8").startswith("imei,m_id,reading_date,"))
+            self.assertTrue(
+                paths["measurements"]
+                .read_text(encoding="utf-8")
+                .startswith("imei,m_id,reading_date,")
+            )
 
     def test_can_skip_topology_exports(self) -> None:
-        config = ScenarioConfig(seed=21, periods=2, synthetic_site_count=1, synthetic_containers_per_site=1)
+        config = ScenarioConfig(
+            seed=21,
+            periods=2,
+            synthetic_site_count=1,
+            synthetic_containers_per_site=1,
+        )
         result = SyntheticDataSimulator(config).run()
 
         with TemporaryDirectory() as output_dir:
@@ -210,7 +256,12 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
             self.assertTrue((output_path / "measurements.csv").exists())
 
     def test_export_removes_previous_known_outputs(self) -> None:
-        config = ScenarioConfig(seed=21, periods=2, synthetic_site_count=1, synthetic_containers_per_site=1)
+        config = ScenarioConfig(
+            seed=21,
+            periods=2,
+            synthetic_site_count=1,
+            synthetic_containers_per_site=1,
+        )
         result = SyntheticDataSimulator(config).run()
 
         with TemporaryDirectory() as output_dir:
@@ -264,6 +315,118 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertIn("limit=1", urlopen_mock.call_args_list[0].args[0].full_url)
         self.assertIn("offset=0", urlopen_mock.call_args_list[0].args[0].full_url)
         self.assertIn("offset=1", urlopen_mock.call_args_list[1].args[0].full_url)
+
+    def test_can_send_generated_measurements_in_batch(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=4,
+                periods=5,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=1,
+            )
+        ).run()
+        requests = []
+
+        def fake_post(url, payload, token, timeout_seconds):
+            requests.append((url, payload, token, timeout_seconds))
+            return {"updated": len(payload["measurements"]), "not_found": 0}
+
+        report = send_result_batch(
+            result,
+            backend_url="http://backend",
+            batch_size=2,
+            token="token",
+            post_json=fake_post,
+        )
+
+        self.assertEqual(report.sent, 5)
+        self.assertEqual(report.updated, 5)
+        self.assertEqual(report.requests, 3)
+        self.assertEqual(requests[0][0], "http://backend/digital-twin/telemetry/batch")
+        self.assertEqual(requests[0][2], "token")
+        self.assertEqual(len(requests[0][1]["measurements"]), 2)
+
+    def test_can_stream_generated_measurements_in_timestamp_order(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=8,
+                periods=3,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=1,
+            )
+        ).run()
+        posted_timestamps = []
+        sleeps = []
+
+        def fake_post(url, payload, token, timeout_seconds):
+            posted_timestamps.append(payload["timestamp"])
+            return {"updated": 1, "not_found": 0}
+
+        report = stream_result(
+            result,
+            backend_url="http://backend",
+            delay_seconds=0.25,
+            sleep=sleeps.append,
+            post_json=fake_post,
+        )
+
+        self.assertEqual(report.sent, 3)
+        self.assertEqual(report.requests, 3)
+        self.assertEqual(posted_timestamps, sorted(posted_timestamps))
+        self.assertEqual(sleeps, [0.25, 0.25])
+
+    def test_ingest_payload_maps_to_data_level_shape(self) -> None:
+        container_type = ContainerType(
+            id=7,
+            name="RSU Humeda",
+            height_cm=150,
+            volume_m3=3.2,
+        )
+        container_type.waste_types = [WasteType(id=9, name="RSU Fraccion Humeda")]
+        container = MapContainer(
+            id=123,
+            site_id="SITE-123",
+            site_name="Sitio 123",
+            description="Contenedor 123",
+            latitude=-34.6,
+            longitude=-58.4,
+            current_level=41,
+            available=True,
+            device_imei="imei-123",
+            container_type=container_type,
+        )
+        payload = TelemetryIngestPayload(
+            device_id="imei-123",
+            container_id="123",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            telemetry=TelemetryValues(
+                fill_level_pct=50,
+                ultrasonic_distance_cm=75,
+                battery_pct=12,
+                signal_rssi_dbm=-80,
+                temperature_c=24,
+                acceleration_g=3,
+            ),
+            flags=TelemetryFlags(is_collection_detected=True, anomaly=None),
+        )
+
+        row = _data_level_row(payload, container)
+
+        self.assertEqual(row.__tablename__, "data_level")
+        self.assertEqual(row.imei, "imei-123")
+        self.assertEqual(row.reading_date, datetime(2026, 1, 1, 12, 0, 0))
+        self.assertEqual(row.reported_height, 75)
+        self.assertTrue(row.garbage_collection_alarm)
+        self.assertTrue(row.crash_alarm)
+        self.assertTrue(row.reported_low_consumption_voltage)
+        self.assertEqual(row.container_current_level_old, 41)
+        self.assertEqual(row.container_current_level, 50)
+        self.assertEqual(row.container_current_m3, 1.6)
+        self.assertEqual(row.container_type_id, 7)
+        self.assertEqual(row.container_type_name, "RSU Humeda")
+        self.assertEqual(row.waste_type_id, 9)
+        self.assertEqual(row.waste_type_name, "RSU Fraccion Humeda")
+
 
 class _FakeResponse:
     def __init__(self, payload):

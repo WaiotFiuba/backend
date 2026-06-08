@@ -97,6 +97,34 @@ uv run python -m app.digital_twin.synthetic_data \
   --output datos/sinteticos_backend
 ```
 
+También se puede enviar la telemetría generada al backend en vez de escribir archivos.
+Para inyectar un histórico en batch:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --backend-url http://localhost:8000 \
+  --delivery batch \
+  --batch-size 250
+```
+
+Para simular streaming, el generador reproduce las mediciones ordenadas por timestamp:
+
+```bash
+uv run python -m app.digital_twin.synthetic_data \
+  --from-backend \
+  --backend-url http://localhost:8000 \
+  --delivery stream \
+  --stream-delay-seconds 1
+```
+
+`--stream-speedup` permite comprimir el tiempo simulado. Por ejemplo, `--stream-speedup
+3600` envía una hora simulada por cada segundo real. La ingesta HTTP usa
+`/digital-twin/telemetry` para streaming y `/digital-twin/telemetry/batch` para batch.
+Ambos endpoints guardan cada lectura en `data_level`, con una forma compatible con la
+base original, y actualizan el estado actual del contenedor cuando el `container_id` o
+`device_id` coincide con uno existente.
+
 ### Variables de entorno
 
 ```bash
@@ -118,6 +146,8 @@ docker-compose up --build
 ```
 
 La API queda disponible en `http://localhost:8000`.
+En este modo la base de mapa queda deshabilitada y los endpoints `/map/*` requieren
+levantar PostGIS.
 
 Para levantar la API junto con PostGIS y el mapa:
 
@@ -132,6 +162,10 @@ docker compose --profile map up --build
 - levanta una base PostGIS llamada `waiot_map`
 - importa automáticamente los archivos GeoJSON (`barrios`, `calles`, `comunas`, `manzanas`, `parcelas`) desde `db/datos` a la base de datos al inicializar por primera vez el contenedor.
 - corre el seed con los datos del contenedor si se activa el perfil y los datos no estan ya insertados
+
+`ENABLE_MAP_DB` controla si la API inicializa la base de mapa al arrancar. En Docker,
+el comando de la API lo activa automáticamente cuando el servicio `postgis` está
+disponible; sin el perfil `map`, queda desactivado.
 
 ### Inicialización e Importación de Datos GeoJSON
 
