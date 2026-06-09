@@ -80,7 +80,24 @@ async def seed_map_data() -> None:
             else:
                 print("[INFO] No se agregaron nuevos WasteTypes.")
         else:
-            print(f"[WARNING] Archivo {wt_file.name} NO encontrado. Saltando paso 2.")
+            print(f"[WARNING] Archivo {wt_file.name} NO encontrado. Cargando tipos de residuos predeterminados...")
+            default_wts = [
+                {"name": "RSU Fracción Húmeda", "description": "Residuos sólidos urbanos húmedos", "color": "#27ae60"},
+                {"name": "RSU Fracción Seca (Reciclables)", "description": "Residuos sólidos urbanos secos reciclables", "color": "#3498db"}
+            ]
+            wt_added_count = 0
+            for item in default_wts:
+                name = item["name"]
+                stmt = select(WasteType).where(WasteType.name == name)
+                res = await session.execute(stmt)
+                if res.scalar_one_or_none():
+                    continue
+                wt = WasteType(name=name, description=item["description"], color=item["color"])
+                session.add(wt)
+                wt_added_count += 1
+            if wt_added_count > 0:
+                await session.commit()
+                print("[OK] Carga de WasteType predeterminados finalizada.")
 
         # ==========================================
         # 3. CARGA DE CONTAINER TYPES (Lateral, Bilateral, Soterrado)
@@ -153,7 +170,46 @@ async def seed_map_data() -> None:
             else:
                 print("[INFO] No se agregaron nuevos ContainerTypes.")
         else:
-            print(f"[WARNING] Archivo {ct_file.name} NO encontrado. Saltando paso 3.")
+            print(f"[WARNING] Archivo {ct_file.name} NO encontrado. Cargando tipos de contenedores predeterminados...")
+            default_cts = [
+                {"name": "RSU Fracción Húmeda - Carga Lateral", "description": "Carga Lateral Húmedo", "height_cm": 145, "volume_m3": 3.2, "overflow_zone_cm": 20},
+                {"name": "RSU Fracción Húmeda - Carga Bilateral", "description": "Carga Bilateral Húmedo", "height_cm": 165, "volume_m3": 4.0, "overflow_zone_cm": 25},
+                {"name": "RSU Fracción Húmeda - Semi Soterrado", "description": "Semi Soterrado Húmedo", "height_cm": 120, "volume_m3": 5.0, "overflow_zone_cm": 15},
+                {"name": "RSU Fracción Seca - Carga Lateral", "description": "Carga Lateral Seco", "height_cm": 145, "volume_m3": 3.2, "overflow_zone_cm": 20}
+            ]
+            ct_added_count = 0
+            for item in default_cts:
+                name = item["name"]
+                stmt = select(ContainerType).where(ContainerType.name == name)
+                res = await session.execute(stmt)
+                if res.scalar_one_or_none():
+                    continue
+                ct = ContainerType(
+                    name=name,
+                    description=item["description"],
+                    height_cm=item["height_cm"],
+                    volume_m3=item["volume_m3"],
+                    overflow_zone_cm=item["overflow_zone_cm"]
+                )
+                
+                if "Fracción Húmeda" in name:
+                    stmt_wt = select(WasteType).where(WasteType.name == "RSU Fracción Húmeda")
+                    res_wt = await session.execute(stmt_wt)
+                    wt_obj = res_wt.scalar_one_or_none()
+                    if wt_obj:
+                        ct.waste_types.append(wt_obj)
+                elif "Fracción Seca" in name:
+                    stmt_wt = select(WasteType).where(WasteType.name == "RSU Fracción Seca (Reciclables)")
+                    res_wt = await session.execute(stmt_wt)
+                    wt_obj = res_wt.scalar_one_or_none()
+                    if wt_obj:
+                        ct.waste_types.append(wt_obj)
+                        
+                session.add(ct)
+                ct_added_count += 1
+            if ct_added_count > 0:
+                await session.commit()
+                print("[OK] Carga de ContainerType predeterminados finalizada.")
 
         # ==========================================
         # 4. CARGA DE CONTENEDORES NEGROS (GeoJSON)
@@ -271,7 +327,72 @@ async def seed_map_data() -> None:
                     "[INFO] No se envió nada a la base de datos porque no hubo registros nuevos válidos."
                 )
         else:
-            print(f"[ERROR] Archivo {cont_file.name} NO encontrado. Saltando paso 4.")
+            print(f"[WARNING] Archivo {cont_file.name} NO encontrado. Generando contenedores sintéticos de respaldo...")
+            import random
+            
+            CABA_ZONES = [
+                ("Palermo", -34.5832, -58.4243),
+                ("Recoleta", -34.5889, -58.3974),
+                ("Almagro", -34.6093, -58.4210),
+                ("Caballito", -34.6180, -58.4410),
+                ("Flores", -34.6282, -58.4633),
+            ]
+            stmt_cts = select(ContainerType)
+            res_cts = await session.execute(stmt_cts)
+            cts = res_cts.scalars().all()
+            if not cts:
+                default_ct = ContainerType(
+                    name="RSU Fracción Húmeda - Carga Lateral",
+                    description="Contenedor estándar carga lateral",
+                    height_cm=145,
+                    volume_m3=3.2,
+                    overflow_zone_cm=20,
+                )
+                session.add(default_ct)
+                await session.flush()
+                cts = [default_ct]
+            
+            # Inicializamos el generador de números aleatorios con una semilla fija (42) para que las posiciones sean reproducibles
+            rng = random.Random(42)
+            stats = {"success": 0}
+            for i in range(120):
+                # Seleccionamos una de las zonas de CABA de forma cíclica (round-robin)
+                zone_name, base_lat, base_lng = CABA_ZONES[i % len(CABA_ZONES)]
+                # Generamos una pequeña variación aleatoria de latitud y longitud alrededor de la coordenada base
+                lat = base_lat + rng.uniform(-0.015, 0.015)
+                lng = base_lng + rng.uniform(-0.015, 0.015)
+                # Formateamos el ID del sitio con relleno de ceros (ej: SITE-SYNTH-0001)
+                site_id = f"SITE-SYNTH-{i + 1:04d}"
+                
+                # Verificamos si ya existe un contenedor con este site_id en la base de datos para evitar duplicados
+                stmt_dup = select(Container).where(Container.site_id == site_id)
+                res_dup = await session.execute(stmt_dup)
+                if res_dup.scalar_one_or_none():
+                    continue
+
+                # Creamos el objeto Container con datos simulados legibles y geolocalización PostGIS
+                container = Container(
+                    site_id=site_id,
+                    site_name=f"Sitio Sintético {zone_name} {i + 1}",
+                    address=f"Av. Siempreviva {100 + i * 10}, {zone_name}",
+                    description=f"Contenedor sintético de prueba en {zone_name}",
+                    latitude=lat,
+                    longitude=lng,
+                    # Creamos el punto geométrico en formato WKT (Well-Known Text) con el SRID geográfico estándar 4326
+                    geom=WKTElement(f"POINT({lng} {lat})", srid=4326),
+                    available=True,
+                    # Asignamos un porcentaje de llenado aleatorio para simular lecturas reales
+                    current_level=rng.randint(0, 95),
+                    # Asignamos el tipo de contenedor de forma balanceada entre los tipos disponibles en la DB
+                    container_type=cts[i % len(cts)],
+                )
+                session.add(container)
+                stats["success"] += 1
+            
+            # Si se añadieron nuevos registros, confirmamos los cambios físicos en la base de datos
+            if stats["success"] > 0:
+                print(f"[OK] Se generaron {stats['success']} contenedores sintéticos de respaldo.")
+                await session.commit()
 
     await _seed_neighborhood_demographics(datos_dir)
     print("\n--- SCRIPT DE SIEMBRA FINALIZADO ---")

@@ -42,6 +42,7 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
         density_factor=row["density_factor"] or 1.0,
         # Construimos el objeto anidado para ContainerType y su lista de WasteTypes
         container_type={
+            "id": row["container_type_id"],
             "name": row["container_type"] or "",
             "height_cm": row["height_cm"],
             "volume_m3": row["volume_m3"],
@@ -66,6 +67,7 @@ def _base_select():
             Container.longitude,
             Container.current_level,
             Container.available,
+            ContainerType.id.label("container_type_id"),
             ContainerType.name.label("container_type"),
             ContainerType.height_cm,
             ContainerType.volume_m3,

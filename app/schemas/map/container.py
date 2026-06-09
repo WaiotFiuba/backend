@@ -2,8 +2,6 @@ from pydantic import BaseModel, ConfigDict
 from typing import List
 from datetime import datetime
 
-# GET MULTIPLE
-
 
 class WasteTypeMapSchema(BaseModel):
     name: str
@@ -13,6 +11,7 @@ class WasteTypeMapSchema(BaseModel):
 
 
 class ContainersMapTypeSchema(BaseModel):
+    id: int | None = None
     name: str
     height_cm: int | None = None
     volume_m3: float | None = None
@@ -40,9 +39,6 @@ class ContainerCluster(BaseModel):
     latitude: float
     longitude: float
     total: int
-
-
-# GET SIMPLE
 
 
 class WasteTypeDetailSchema(BaseModel):
@@ -80,3 +76,16 @@ class ContainerDetailOutputSchema(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
+
+
+class ContainerCreateSchema(BaseModel):
+    site_id: str
+    site_name: str | None = None
+    latitude: float
+    longitude: float
+    container_type_id: int
+    address: str | None = None
+    description: str | None = None
+
+
+
