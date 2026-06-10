@@ -256,7 +256,7 @@ async def seed_map_data() -> None:
                 # Mapeamos según CodEquipa de BA Data
                 cod_equipa = str(props.get("CodEquipa", "")).upper()
                 if cod_equipa == "LATERAL":
-                    type_target = "RSU Fracción Húmeda - Carga Lateral"
+                    type_target = "RSU Fracción Húmeda - Carga Lateral" 
                 elif cod_equipa == "BILATERAL":
                     type_target = "RSU Fracción Húmeda - Carga Bilateral"
                 elif cod_equipa == "SOTERRADO":
@@ -331,104 +331,104 @@ async def seed_map_data() -> None:
             import random
             from app.models.map.neighborhood_demographic import NeighborhoodDemographic
             
-            CABA_ZONES = [
-                ("Palermo", -34.5832, -58.4243),
-                ("Recoleta", -34.5889, -58.3974),
-                ("Almagro", -34.6093, -58.4210),
-                ("Caballito", -34.6180, -58.4410),
-                ("Flores", -34.6282, -58.4633),
-            ]
+            # CABA_ZONES = [
+            #     ("Palermo", -34.5832, -58.4243),
+            #     ("Recoleta", -34.5889, -58.3974),
+            #     ("Almagro", -34.6093, -58.4210),
+            #     ("Caballito", -34.6180, -58.4410),
+            #     ("Flores", -34.6282, -58.4633),
+            # ]
             
-            # Esto es solo para que aparezcan las zonas cargadas las varibables container.zone en el front.
-            for idx, (zone_name, base_lat, base_lng) in enumerate(CABA_ZONES):
-                stmt_barrio_check = select(NeighborhoodDemographic).where(NeighborhoodDemographic.neighborhood == zone_name)
-                res_barrio = await session.execute(stmt_barrio_check)
-                if not res_barrio.scalar_one_or_none():
-                    lng_min, lng_max = base_lng - 0.005, base_lng + 0.005
-                    lat_min, lat_max = base_lat - 0.005, base_lat + 0.005
-                    wkt_geom = f"MULTIPOLYGON((({lng_min} {lat_min}, {lng_max} {lat_min}, {lng_max} {lat_max}, {lng_min} {lat_max}, {lng_min} {lat_min})))"
+            # # Esto es solo para que aparezcan las zonas cargadas las varibables container.zone en el front.
+            # # for idx, (zone_name, base_lat, base_lng) in enumerate(CABA_ZONES):
+            # #     stmt_barrio_check = select(NeighborhoodDemographic).where(NeighborhoodDemographic.neighborhood == zone_name)
+            # #     res_barrio = await session.execute(stmt_barrio_check)
+            # #     if not res_barrio.scalar_one_or_none():
+            # #         lng_min, lng_max = base_lng - 0.005, base_lng + 0.005
+            # #         lat_min, lat_max = base_lat - 0.005, base_lat + 0.005
+            # #         wkt_geom = f"MULTIPOLYGON((({lng_min} {lat_min}, {lng_max} {lat_min}, {lng_max} {lat_max}, {lng_min} {lat_max}, {lng_min} {lat_min})))"
                     
-                    densities = [1.2, 1.5, 1.3, 1.1, 0.9]
-                    factor = densities[idx % len(densities)]
+            # #         densities = [1.2, 1.5, 1.3, 1.1, 0.9]
+            # #         factor = densities[idx % len(densities)]
                     
-                    barrio = NeighborhoodDemographic(
-                        neighborhood=zone_name,
-                        commune=f"Comuna {idx + 1}",
-                        population=150000 + idx * 20000,
-                        year=2010,
-                        source="Censo 2010 Sintético",
-                        area_km2=4.0,
-                        density_per_km2=37500.0,
-                        density_factor=factor,
-                        geom=WKTElement(wkt_geom, srid=4326),
-                    )
-                    session.add(barrio)
-            await session.flush()
+            # #         barrio = NeighborhoodDemographic(
+            # #             neighborhood=zone_name,
+            # #             commune=f"Comuna {idx + 1}",
+            # #             population=150000 + idx * 20000,
+            # #             year=2010,
+            # #             source="Censo 2010 Sintético",
+            # #             area_km2=4.0,
+            # #             density_per_km2=37500.0,
+            # #             density_factor=factor,
+            # #             geom=WKTElement(wkt_geom, srid=4326),
+            # #         )
+            # #         session.add(barrio)
+            # # await session.flush()
             
-            stmt_cts = select(ContainerType)
-            res_cts = await session.execute(stmt_cts)
-            cts = res_cts.scalars().all()
-            if not cts:
-                default_ct = ContainerType(
-                    name="RSU Fracción Húmeda - Carga Lateral",
-                    description="Contenedor estándar carga lateral",
-                    height_cm=145,
-                    volume_m3=3.2,
-                    overflow_zone_cm=20,
-                )
-                session.add(default_ct)
-                await session.flush()
-                cts = [default_ct]
+            # stmt_cts = select(ContainerType)
+            # res_cts = await session.execute(stmt_cts)
+            # cts = res_cts.scalars().all()
+            # if not cts:
+            #     default_ct = ContainerType(
+            #         name="RSU Fracción Húmeda - Carga Lateral",
+            #         description="Contenedor estándar carga lateral",
+            #         height_cm=145,
+            #         volume_m3=3.2,
+            #         overflow_zone_cm=20,
+            #     )
+            #     session.add(default_ct)
+            #     await session.flush()
+            #     cts = [default_ct]
             
-            # Inicializamos el generador de números aleatorios con una semilla fija (42) para que las posiciones sean reproducibles
-            rng = random.Random(42)
-            stats = {"success": 0}
-            for i in range(120):
-                # Seleccionamos una de las coordenadas base de forma cíclica (round-robin)
-                _, base_lat, base_lng = CABA_ZONES[i % len(CABA_ZONES)]
-                # Generamos una pequeña variación aleatoria de latitud y longitud alrededor de la coordenada base
-                # Limitamos a un desplazamiento de 0.004 para que caiga dentro de su respectivo barrio de 0.005
-                lat = base_lat + rng.uniform(-0.004, 0.004)
-                lng = base_lng + rng.uniform(-0.004, 0.004)
-                # Formateamos el ID del sitio con relleno de ceros (ej: SITE-SYNTH-0001)
-                site_id = f"SITE-SYNTH-{i + 1:04d}"
+            # # Inicializamos el generador de números aleatorios con una semilla fija (42) para que las posiciones sean reproducibles
+            # rng = random.Random(42)
+            # stats = {"success": 0}
+            # for i in range(120):
+            #     # Seleccionamos una de las coordenadas base de forma cíclica (round-robin)
+            #     _, base_lat, base_lng = CABA_ZONES[i % len(CABA_ZONES)]
+            #     # Generamos una pequeña variación aleatoria de latitud y longitud alrededor de la coordenada base
+            #     # Limitamos a un desplazamiento de 0.004 para que caiga dentro de su respectivo barrio de 0.005
+            #     lat = base_lat + rng.uniform(-0.004, 0.004)
+            #     lng = base_lng + rng.uniform(-0.004, 0.004)
+            #     # Formateamos el ID del sitio con relleno de ceros (ej: SITE-SYNTH-0001)
+            #     site_id = f"SITE-SYNTH-{i + 1:04d}"
                 
-                # Verificamos si ya existe un contenedor con este site_id en la base de datos para evitar duplicados
-                stmt_dup = select(Container).where(Container.site_id == site_id)
-                res_dup = await session.execute(stmt_dup)
-                if res_dup.scalar_one_or_none():
-                    continue
+            #     # Verificamos si ya existe un contenedor con este site_id en la base de datos para evitar duplicados
+            #     stmt_dup = select(Container).where(Container.site_id == site_id)
+            #     res_dup = await session.execute(stmt_dup)
+            #     if res_dup.scalar_one_or_none():
+            #         continue
 
-                # Determinamos la zona de CABA_ZONES más cercana a la coordenada (lat, lng) generada
-                closest_zone_info = min(
-                    CABA_ZONES,
-                    key=lambda z: (z[1] - lat) ** 2 + (z[2] - lng) ** 2
-                )
-                zone_name = closest_zone_info[0]
+            #     # Determinamos la zona de CABA_ZONES más cercana a la coordenada (lat, lng) generada
+            #     closest_zone_info = min(
+            #         CABA_ZONES,
+            #         key=lambda z: (z[1] - lat) ** 2 + (z[2] - lng) ** 2
+            #     )
+            #     zone_name = closest_zone_info[0]
 
-                # Creamos el objeto Container con datos simulados legibles y geolocalización PostGIS
-                container = Container(
-                    site_id=site_id,
-                    site_name=f"Sitio Sintético {zone_name} {i + 1}",
-                    address=f"Av. Siempreviva {100 + i * 10}, {zone_name}",
-                    description=f"Contenedor sintético de prueba en {zone_name}",
-                    latitude=lat,
-                    longitude=lng,
-                    # Creamos el punto geométrico en formato WKT (Well-Known Text) con el SRID geográfico estándar 4326
-                    geom=WKTElement(f"POINT({lng} {lat})", srid=4326),
-                    available=True,
-                    # Asignamos un porcentaje de llenado aleatorio para simular lecturas reales
-                    current_level=rng.randint(0, 95),
-                    # Asignamos el tipo de contenedor de forma balanceada entre los tipos disponibles en la DB
-                    container_type=cts[i % len(cts)],
-                )
-                session.add(container)
-                stats["success"] += 1
+            #     # Creamos el objeto Container con datos simulados legibles y geolocalización PostGIS
+            #     container = Container(
+            #         site_id=site_id,
+            #         site_name=f"Sitio Sintético {zone_name} {i + 1}",
+            #         address=f"Av. Siempreviva {100 + i * 10}, {zone_name}",
+            #         description=f"Contenedor sintético de prueba en {zone_name}",
+            #         latitude=lat,
+            #         longitude=lng,
+            #         # Creamos el punto geométrico en formato WKT (Well-Known Text) con el SRID geográfico estándar 4326
+            #         geom=WKTElement(f"POINT({lng} {lat})", srid=4326),
+            #         available=True,
+            #         # Asignamos un porcentaje de llenado aleatorio para simular lecturas reales
+            #         current_level=rng.randint(0, 95),
+            #         # Asignamos el tipo de contenedor de forma balanceada entre los tipos disponibles en la DB
+            #         container_type=cts[i % len(cts)],
+            #     )
+            #     session.add(container)
+            #     stats["success"] += 1
             
-            # Si se añadieron nuevos registros, confirmamos los cambios físicos en la base de datos
-            if stats["success"] > 0:
-                print(f"[OK] Se generaron {stats['success']} contenedores sintéticos de respaldo.")
-                await session.commit()
+            # # Si se añadieron nuevos registros, confirmamos los cambios físicos en la base de datos
+            # if stats["success"] > 0:
+            #     print(f"[OK] Se generaron {stats['success']} contenedores sintéticos de respaldo.")
+            #     await session.commit()
 
     await _seed_neighborhood_demographics(datos_dir)
     print("\n--- SCRIPT DE SIEMBRA FINALIZADO ---")
