@@ -72,7 +72,7 @@ async def _run_session(simulation_id: int) -> None:
             )
             simulator = SyntheticDataSimulator(config, topology=topology)
             simulator.initialize()
-            session.status = "running"
+            session.status = "paused"
             session.started_at = _utc_now()
             await db.commit()
 

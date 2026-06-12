@@ -20,7 +20,7 @@ venv/
 db/datos/*.json
 db/datos/*.csv
 db/datos/*.geojson
-db/datos/*.xlsx
+db/datos/*.xls
 
 # Tests
 .pytest_cache/
