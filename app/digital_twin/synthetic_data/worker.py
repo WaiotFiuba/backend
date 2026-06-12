@@ -81,6 +81,7 @@ async def _run_session(simulation_id: int) -> None:
             control = await _wait_until_runnable(simulation_id)
             if control is None:
                 return
+            tick_started = asyncio.get_running_loop().time()
             simulated_time = config.start + timedelta(
                 minutes=period * config.frequency_minutes
             )
@@ -89,6 +90,7 @@ async def _run_session(simulation_id: int) -> None:
                 simulation_id,
                 simulated_time,
             )
+            await _publish_tick_time(simulation_id, simulated_time)
             if _control_targets(controls) != _control_targets(previous_controls):
                 _log_control_change(simulation_id, previous_controls, controls)
             previous_controls = controls
@@ -115,9 +117,7 @@ async def _run_session(simulation_id: int) -> None:
                 if session is None:
                     return
                 session.current_period = period + 1
-                session.simulated_time = simulated_time
                 session.global_demand_current = controls.global_current
-                session.measurements_sent += delivery.sent
                 session.collections_generated += len(tick.collections)
                 session.alarms_generated += len(tick.alarms)
                 speedup = session.speedup
@@ -139,9 +139,14 @@ async def _run_session(simulation_id: int) -> None:
                 speedup,
                 controls.global_current,
             )
+            tick_elapsed = asyncio.get_running_loop().time() - tick_started
             if not await _wait_between_ticks(
                 simulation_id,
-                config.frequency_minutes * 60 / speedup,
+                _remaining_tick_delay(
+                    config.frequency_minutes,
+                    speedup,
+                    tick_elapsed,
+                ),
             ):
                 return
 
@@ -201,7 +206,39 @@ async def _deliver_tick_measurements(
             batch_size=batch_size,
         )
         report = _combine_delivery_reports(report, batch_report)
+        await _record_delivered_measurements(simulation_id, batch_report.sent)
     return report
+
+
+async def _record_delivered_measurements(
+    simulation_id: int,
+    sent: int,
+) -> None:
+    async with MapSessionLocal() as db:
+        session = await db.get(SimulationSession, simulation_id)
+        if session is not None:
+            session.measurements_sent += sent
+            await db.commit()
+
+
+async def _publish_tick_time(
+    simulation_id: int,
+    simulated_time: datetime,
+) -> None:
+    async with MapSessionLocal() as db:
+        session = await db.get(SimulationSession, simulation_id)
+        if session is not None:
+            session.simulated_time = simulated_time
+            await db.commit()
+
+
+def _remaining_tick_delay(
+    frequency_minutes: int,
+    speedup: float,
+    elapsed_seconds: float,
+) -> float:
+    target_seconds = frequency_minutes * 60 / speedup
+    return max(0.0, target_seconds - elapsed_seconds)
 
 
 def _combine_delivery_reports(

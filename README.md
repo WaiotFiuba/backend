@@ -52,6 +52,21 @@ adapta la demanda según población, densidad y barrio.
 La documentación completa está en
 [`app/digital_twin/synthetic_data/README.md`](app/digital_twin/synthetic_data/README.md).
 
+### Sincronización incremental del mapa
+
+El frontend puede cargar un snapshot del viewport junto con un cursor y luego consultar
+solamente los contenedores modificados:
+
+```text
+GET /map/containers/bbox/snapshot
+GET /map/containers/changes?after={cursor}
+```
+
+El endpoint de cambios devuelve una sola vez el estado más reciente de cada contenedor
+modificado, no todas sus mediciones intermedias. Cada actualización de telemetría
+asigna una `change_version` global al contenedor; por eso el cursor no necesita una
+tabla histórica que crezca indefinidamente.
+
 ### Variables de entorno
 
 ```bash

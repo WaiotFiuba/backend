@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
 from app.digital_twin.synthetic_data.exporters.files import export_simulation
@@ -29,13 +29,16 @@ from app.digital_twin.synthetic_data.transport.backend_http import (
     send_result_batch,
     stream_result,
 )
-from app.digital_twin.synthetic_data.worker import _deliver_tick_measurements
+from app.digital_twin.synthetic_data.worker import (
+    _deliver_tick_measurements,
+    _remaining_tick_delay,
+)
 from app.digital_twin.synthetic_data.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
 from app.models.map.waste_type import WasteType
 from app.schemas.digital_twin import TelemetryFlags, TelemetryIngestPayload, TelemetryValues
-from app.services.digital_twin_ingest_service import _data_level_row
+from app.services.digital_twin_ingest_service import _data_level_row, ingest_telemetry_batch
 
 
 class SyntheticDataSimulatorTest(unittest.TestCase):
@@ -490,6 +493,10 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
 
 
 class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
+    def test_tick_wait_subtracts_delivery_time(self) -> None:
+        self.assertEqual(_remaining_tick_delay(15, 60, 4), 11)
+        self.assertEqual(_remaining_tick_delay(15, 60, 20), 0)
+
     async def test_checks_session_state_before_each_telemetry_batch(self) -> None:
         result = SyntheticDataSimulator(
             ScenarioConfig(
@@ -515,6 +522,10 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                     requests=1,
                 ),
             ) as send_batch,
+            patch(
+                "app.digital_twin.synthetic_data.worker._record_delivered_measurements",
+                AsyncMock(),
+            ) as record_delivered,
         ):
             report = await _deliver_tick_measurements(
                 simulation_id=7,
@@ -526,6 +537,60 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(report)
         self.assertEqual(runnable.await_count, 3)
         self.assertEqual(send_batch.call_count, 3)
+        self.assertEqual(record_delivered.await_count, 3)
+
+
+class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ingest_marks_updated_container_with_next_change_version(self) -> None:
+        container_type = ContainerType(
+            id=7,
+            name="RSU Humeda",
+            height_cm=150,
+            volume_m3=3.2,
+        )
+        container_type.waste_types = []
+        container = MapContainer(
+            id=123,
+            site_id="SITE-123",
+            latitude=-34.6,
+            longitude=-58.4,
+            current_level=10,
+            available=True,
+            container_type=container_type,
+        )
+        payload = TelemetryIngestPayload(
+            device_id="imei-123",
+            container_id="123",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            telemetry=TelemetryValues(
+                fill_level_pct=50,
+                ultrasonic_distance_cm=75,
+                battery_pct=90,
+                signal_rssi_dbm=-80,
+                temperature_c=24,
+                acceleration_g=1,
+            ),
+            flags=TelemetryFlags(is_collection_detected=False, anomaly=None),
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch(
+                "app.services.digital_twin_ingest_service._find_container",
+                AsyncMock(return_value=container),
+            ),
+            patch(
+                "app.services.digital_twin_ingest_service._find_neighborhood",
+                AsyncMock(return_value=None),
+            ),
+        ):
+            result = await ingest_telemetry_batch(db, [payload])
+
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(container.current_level, 50)
+        self.assertEqual(container.change_version.name, "nextval")
+        db.commit.assert_awaited_once()
 
 
 class _FakeResponse:

@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,12 @@ from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.waste_type import WasteType
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
-from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
+from app.schemas.map.container import (
+    ContainerChanges,
+    ContainerCluster,
+    ContainerMapSnapshot,
+    ContainersMapOutputSchema,
+)
 
 
 def _zoom_to_grid_size(zoom: int) -> float | None:
@@ -18,12 +23,18 @@ def _zoom_to_grid_size(zoom: int) -> float | None:
     Retorna el tamaño de la celda en grados para ST_SnapToGrid.
     Ajustamos los rangos para la escala de Buenos Aires.
     """
-    if zoom < 11:
-        return 0.05  # ~5km por celda
-    elif zoom < 13:
-        return 0.01  # ~1km por celda
+    if zoom < 13:
+        return 0.1  # ~10km
+    elif zoom < 14:
+        return 0.05  # ~5km
     elif zoom < 15:
-        return 0.002  # ~200m por celda
+        return 0.02  # ~2km
+    elif zoom < 16:
+        return 0.01  # ~1km
+    elif zoom < 17:
+        return 0.005  # ~500m
+    elif zoom < 18:
+        return 0.002  # ~200m
     else:
         return None  # puntos exactos
 
@@ -38,6 +49,8 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
         longitude=row["longitude"],
         current_level=row["current_level"],
         available=row["available"],
+        last_reading=row["last_reading"],
+        updated_at=row["updated_at"],
         zone=row["zone"],
         density_factor=row["density_factor"] or 1.0,
         # Construimos el objeto anidado para ContainerType y su lista de WasteTypes
@@ -67,6 +80,8 @@ def _base_select():
             Container.longitude,
             Container.current_level,
             Container.available,
+            Container.last_reading,
+            Container.updated_at,
             ContainerType.id.label("container_type_id"),
             ContainerType.name.label("container_type"),
             ContainerType.height_cm,
@@ -90,6 +105,22 @@ def _base_select():
             geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
         )
     )
+
+
+def _bbox_filter(
+    lat_min: float,
+    lat_max: float,
+    lng_min: float,
+    lng_max: float,
+):
+    return geo_funcs.ST_Within(
+        Container.geom,
+        geo_funcs.ST_MakeEnvelope(lng_min, lat_min, lng_max, lat_max, 4326),
+    )
+
+
+async def _latest_change_cursor(db: AsyncSession) -> int:
+    return await db.scalar(select(func.coalesce(func.max(Container.change_version), 0)))
 
 
 async def get_all_containers(
@@ -117,16 +148,83 @@ async def get_containers_in_bbox(
 ) -> list[ContainersMapOutputSchema]:
     # Usamos GeoAlchemy2 para armar el filtro espacial usando el índice GIST de la columna 'geom'
     # Pasamos las coordenadas en el orden correcto de PostGIS: (LngMin, LatMin, LngMax, LatMax, SRID)
-    bbox_filter = geo_funcs.ST_Within(
-        Container.geom,
-        geo_funcs.ST_MakeEnvelope(lng_min, lat_min, lng_max, lat_max, 4326),
+    query = (
+        _base_select()
+        .where(_bbox_filter(lat_min, lat_max, lng_min, lng_max))
+        .order_by(Container.id)
+        .limit(limit)
     )
-
-    query = _base_select().where(bbox_filter).limit(limit)
 
     result = await db.execute(query)
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
+
+
+async def get_container_map_snapshot(
+    db: AsyncSession,
+    lat_min: float,
+    lat_max: float,
+    lng_min: float,
+    lng_max: float,
+    zoom: int,
+    limit: int = 500,
+) -> ContainerMapSnapshot:
+    cursor = await _latest_change_cursor(db)
+    items = await get_containers_clustered(
+        db,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        zoom=zoom,
+        limit=limit,
+    )
+    if items and isinstance(items[0], ContainerCluster):
+        return ContainerMapSnapshot(cursor=cursor, containers=[], clusters=items)
+    return ContainerMapSnapshot(cursor=cursor, containers=items, clusters=[])
+
+
+async def get_container_changes(
+    db: AsyncSession,
+    after: int,
+    lat_min: float,
+    lat_max: float,
+    lng_min: float,
+    lng_max: float,
+    limit: int = 2000,
+) -> ContainerChanges:
+    latest_cursor = await _latest_change_cursor(db)
+    if latest_cursor <= after:
+        return ContainerChanges(cursor=latest_cursor, containers=[])
+
+    changed_rows = (
+        await db.execute(
+            select(Container.id, Container.change_version)
+            .where(
+                Container.change_version > after,
+                Container.change_version <= latest_cursor,
+                _bbox_filter(lat_min, lat_max, lng_min, lng_max),
+            )
+            .order_by(Container.change_version)
+            .limit(limit)
+        )
+    ).all()
+    if not changed_rows:
+        return ContainerChanges(cursor=latest_cursor, containers=[])
+
+    cursor = changed_rows[-1].change_version if len(changed_rows) == limit else latest_cursor
+    changed_ids = {row.id for row in changed_rows}
+    rows = (
+        await db.execute(
+            _base_select()
+            .where(Container.id.in_(changed_ids))
+            .order_by(Container.id)
+        )
+    ).mappings().all()
+    return ContainerChanges(
+        cursor=cursor,
+        containers=[_row_to_container(row) for row in rows],
+    )
 
 
 async def get_containers_clustered(
