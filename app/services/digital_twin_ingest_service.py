@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from geoalchemy2 import functions as geo_funcs
@@ -18,6 +18,7 @@ async def ingest_telemetry_batch(
 ) -> TelemetryIngestResult:
     updated = 0
     not_found = 0
+    changed_containers: dict[int, Container] = {}
 
     container_ids = []
     device_ids = []
@@ -85,8 +86,11 @@ async def ingest_telemetry_batch(
             container.device_imei = measurement.device_id
         if measurement.flags.is_collection_detected:
             container.last_pickup = measurement.timestamp
+        changed_containers[container.id] = container
         updated += 1
 
+    for container in changed_containers.values():
+        container.change_version = func.nextval("container_change_version_seq")
     await db.commit()
     return TelemetryIngestResult(
         accepted=len(measurements),

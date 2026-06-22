@@ -1,21 +1,27 @@
-from fastapi import APIRouter, Depends, status, Query
+from typing import Annotated, List
+
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
 
 from app.core.map_database import get_map_db
 from app.schemas.map.container import (
+    ContainerChanges,
     ContainersMapOutputSchema,
     ContainerCluster,
     ContainerDetailOutputSchema,
     ContainerCreateSchema,
+    ContainerMapSnapshot,
 )
 from app.services.map.container_service import (
     get_all_containers,
+    get_container_changes,
+    get_container_map_snapshot,
     get_containers_clustered,
     get_container_by_id,
 )
 
 router = APIRouter(prefix="/containers", tags=["containers"])
+MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 
 
 @router.get(
@@ -51,6 +57,48 @@ async def get_containers_by_bbox(
         lng_min=lng_min,
         lng_max=lng_max,
         zoom=zoom,
+        limit=limit,
+    )
+
+
+@router.get("/bbox/snapshot", response_model=ContainerMapSnapshot)
+async def get_containers_snapshot_by_bbox(
+    lat_min: Annotated[float, Query()],
+    lat_max: Annotated[float, Query()],
+    lng_min: Annotated[float, Query()],
+    lng_max: Annotated[float, Query()],
+    zoom: Annotated[int, Query(ge=0, le=22)],
+    db: MapDbDep,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+) -> ContainerMapSnapshot:
+    return await get_container_map_snapshot(
+        db=db,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        zoom=zoom,
+        limit=limit,
+    )
+
+
+@router.get("/changes", response_model=ContainerChanges)
+async def read_container_changes(
+    after: Annotated[int, Query(ge=0)],
+    lat_min: Annotated[float, Query()],
+    lat_max: Annotated[float, Query()],
+    lng_min: Annotated[float, Query()],
+    lng_max: Annotated[float, Query()],
+    db: MapDbDep,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
+) -> ContainerChanges:
+    return await get_container_changes(
+        db=db,
+        after=after,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
         limit=limit,
     )
 

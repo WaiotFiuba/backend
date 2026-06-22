@@ -55,7 +55,7 @@ async def create_simulation(
         global_demand_start=payload.global_demand_multiplier,
         global_demand_target=payload.global_demand_multiplier,
         transition_minutes=payload.transition_minutes,
-        simulated_time=_as_utc(config.start),
+        simulated_time=None,
         total_periods=config.periods,
         created_by=user_id,
     )
@@ -377,9 +377,3 @@ def _scenario_record(config) -> dict[str, object]:
         key: value.isoformat() if isinstance(value, datetime) else list(value) if isinstance(value, tuple) else value
         for key, value in config.__dict__.items()
     }
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)

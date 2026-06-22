@@ -36,6 +36,13 @@ class Container(MapBase):
     latitude: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False)
     longitude: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False)
     current_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    change_version: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+        server_default="0",
+        nullable=False,
+        index=True,
+    )
     available: Mapped[bool] = mapped_column(Boolean, default=False)
     last_pickup: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_reading: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
