@@ -129,10 +129,7 @@ async def get_all_containers(
     offset: int = 0,
 ) -> list[ContainersMapOutputSchema]:
     result = await db.execute(
-        _base_select()
-        .order_by(Container.id)
-        .limit(limit)
-        .offset(offset)
+        _base_select().order_by(Container.id).limit(limit).offset(offset)
     )
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
@@ -212,15 +209,21 @@ async def get_container_changes(
     if not changed_rows:
         return ContainerChanges(cursor=latest_cursor, containers=[])
 
-    cursor = changed_rows[-1].change_version if len(changed_rows) == limit else latest_cursor
+    cursor = (
+        changed_rows[-1].change_version if len(changed_rows) == limit else latest_cursor
+    )
     changed_ids = {row.id for row in changed_rows}
     rows = (
-        await db.execute(
-            _base_select()
-            .where(Container.id.in_(changed_ids))
-            .order_by(Container.id)
+        (
+            await db.execute(
+                _base_select()
+                .where(Container.id.in_(changed_ids))
+                .order_by(Container.id)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return ContainerChanges(
         cursor=cursor,
         containers=[_row_to_container(row) for row in rows],

@@ -30,7 +30,9 @@ from app.digital_twin.synthetic_data.generators.sensors import (
     temperature_c,
     ultrasonic_distance_cm,
 )
-from app.digital_twin.synthetic_data.generators.topology import generate_synthetic_topology
+from app.digital_twin.synthetic_data.generators.topology import (
+    generate_synthetic_topology,
+)
 from app.digital_twin.synthetic_data.simulation.clock import iter_timestamps
 from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.digital_twin.synthetic_data.topology import SimulationTopology
@@ -58,7 +60,9 @@ class SimulationState:
 
 
 class SyntheticDataSimulator:
-    def __init__(self, config: ScenarioConfig, topology: SimulationTopology | None = None):
+    def __init__(
+        self, config: ScenarioConfig, topology: SimulationTopology | None = None
+    ):
         self.config = config
         self.rng = random.Random(config.seed)
         self.topology = topology
@@ -77,10 +81,10 @@ class SyntheticDataSimulator:
                 device.id: self.rng.uniform(70, 100) for device in topology.devices
             },
             reading_offsets={
-            device.id: self.rng.randint(
-                -self.config.reading_jitter_minutes,
-                self.config.reading_jitter_minutes,
-            )
+                device.id: self.rng.randint(
+                    -self.config.reading_jitter_minutes,
+                    self.config.reading_jitter_minutes,
+                )
                 for device in topology.devices
             },
             stuck_distances={},
@@ -181,7 +185,10 @@ class SyntheticDataSimulator:
             signal_lost = self.rng.random() < self.config.signal_loss_probability
             low_battery = self.rng.random() < self.config.low_battery_probability
 
-            if anomaly == "sensor_trabado" and container.id not in state.stuck_distances:
+            if (
+                anomaly == "sensor_trabado"
+                and container.id not in state.stuck_distances
+            ):
                 state.stuck_distances[container.id] = ultrasonic_distance_cm(
                     container, level, self.rng
                 )

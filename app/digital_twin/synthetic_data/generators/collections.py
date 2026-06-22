@@ -6,7 +6,9 @@ from datetime import datetime
 from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 
 
-def should_collect(timestamp: datetime, fill_level: float, config: ScenarioConfig, rng: random.Random) -> bool:
+def should_collect(
+    timestamp: datetime, fill_level: float, config: ScenarioConfig, rng: random.Random
+) -> bool:
     if timestamp.hour not in config.collection_hours:
         return False
     if rng.random() < config.omitted_collection_probability:
@@ -15,7 +17,9 @@ def should_collect(timestamp: datetime, fill_level: float, config: ScenarioConfi
     return fill_level >= threshold and rng.random() < config.collection_probability
 
 
-def level_after_collection(level_before: float, config: ScenarioConfig, rng: random.Random) -> tuple[str, float]:
+def level_after_collection(
+    level_before: float, config: ScenarioConfig, rng: random.Random
+) -> tuple[str, float]:
     if rng.random() < config.partial_collection_probability:
         reduction = rng.uniform(25, 55)
         return "partial", round(max(0, level_before - reduction), 2)

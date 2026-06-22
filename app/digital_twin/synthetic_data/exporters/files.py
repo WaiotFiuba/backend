@@ -36,16 +36,28 @@ def export_simulation(
         paths["containers"] = destination / "containers.csv"
         paths["devices"] = destination / "devices.csv"
         _write_csv(paths["sites"], (site.to_record() for site in result.sites))
-        _write_csv(paths["containers"], (container.to_record() for container in result.containers))
+        _write_csv(
+            paths["containers"],
+            (container.to_record() for container in result.containers),
+        )
         _write_csv(paths["devices"], (device.to_record() for device in result.devices))
 
     _write_tabular(paths["measurements"], _measurement_records(result), export_format)
-    _write_tabular(paths["collections"], (item.to_record() for item in result.collections), export_format)
-    _write_tabular(paths["alarms"], (item.to_record() for item in result.alarms), export_format)
+    _write_tabular(
+        paths["collections"],
+        (item.to_record() for item in result.collections),
+        export_format,
+    )
+    _write_tabular(
+        paths["alarms"], (item.to_record() for item in result.alarms), export_format
+    )
 
     if api_payloads:
         payload_path = destination / "api_payloads.jsonl"
-        _write_jsonl(payload_path, (api_payload_from_measurement(item) for item in result.measurements))
+        _write_jsonl(
+            payload_path,
+            (api_payload_from_measurement(item) for item in result.measurements),
+        )
         paths["api_payloads"] = payload_path
 
     return paths
@@ -70,7 +82,9 @@ def _remove_previous_outputs(destination: Path) -> None:
             path.unlink()
 
 
-def _write_tabular(path: Path, rows: Iterable[dict[str, object]], export_format: ExportFormat) -> None:
+def _write_tabular(
+    path: Path, rows: Iterable[dict[str, object]], export_format: ExportFormat
+) -> None:
     if export_format == "csv":
         _write_csv(path, rows)
         return
@@ -121,7 +135,9 @@ def _measurement_records(result: SimulationResult) -> Iterable[dict[str, object]
     for measurement in result.measurements:
         container = container_by_id[measurement.container_id]
         site = site_by_id.get(container.site_id)
-        collection = collection_by_key.get((measurement.timestamp, measurement.container_id))
+        collection = collection_by_key.get(
+            (measurement.timestamp, measurement.container_id)
+        )
         current_m3 = _current_volume_m3(container.volume_m3, measurement.fill_level_pct)
         yield {
             "imei": measurement.device_id,
@@ -129,7 +145,9 @@ def _measurement_records(result: SimulationResult) -> Iterable[dict[str, object]
             "reading_date": _format_reading_date(measurement.timestamp),
             "reported_height": measurement.ultrasonic_distance_cm,
             "reported_temperature": measurement.temperature_c,
-            "reported_collection_date": _format_reading_date(collection.timestamp) if collection else "",
+            "reported_collection_date": _format_reading_date(collection.timestamp)
+            if collection
+            else "",
             "garbage_collection_alarm": int(measurement.is_collection_detected),
             "fire_alarm": int(measurement.anomaly == "incendio"),
             "freeze_alarm": 0,

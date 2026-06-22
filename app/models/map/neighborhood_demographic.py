@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, DOUBLE_PRECISION, Integer, String, TIMESTAMP, Text, func
+from sqlalchemy import (
+    BigInteger,
+    DOUBLE_PRECISION,
+    Integer,
+    String,
+    TIMESTAMP,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.map_database import MapBase

@@ -15,7 +15,9 @@ class ValidationReport:
 def validate_result(result: SimulationResult) -> ValidationReport:
     errors: list[str] = []
     levels = [measurement.fill_level_pct for measurement in result.measurements]
-    distances = [measurement.ultrasonic_distance_cm for measurement in result.measurements]
+    distances = [
+        measurement.ultrasonic_distance_cm for measurement in result.measurements
+    ]
 
     if any(level < 0 or level > 100 for level in levels):
         errors.append("Hay niveles de llenado fuera del rango 0..100.")

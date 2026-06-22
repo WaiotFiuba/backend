@@ -66,7 +66,9 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
     if "site_count" in normalized:
         normalized["synthetic_site_count"] = normalized.pop("site_count")
     if "containers_per_site" in normalized:
-        normalized["synthetic_containers_per_site"] = normalized.pop("containers_per_site")
+        normalized["synthetic_containers_per_site"] = normalized.pop(
+            "containers_per_site"
+        )
     normalized.pop("sensor_fault_probability", None)
     if "start" in normalized and isinstance(normalized["start"], str):
         normalized["start"] = datetime.fromisoformat(normalized["start"])
@@ -76,7 +78,9 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
         normalized["periods"] = _periods_between(
             start=normalized.get("start", ScenarioConfig.start),
             end=normalized["end"],
-            frequency_minutes=normalized.get("frequency_minutes", ScenarioConfig.frequency_minutes),
+            frequency_minutes=normalized.get(
+                "frequency_minutes", ScenarioConfig.frequency_minutes
+            ),
         )
     if "collection_hours" in normalized:
         normalized["collection_hours"] = tuple(normalized["collection_hours"])

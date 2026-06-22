@@ -44,8 +44,15 @@ async def ingest_telemetry_batch(
 
         stmt = (
             select(Container, NeighborhoodDemographic)
-            .outerjoin(NeighborhoodDemographic, geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom))
-            .options(joinedload(Container.container_type).selectinload(ContainerType.waste_types))
+            .outerjoin(
+                NeighborhoodDemographic,
+                geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
+            )
+            .options(
+                joinedload(Container.container_type).selectinload(
+                    ContainerType.waste_types
+                )
+            )
             .where(or_(*conditions))
         )
         result = await db.execute(stmt)

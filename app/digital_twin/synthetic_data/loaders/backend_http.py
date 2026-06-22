@@ -51,7 +51,9 @@ def _fetch_all_containers(
     offset = 0
 
     while True:
-        current_limit = min(page_size, limit - len(payload)) if limit is not None else page_size
+        current_limit = (
+            min(page_size, limit - len(payload)) if limit is not None else page_size
+        )
         if current_limit <= 0:
             return payload
 
@@ -93,7 +95,9 @@ def _fetch_container_page(
         ) from exc
 
     if not isinstance(page, list):
-        raise BackendConnectionError(f"El endpoint {url} no devolvio una lista de contenedores.")
+        raise BackendConnectionError(
+            f"El endpoint {url} no devolvio una lista de contenedores."
+        )
 
     return page
 

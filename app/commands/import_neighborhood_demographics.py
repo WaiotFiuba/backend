@@ -24,7 +24,9 @@ class PopulationRecord:
 
 def normalize_neighborhood(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value.strip().casefold())
-    return "".join(character for character in normalized if not unicodedata.combining(character))
+    return "".join(
+        character for character in normalized if not unicodedata.combining(character)
+    )
 
 
 async def import_neighborhood_demographics(
@@ -94,10 +96,10 @@ async def import_neighborhood_demographics(
             matched.append(neighborhood)
 
         await session.flush()
-        rows = (
-            await session.execute(select(NeighborhoodDemographic))
-        ).scalars().all()
-        median_density = statistics.median(row.density_per_km2 for row in rows) if rows else 0
+        rows = (await session.execute(select(NeighborhoodDemographic))).scalars().all()
+        median_density = (
+            statistics.median(row.density_per_km2 for row in rows) if rows else 0
+        )
         if median_density:
             for row in rows:
                 row.density_factor = density_factor(row.density_per_km2, median_density)
@@ -155,7 +157,9 @@ def _property(properties: dict[str, object], *names: str) -> str | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Importa demografia por barrio a PostGIS.")
+    parser = argparse.ArgumentParser(
+        description="Importa demografia por barrio a PostGIS."
+    )
     parser.add_argument("--geojson", type=Path, required=True)
     parser.add_argument("--population-csv", type=Path, required=True)
     parser.add_argument("--year", type=int, default=2010)

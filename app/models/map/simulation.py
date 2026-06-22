@@ -42,13 +42,19 @@ class SimulationSession(MapBase):
         default=1.0,
     )
     transition_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
-    transition_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    transition_ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    transition_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    transition_ends_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     simulated_time: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     current_period: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_periods: Mapped[int] = mapped_column(Integer, nullable=False)
     measurements_sent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    collections_generated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    collections_generated: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     alarms_generated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -95,5 +101,9 @@ class SimulationZoneOverride(MapBase):
         nullable=False,
         default=1.0,
     )
-    transition_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    transition_ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    transition_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    transition_ends_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )

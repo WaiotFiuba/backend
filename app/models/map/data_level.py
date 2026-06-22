@@ -24,7 +24,9 @@ class DataLevel(MapBase):
     message_time: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     imei: Mapped[str | None] = mapped_column(String)
     m_id: Mapped[str | None] = mapped_column(String)
-    reading_date: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    reading_date: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
     reported_height: Mapped[float | None] = mapped_column(DOUBLE_PRECISION)
     echo: Mapped[str | None] = mapped_column(Text)
     fire_alarm: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

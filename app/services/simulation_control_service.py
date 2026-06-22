@@ -37,7 +37,10 @@ async def create_simulation(
         scenario_data = dict(payload.scenario)
         if payload.start_time is not None:
             scenario_data["start"] = payload.start_time
-        if "frequency_minutes" not in scenario_data and payload.transition_minutes is not None:
+        if (
+            "frequency_minutes" not in scenario_data
+            and payload.transition_minutes is not None
+        ):
             scenario_data["frequency_minutes"] = payload.transition_minutes
         config = scenario_from_mapping(scenario_data)
     except (TypeError, ValueError) as exc:
@@ -201,7 +204,9 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
         }
     rows = (
         await db.execute(
-            select(NeighborhoodDemographic).order_by(NeighborhoodDemographic.neighborhood)
+            select(NeighborhoodDemographic).order_by(
+                NeighborhoodDemographic.neighborhood
+            )
         )
     ).scalars()
     return [
@@ -255,11 +260,15 @@ def _set_session_transition(
     session.global_demand_start = current
     session.global_demand_target = target
     session.transition_started_at = now
-    session.transition_ends_at = now + timedelta(minutes=transition_minutes) if now else None
+    session.transition_ends_at = (
+        now + timedelta(minutes=transition_minutes) if now else None
+    )
 
 
 async def _set_zone_transitions(db, session, requested, transition_minutes) -> None:
-    existing = {item.neighborhood: item for item in await _zone_overrides(db, session.id)}
+    existing = {
+        item.neighborhood: item for item in await _zone_overrides(db, session.id)
+    }
     for override in requested:
         item = existing.get(override.neighborhood)
         if item is None:
@@ -296,7 +305,9 @@ async def _active_session(db: AsyncSession) -> SimulationSession | None:
     return result.scalar_one_or_none()
 
 
-async def _zone_overrides(db: AsyncSession, simulation_id: int) -> list[SimulationZoneOverride]:
+async def _zone_overrides(
+    db: AsyncSession, simulation_id: int
+) -> list[SimulationZoneOverride]:
     return list(
         (
             await db.execute(
@@ -328,7 +339,9 @@ async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
         )
 
 
-async def _simulation_read(db: AsyncSession, session: SimulationSession) -> SimulationRead:
+async def _simulation_read(
+    db: AsyncSession, session: SimulationSession
+) -> SimulationRead:
     overrides = await _zone_overrides(db, session.id)
     return SimulationRead(
         id=session.id,
@@ -374,6 +387,10 @@ async def _simulation_read(db: AsyncSession, session: SimulationSession) -> Simu
 
 def _scenario_record(config) -> dict[str, object]:
     return {
-        key: value.isoformat() if isinstance(value, datetime) else list(value) if isinstance(value, tuple) else value
+        key: value.isoformat()
+        if isinstance(value, datetime)
+        else list(value)
+        if isinstance(value, tuple)
+        else value
         for key, value in config.__dict__.items()
     }

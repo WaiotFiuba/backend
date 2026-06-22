@@ -48,7 +48,8 @@ def send_result_batch(
     batch_size: int = 100,
     token: str | None = None,
     timeout_seconds: float = 10,
-    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]] | None = None,
+    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]]
+    | None = None,
 ) -> DeliveryReport:
     if batch_size <= 0:
         raise ValueError("batch_size debe ser mayor a 0.")
@@ -71,7 +72,8 @@ def send_measurements_batch(
     batch_size: int = 250,
     token: str | None = None,
     timeout_seconds: float = 30,
-    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]] | None = None,
+    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]]
+    | None = None,
 ) -> DeliveryReport:
     if batch_size <= 0:
         raise ValueError("batch_size debe ser mayor a 0.")
@@ -96,7 +98,8 @@ def stream_result(
     token: str | None = None,
     timeout_seconds: float = 10,
     sleep: Callable[[float], None] = time.sleep,
-    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]] | None = None,
+    post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]]
+    | None = None,
 ) -> DeliveryReport:
     if delay_seconds < 0:
         raise ValueError("delay_seconds no puede ser negativo.")
@@ -171,7 +174,9 @@ def _delay_between(
 ) -> float:
     if speedup is None:
         return delay_seconds
-    simulated_seconds = max(0.0, (current.timestamp - previous.timestamp).total_seconds())
+    simulated_seconds = max(
+        0.0, (current.timestamp - previous.timestamp).total_seconds()
+    )
     return simulated_seconds / (speedup * 60)
 
 
@@ -208,10 +213,14 @@ def _post_json(
     try:
         data = json.loads(raw) if raw else {}
     except json.JSONDecodeError as exc:
-        raise BackendDeliveryError(f"El backend {url} no devolvio JSON valido.") from exc
+        raise BackendDeliveryError(
+            f"El backend {url} no devolvio JSON valido."
+        ) from exc
 
     if not isinstance(data, dict):
-        raise BackendDeliveryError(f"El backend {url} devolvio una respuesta inesperada.")
+        raise BackendDeliveryError(
+            f"El backend {url} devolvio una respuesta inesperada."
+        )
     return data
 
 

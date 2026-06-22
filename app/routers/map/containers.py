@@ -126,10 +126,12 @@ async def read_container_detail(
     summary="Generar o resembrar contenedores de mapa",
 )
 async def generate_containers(
-    force: bool = Query(False, description="Borrar datos existentes antes de re-sembrar"),
+    force: bool = Query(
+        False, description="Borrar datos existentes antes de re-sembrar"
+    ),
     db: AsyncSession = Depends(get_map_db),
 ):
-    #Borra la BDD actual, decomentar si se usa una bdd local. COMENTAR SI SE ESTA APUNTANDO A PRODUCCION
+    # Borra la BDD actual, decomentar si se usa una bdd local. COMENTAR SI SE ESTA APUNTANDO A PRODUCCION
     # if force:
     #     from sqlalchemy import delete
     #     from app.models.map.data_level import DataLevel
@@ -139,6 +141,7 @@ async def generate_containers(
     #     await db.commit()
 
     from app.core.map_migrations import seed_map_data
+
     await seed_map_data()
     return {"message": "Contenedores generados exitosamente"}
 
@@ -151,7 +154,9 @@ async def generate_containers(
 async def create_container(
     payload: ContainerCreateSchema,
 ):
-    print(f"\n[DEBUG] Contenedor recibido en backend-api (no guardado en BD): {payload.model_dump()}\n")
+    print(
+        f"\n[DEBUG] Contenedor recibido en backend-api (no guardado en BD): {payload.model_dump()}\n"
+    )
     return {"message": "Contenedor recibido (no guardado en base de datos)"}
 
 
@@ -163,5 +168,9 @@ async def create_container(
 async def delete_container(
     container_id: int,
 ):
-    print(f"\n[DEBUG] Petición de eliminación de contenedor en backend-api (no borrado en BD) para ID: {container_id}\n")
-    return {"message": f"Contenedor {container_id} recibido para eliminación (no guardado en BD)"}
+    print(
+        f"\n[DEBUG] Petición de eliminación de contenedor en backend-api (no borrado en BD) para ID: {container_id}\n"
+    )
+    return {
+        "message": f"Contenedor {container_id} recibido para eliminación (no guardado en BD)"
+    }

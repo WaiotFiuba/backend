@@ -37,8 +37,15 @@ from app.digital_twin.synthetic_data.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
 from app.models.map.waste_type import WasteType
-from app.schemas.digital_twin import TelemetryFlags, TelemetryIngestPayload, TelemetryValues
-from app.services.digital_twin_ingest_service import _data_level_row, ingest_telemetry_batch
+from app.schemas.digital_twin import (
+    TelemetryFlags,
+    TelemetryIngestPayload,
+    TelemetryValues,
+)
+from app.services.digital_twin_ingest_service import (
+    _data_level_row,
+    ingest_telemetry_batch,
+)
 
 
 class SyntheticDataSimulatorTest(unittest.TestCase):
@@ -284,7 +291,9 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
             self.assertFalse((output_path / "alarms.parquet").exists())
             self.assertTrue((output_path / "measurements.csv").exists())
 
-    def test_backend_loader_reports_connection_errors_without_raw_urlerror(self) -> None:
+    def test_backend_loader_reports_connection_errors_without_raw_urlerror(
+        self,
+    ) -> None:
         with patch(
             "app.digital_twin.synthetic_data.loaders.backend_http.urlopen",
             side_effect=URLError("[Errno 111] Connection refused"),
@@ -569,7 +578,9 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
 
 
 class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
-    async def test_ingest_marks_updated_container_with_next_change_version(self) -> None:
+    async def test_ingest_marks_updated_container_with_next_change_version(
+        self,
+    ) -> None:
         container_type = ContainerType(
             id=7,
             name="RSU Humeda",
@@ -601,19 +612,13 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
             flags=TelemetryFlags(is_collection_detected=False, anomaly=None),
         )
         db = MagicMock()
+        db.execute = AsyncMock()
         db.commit = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = [(container, None)]
+        db.execute.return_value = mock_result
 
-        with (
-            patch(
-                "app.services.digital_twin_ingest_service._find_container",
-                AsyncMock(return_value=container),
-            ),
-            patch(
-                "app.services.digital_twin_ingest_service._find_neighborhood",
-                AsyncMock(return_value=None),
-            ),
-        ):
-            result = await ingest_telemetry_batch(db, [payload])
+        result = await ingest_telemetry_batch(db, [payload])
 
         self.assertEqual(result.updated, 1)
         self.assertEqual(container.current_level, 50)
