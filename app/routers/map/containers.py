@@ -41,7 +41,7 @@ async def get_containers_by_bbox(
     lng_min: float = Query(...),
     lng_max: float = Query(...),
     zoom: int = Query(..., ge=0, le=22),
-    limit: int = Query(500, ge=1, le=2000),
+    limit: int | None = Query(None, ge=1),
     db: AsyncSession = Depends(get_map_db),
 ) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
     return await get_containers_clustered(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from geoalchemy2 import functions as geo_funcs
@@ -19,9 +19,60 @@ async def ingest_telemetry_batch(
     updated = 0
     not_found = 0
 
+    container_ids = []
+    device_ids = []
+    for m in measurements:
+        try:
+            if m.container_id is not None:
+                container_ids.append(int(m.container_id))
+        except (ValueError, TypeError):
+            pass
+        if m.device_id:
+            device_ids.append(m.device_id)
+
+    container_by_id = {}
+    container_by_imei = {}
+    neighborhood_by_container_id = {}
+
+    if container_ids or device_ids:
+        conditions = []
+        if container_ids:
+            conditions.append(Container.id.in_(container_ids))
+        if device_ids:
+            conditions.append(Container.device_imei.in_(device_ids))
+
+        stmt = (
+            select(Container, NeighborhoodDemographic)
+            .outerjoin(NeighborhoodDemographic, geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom))
+            .options(joinedload(Container.container_type).selectinload(ContainerType.waste_types))
+            .where(or_(*conditions))
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        for container, neighborhood in rows:
+            container_by_id[container.id] = container
+            if container.device_imei:
+                container_by_imei[container.device_imei] = container
+            if neighborhood:
+                neighborhood_by_container_id[container.id] = neighborhood
+
     for measurement in measurements:
-        container = await _find_container(db, measurement)
-        neighborhood = await _find_neighborhood(db, container) if container else None
+        container = None
+        try:
+            if measurement.container_id is not None:
+                cid = int(measurement.container_id)
+                container = container_by_id.get(cid)
+        except (ValueError, TypeError):
+            pass
+
+        if container is None and measurement.device_id:
+            container = container_by_imei.get(measurement.device_id)
+
+        neighborhood = None
+        if container:
+            neighborhood = neighborhood_by_container_id.get(container.id)
+
         db.add(_data_level_row(measurement, container, neighborhood))
         if container is None:
             not_found += 1

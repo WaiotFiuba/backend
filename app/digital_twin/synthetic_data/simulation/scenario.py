@@ -14,7 +14,7 @@ import yaml
 class ScenarioConfig:
     name: str = "semana_normal"
     seed: int = 42
-    start: datetime = datetime(2026, 1, 5, 0, 0, 0)
+    start: datetime = datetime(2026, 5, 2, 6, 0, 0)
     end: datetime | None = None
     periods: int = 7 * 24
     frequency_minutes: int = 60

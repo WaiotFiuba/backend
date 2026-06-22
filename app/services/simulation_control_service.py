@@ -34,7 +34,12 @@ async def create_simulation(
         )
 
     try:
-        config = scenario_from_mapping(payload.scenario)
+        scenario_data = dict(payload.scenario)
+        if payload.start_time is not None:
+            scenario_data["start"] = payload.start_time
+        if "frequency_minutes" not in scenario_data and payload.transition_minutes is not None:
+            scenario_data["frequency_minutes"] = payload.transition_minutes
+        config = scenario_from_mapping(scenario_data)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _validate_neighborhoods(

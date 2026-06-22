@@ -67,8 +67,8 @@ async def _run_session(simulation_id: int) -> None:
             topology = await asyncio.to_thread(
                 load_topology_from_backend_api,
                 settings.simulator_backend_url,
-                "/map/containers/",
-                config.container_limit,
+                "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
+                None,
             )
             simulator = SyntheticDataSimulator(config, topology=topology)
             simulator.initialize()
@@ -141,7 +141,7 @@ async def _run_session(simulation_id: int) -> None:
             )
             if not await _wait_between_ticks(
                 simulation_id,
-                config.frequency_minutes * 60 / speedup,
+                config.frequency_minutes / speedup,
             ):
                 return
 
@@ -190,17 +190,32 @@ async def _deliver_tick_measurements(
     if batch_size <= 0:
         raise ValueError("SIMULATOR_BATCH_SIZE debe ser mayor a 0.")
 
-    report = DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+    sem = asyncio.Semaphore(10)
+
+    async def send_batch_with_sem(batch_chunk):
+        async with sem:
+            if await _wait_until_runnable(simulation_id) is None:
+                return None
+            return await asyncio.to_thread(
+                send_measurements_batch,
+                batch_chunk,
+                backend_url,
+                batch_size=batch_size,
+            )
+
+    tasks = []
     for offset in range(0, len(measurements), batch_size):
-        if await _wait_until_runnable(simulation_id) is None:
+        chunk = measurements[offset : offset + batch_size]
+        tasks.append(send_batch_with_sem(chunk))
+
+    results = await asyncio.gather(*tasks)
+
+    report = DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+    for res in results:
+        if res is None:
             return None
-        batch_report = await asyncio.to_thread(
-            send_measurements_batch,
-            measurements[offset : offset + batch_size],
-            backend_url,
-            batch_size=batch_size,
-        )
-        report = _combine_delivery_reports(report, batch_report)
+        report = _combine_delivery_reports(report, res)
+
     return report
 
 

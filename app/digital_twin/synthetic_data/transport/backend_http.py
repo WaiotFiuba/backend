@@ -172,7 +172,7 @@ def _delay_between(
     if speedup is None:
         return delay_seconds
     simulated_seconds = max(0.0, (current.timestamp - previous.timestamp).total_seconds())
-    return simulated_seconds / speedup
+    return simulated_seconds / (speedup * 60)
 
 
 def _post_json(

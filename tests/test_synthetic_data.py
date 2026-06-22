@@ -407,6 +407,34 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(posted_timestamps, sorted(posted_timestamps))
         self.assertEqual(sleeps, [0.25, 0.25])
 
+    def test_stream_speedup_calculates_delay_correctly(self) -> None:
+        result = SyntheticDataSimulator(
+            ScenarioConfig(
+                seed=8,
+                periods=3,
+                frequency_minutes=30,
+                synthetic_site_count=1,
+                synthetic_containers_per_site=1,
+            )
+        ).run()
+        posted_timestamps = []
+        sleeps = []
+
+        def fake_post(url, payload, token, timeout_seconds):
+            posted_timestamps.append(payload["timestamp"])
+            return {"updated": 1, "not_found": 0}
+
+        report = stream_result(
+            result,
+            backend_url="http://backend",
+            speedup=30.0,
+            sleep=sleeps.append,
+            post_json=fake_post,
+        )
+
+        self.assertEqual(report.sent, 3)
+        self.assertEqual(sleeps, [1.0, 1.0])
+
     def test_stream_interruption_keeps_partial_report(self) -> None:
         result = SyntheticDataSimulator(
             ScenarioConfig(

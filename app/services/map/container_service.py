@@ -16,16 +16,18 @@ from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluste
 def _zoom_to_grid_size(zoom: int) -> float | None:
     """
     Retorna el tamaño de la celda en grados para ST_SnapToGrid.
-    Ajustamos los rangos para la escala de Buenos Aires.
+    Ajustamos los rangos para la escala de Buenos Aires con 5 niveles de granularidad.
     """
     if zoom < 11:
-        return 0.05  # ~5km por celda
+        return 0.15  # ~15km por celda
     elif zoom < 13:
-        return 0.01  # ~1km por celda
+        return 0.05  # ~5km por celda
     elif zoom < 15:
-        return 0.002  # ~200m por celda
+        return 0.015  # ~1.5km por celda
+    elif zoom < 17:
+        return 0.003  # ~300m por celda
     else:
-        return None  # puntos exactos
+        return None
 
 
 def _row_to_container(row) -> ContainersMapOutputSchema:

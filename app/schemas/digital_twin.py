@@ -49,6 +49,7 @@ class SimulationCreate(BaseModel):
     global_demand_multiplier: float = Field(default=1.0, gt=0, le=10)
     transition_minutes: int = Field(default=60, ge=0, le=10080)
     zone_overrides: list[ZoneDemandOverride] = Field(default_factory=list)
+    start_time: datetime | None = Field(default=None)
 
 
 class SimulationControlsUpdate(BaseModel):
