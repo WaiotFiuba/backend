@@ -43,6 +43,30 @@ uv run --with pre-commit pre-commit run --all-files
 uv run --with ruff ruff check .
 ```
 
+### Generador de datos sintéticos
+
+El módulo permite generar archivos CSV/Parquet, inyectar históricos, reproducir
+streaming y ejecutar una simulación incremental controlable desde la API. También
+adapta la demanda según población, densidad y barrio.
+
+La documentación completa está en
+[`app/digital_twin/synthetic_data/README.md`](app/digital_twin/synthetic_data/README.md).
+
+### Sincronización incremental del mapa
+
+El frontend puede cargar un snapshot del viewport junto con un cursor y luego consultar
+solamente los contenedores modificados:
+
+```text
+GET /map/containers/bbox/snapshot
+GET /map/containers/changes?after={cursor}
+```
+
+El endpoint de cambios devuelve una sola vez el estado más reciente de cada contenedor
+modificado, no todas sus mediciones intermedias. Cada actualización de telemetría
+asigna una `change_version` global al contenedor; por eso el cursor no necesita una
+tabla histórica que crezca indefinidamente.
+
 ### Variables de entorno
 
 ```bash
@@ -64,6 +88,14 @@ docker-compose up --build
 ```
 
 La API queda disponible en `http://localhost:8000`.
+En este modo la base de mapa queda deshabilitada y los endpoints `/map/*` requieren
+levantar PostGIS.
+
+Para levantar la API junto con PostGIS y el mapa:
+
+```bash
+docker compose --profile map up --build
+```
 
 ### Qué hace Docker Compose
 
@@ -72,6 +104,12 @@ La API queda disponible en `http://localhost:8000`.
 - levanta una base PostGIS llamada `waiot_map`
 - importa automáticamente los archivos GeoJSON (`barrios`, `calles`, `comunas`, `manzanas`, `parcelas`) desde `db/datos` a la base de datos al inicializar por primera vez el contenedor.
 - corre el seed con los datos del contenedor si se activa el perfil y los datos no estan ya insertados
+
+`ENABLE_MAP_DB` controla si la API inicializa la base de mapa al arrancar. En Docker,
+el comando de la API lo activa automáticamente cuando el servicio `postgis` está
+disponible; sin el perfil `map`, queda desactivado. El esquema de mapa se administra
+con Alembic; `AUTO_CREATE_MAP_DB` queda desactivado para evitar que `create_all()`
+compita con las migraciones durante autoreload.
 
 ### Inicialización e Importación de Datos GeoJSON
 

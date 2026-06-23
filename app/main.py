@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.database import init_db
 from app.core.map_database import init_map_db
 from app.routers.auth import router as auth_router
+from app.routers.digital_twin import router as digital_twin_router
 from app.routers.users import router as users_router
 from app.routers.map import router as map_router
 
@@ -16,7 +17,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.auto_create_db and settings.app_env.lower() != "production":
         await init_db()
-        await init_map_db()
+        if settings.enable_map_db and settings.auto_create_map_db:
+            await init_map_db()
     yield
 
 
@@ -33,6 +35,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(map_router)
+app.include_router(digital_twin_router)
 
 
 @app.get("/")

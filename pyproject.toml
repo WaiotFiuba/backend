@@ -19,4 +19,5 @@ dependencies = [
     "asyncpg>=0.31.0",
     "geoalchemy2>=0.13.0",
     "alembic>=1.13.0",
+    "pyyaml>=6.0.3",
 ]

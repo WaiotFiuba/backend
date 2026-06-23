@@ -8,7 +8,17 @@ set -e
 DB_NAME=${POSTGRES_DB:-waiot_map}
 DB_USER=${POSTGRES_USER:-waiot}
 DB_PASS=${POSTGRES_PASSWORD:-waiot_pass}
-DB_HOST=${POSTGRES_HOST:-"127.0.0.1"}
+
+# Si estamos dentro del contenedor Docker durante la inicialización,
+# debemos usar sockets Unix (/var/run/postgresql) ya que TCP/IP está deshabilitado temporalmente.
+if [ -n "$POSTGRES_HOST" ]; then
+    DB_HOST="$POSTGRES_HOST"
+elif [ -f /.dockerenv ]; then
+    DB_HOST="/var/run/postgresql"
+else
+    DB_HOST="127.0.0.1"
+fi
+
 DB_PORT=${POSTGRES_PORT:-5432}
 
 # Contadores para el resumen final

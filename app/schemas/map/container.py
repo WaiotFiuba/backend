@@ -2,8 +2,6 @@ from pydantic import BaseModel, ConfigDict
 from typing import List
 from datetime import datetime
 
-# GET MULTIPLE
-
 
 class WasteTypeMapSchema(BaseModel):
     name: str
@@ -13,7 +11,11 @@ class WasteTypeMapSchema(BaseModel):
 
 
 class ContainersMapTypeSchema(BaseModel):
+    id: int | None = None
     name: str
+    height_cm: int | None = None
+    volume_m3: float | None = None
+    overflow_zone_cm: int | None = None
     waste_types: List[WasteTypeMapSchema]
 
     model_config = ConfigDict(from_attributes=True)
@@ -22,11 +24,17 @@ class ContainersMapTypeSchema(BaseModel):
 class ContainersMapOutputSchema(BaseModel):
     id: int
     site_id: str
+    site_name: str | None = None
+    device_imei: str | None = None
     latitude: float
     longitude: float
     current_level: int
     available: bool
+    last_reading: datetime | None = None
+    updated_at: datetime | None = None
     container_type: ContainersMapTypeSchema
+    zone: str | None = None
+    density_factor: float = 1.0
 
 
 class ContainerCluster(BaseModel):
@@ -35,7 +43,15 @@ class ContainerCluster(BaseModel):
     total: int
 
 
-# GET SIMPLE
+class ContainerMapSnapshot(BaseModel):
+    cursor: int
+    containers: list[ContainersMapOutputSchema]
+    clusters: list[ContainerCluster]
+
+
+class ContainerChanges(BaseModel):
+    cursor: int
+    containers: list[ContainersMapOutputSchema]
 
 
 class WasteTypeDetailSchema(BaseModel):
@@ -73,3 +89,13 @@ class ContainerDetailOutputSchema(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
+
+
+class ContainerCreateSchema(BaseModel):
+    site_id: str
+    site_name: str | None = None
+    latitude: float
+    longitude: float
+    container_type_id: int
+    address: str | None = None
+    description: str | None = None

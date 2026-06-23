@@ -12,8 +12,15 @@ services:
       - ./db:/app/db
     command: >
       sh -c "
-      uv run alembic upgrade head &&
-      uv run python -m app.commands.seed &&
+      if [ \"$${ENABLE_MAP_DB:-}\" = \"true\" ] || getent hosts postgis > /dev/null 2>&1; then
+        export ENABLE_MAP_DB=true;
+        uv run python -m app.commands.wait_for_map_db &&
+        uv run alembic upgrade head &&
+        uv run python -u -m app.commands.seed;
+      else
+        export ENABLE_MAP_DB=false;
+        echo 'Base de mapa deshabilitada. Iniciando API sin PostGIS.';
+      fi &&
       uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
     depends_on:
@@ -44,6 +51,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  simulator:
+    profiles:
+      - map
+    build: .
+    env_file:
+      - .env
+    environment:
+      ENABLE_MAP_DB: "true"
+      SIMULATOR_BACKEND_URL: http://api:8000
+    volumes:
+      - ./app:/app/app
+    command: >
+      sh -c "
+      uv run python -m app.commands.wait_for_map_db &&
+      uv run python -m app.digital_twin.synthetic_data.worker
+      "
+    depends_on:
+      api:
+        condition: service_started
+      postgis:
+        condition: service_healthy
 
 volumes:
   postgis_data:
