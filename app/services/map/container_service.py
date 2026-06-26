@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func, case
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -98,10 +98,7 @@ async def get_all_containers(
     offset: int = 0,
 ) -> list[ContainersMapOutputSchema]:
     result = await db.execute(
-        _base_select()
-        .order_by(Container.id)
-        .limit(limit)
-        .offset(offset)
+        _base_select().order_by(Container.id).limit(limit).offset(offset)
     )
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
@@ -200,3 +197,28 @@ async def get_container_by_id(db: AsyncSession, container_id: int) -> Container:
         )
 
     return container
+
+
+async def get_container_stats(db: AsyncSession) -> dict:
+    stmt = select(
+        func.count(Container.id).label("total"),
+        func.sum(case((Container.available, 1), else_=0)).label("available"),
+        func.sum(case((Container.current_level >= 80, 1), else_=0)).label(
+            "alert_level"
+        ),
+        func.avg(Container.current_level).label("avg_fill"),
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+
+    total = row.total or 0
+    available = int(row.available or 0)
+    alert_level = int(row.alert_level or 0)
+    avg_fill = round(float(row.avg_fill or 0)) if row.avg_fill is not None else 0
+
+    return {
+        "total": total,
+        "available": available,
+        "avg_fill": avg_fill,
+        "alert_level": alert_level,
+    }

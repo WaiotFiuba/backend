@@ -88,4 +88,8 @@ class ContainerCreateSchema(BaseModel):
     description: str | None = None
 
 
-
+class ContainerStatsOutputSchema(BaseModel):
+    total: int
+    available: int
+    avg_fill: int
+    alert_level: int
