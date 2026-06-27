@@ -5,7 +5,9 @@ import random
 from app.digital_twin.synthetic_data.domain.entities import Alarm
 
 
-def pick_sensor_anomaly(rng: random.Random, stuck_probability: float, noisy_probability: float) -> str | None:
+def pick_sensor_anomaly(
+    rng: random.Random, stuck_probability: float, noisy_probability: float
+) -> str | None:
     roll = rng.random()
     if roll < stuck_probability:
         return "sensor_trabado"

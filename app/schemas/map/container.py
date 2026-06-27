@@ -30,6 +30,8 @@ class ContainersMapOutputSchema(BaseModel):
     longitude: float
     current_level: int
     available: bool
+    last_reading: datetime | None = None
+    updated_at: datetime | None = None
     container_type: ContainersMapTypeSchema
     zone: str | None = None
     density_factor: float = 1.0
@@ -39,6 +41,17 @@ class ContainerCluster(BaseModel):
     latitude: float
     longitude: float
     total: int
+
+
+class ContainerMapSnapshot(BaseModel):
+    cursor: int
+    containers: list[ContainersMapOutputSchema]
+    clusters: list[ContainerCluster]
+
+
+class ContainerChanges(BaseModel):
+    cursor: int
+    containers: list[ContainersMapOutputSchema]
 
 
 class WasteTypeDetailSchema(BaseModel):

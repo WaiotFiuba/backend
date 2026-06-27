@@ -219,6 +219,27 @@ curl -X POST http://localhost:8000/digital-twin/simulations \
 ```
 
 `speedup: 60` significa que 60 segundos simulados transcurren por cada segundo real.
+El worker descuenta del intervalo la duración usada para generar y enviar el tick. Si
+la entrega tarda más que el intervalo objetivo, el siguiente tick comienza
+inmediatamente, pero la simulación no puede sostener el `speedup` solicitado.
+
+El frontend de administración envía explícitamente `frequency_minutes`, `periods`,
+`container_limit` y `reading_jitter_minutes`. Su configuración inicial está pensada
+para observar cambios en el mapa:
+
+```text
+speedup=60, frequency_minutes=15, periods=96, container_limit=1000,
+reading_jitter_minutes=0
+```
+
+Con `reading_jitter_minutes=0`, los timestamps de las lecturas coinciden con el reloj
+mostrado. Un valor mayor distribuye los timestamps alrededor del reloj del tick para
+simular dispositivos que reportan con desfase.
+
+`simulated_time` identifica el tick que el worker está entregando. Se publica antes
+del primer lote de ese tick. `current_period` cuenta únicamente ticks completamente
+entregados, por lo que durante una entrega puede mostrar un período menos que el
+reloj actual.
 
 ### Consultar estado y demanda zonal
 

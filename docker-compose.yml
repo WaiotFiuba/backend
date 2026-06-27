@@ -16,7 +16,7 @@ services:
         export ENABLE_MAP_DB=true;
         uv run python -m app.commands.wait_for_map_db &&
         uv run alembic upgrade head &&
-        uv run python -m app.commands.seed;
+        uv run python -u -m app.commands.seed;
       else
         export ENABLE_MAP_DB=false;
         echo 'Base de mapa deshabilitada. Iniciando API sin PostGIS.';

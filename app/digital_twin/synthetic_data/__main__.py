@@ -11,7 +11,9 @@ from app.digital_twin.synthetic_data.validation.checks import validate_result
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Genera datasets sinteticos para el gemelo digital de Waiot.")
+    parser = argparse.ArgumentParser(
+        description="Genera datasets sinteticos para el gemelo digital de Waiot."
+    )
     parser.add_argument(
         "--scenario",
         type=Path,
@@ -109,15 +111,21 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_scenario(args.scenario)
-    container_limit = args.container_limit if args.container_limit is not None else args.limit
+    container_limit = (
+        args.container_limit if args.container_limit is not None else args.limit
+    )
     if container_limit is None:
         container_limit = config.container_limit
-    topology = _load_backend_topology(
-        backend_url=args.backend_url,
-        containers_path=args.containers_path,
-        limit=container_limit,
-        token=args.backend_token,
-    ) if args.from_backend else None
+    topology = (
+        _load_backend_topology(
+            backend_url=args.backend_url,
+            containers_path=args.containers_path,
+            limit=container_limit,
+            token=args.backend_token,
+        )
+        if args.from_backend
+        else None
+    )
     result = SyntheticDataSimulator(config, topology=topology).run()
     report = validate_result(result)
     if not report.ok:

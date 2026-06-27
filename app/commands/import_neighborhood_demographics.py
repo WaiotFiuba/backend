@@ -27,7 +27,9 @@ class PopulationRecord:
 
 def normalize_neighborhood(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value.strip().casefold())
-    return "".join(character for character in normalized if not unicodedata.combining(character))
+    return "".join(
+        character for character in normalized if not unicodedata.combining(character)
+    )
 
 
 async def import_neighborhood_demographics(

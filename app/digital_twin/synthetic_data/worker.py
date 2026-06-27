@@ -10,7 +10,9 @@ from sqlalchemy import select, update
 from app.core.config import get_settings
 from app.core.map_database import MapSessionLocal
 from app.digital_twin.synthetic_data.domain.entities import Measurement
-from app.digital_twin.synthetic_data.loaders.backend_http import load_topology_from_backend_api
+from app.digital_twin.synthetic_data.loaders.backend_http import (
+    load_topology_from_backend_api,
+)
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.digital_twin.synthetic_data.transport.backend_http import (
@@ -19,7 +21,10 @@ from app.digital_twin.synthetic_data.transport.backend_http import (
 )
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 import app.models.map  # noqa: F401
-from app.services.simulation_control_service import ACTIVE_STATUSES, effective_multiplier
+from app.services.simulation_control_service import (
+    ACTIVE_STATUSES,
+    effective_multiplier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +72,12 @@ async def _run_session(simulation_id: int) -> None:
             topology = await asyncio.to_thread(
                 load_topology_from_backend_api,
                 settings.simulator_backend_url,
-                "/map/containers/",
-                config.container_limit,
+                "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
+                None,
             )
             simulator = SyntheticDataSimulator(config, topology=topology)
             simulator.initialize()
+
             session.status = "paused"
             session.started_at = _utc_now()
             await db.commit()
@@ -89,6 +95,7 @@ async def _run_session(simulation_id: int) -> None:
                 simulation_id,
                 simulated_time,
             )
+            await _publish_tick_time(simulation_id, simulated_time)
             if _control_targets(controls) != _control_targets(previous_controls):
                 _log_control_change(simulation_id, previous_controls, controls)
             previous_controls = controls
@@ -115,9 +122,7 @@ async def _run_session(simulation_id: int) -> None:
                 if session is None:
                     return
                 session.current_period = period + 1
-                session.simulated_time = simulated_time
                 session.global_demand_current = controls.global_current
-                session.measurements_sent += delivery.sent
                 session.collections_generated += len(tick.collections)
                 session.alarms_generated += len(tick.alarms)
                 speedup = session.speedup
@@ -141,7 +146,7 @@ async def _run_session(simulation_id: int) -> None:
             )
             if not await _wait_between_ticks(
                 simulation_id,
-                config.frequency_minutes * 60 / speedup,
+                config.frequency_minutes / speedup,
             ):
                 return
 
@@ -164,7 +169,9 @@ async def _wait_until_runnable(simulation_id: int) -> SimulationSession | None:
             if session is None:
                 return None
             if session.status == "stopping":
-                logger.info("Simulacion %s detenida por solicitud de control.", simulation_id)
+                logger.info(
+                    "Simulacion %s detenida por solicitud de control.", simulation_id
+                )
                 session.status = "completed"
                 session.finished_at = _utc_now()
                 await db.commit()
@@ -190,18 +197,65 @@ async def _deliver_tick_measurements(
     if batch_size <= 0:
         raise ValueError("SIMULATOR_BATCH_SIZE debe ser mayor a 0.")
 
-    report = DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+    sem = asyncio.Semaphore(10)
+
+    async def send_batch_with_sem(batch_chunk):
+        async with sem:
+            if await _wait_until_runnable(simulation_id) is None:
+                return None
+            res = await asyncio.to_thread(
+                send_measurements_batch,
+                batch_chunk,
+                backend_url,
+                batch_size=batch_size,
+            )
+            await _record_delivered_measurements(simulation_id, res.sent)
+            return res
+
+    tasks = []
     for offset in range(0, len(measurements), batch_size):
-        if await _wait_until_runnable(simulation_id) is None:
+        chunk = measurements[offset : offset + batch_size]
+        tasks.append(send_batch_with_sem(chunk))
+
+    results = await asyncio.gather(*tasks)
+
+    report = DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+    for res in results:
+        if res is None:
             return None
-        batch_report = await asyncio.to_thread(
-            send_measurements_batch,
-            measurements[offset : offset + batch_size],
-            backend_url,
-            batch_size=batch_size,
-        )
-        report = _combine_delivery_reports(report, batch_report)
+        report = _combine_delivery_reports(report, res)
     return report
+
+
+async def _record_delivered_measurements(
+    simulation_id: int,
+    sent: int,
+) -> None:
+    async with MapSessionLocal() as db:
+        session = await db.get(SimulationSession, simulation_id)
+        if session is not None:
+            session.measurements_sent += sent
+            await db.commit()
+
+
+async def _publish_tick_time(
+    simulation_id: int,
+    simulated_time: datetime,
+) -> None:
+    async with MapSessionLocal() as db:
+        session = await db.get(SimulationSession, simulation_id)
+        if session is not None:
+            session.simulated_time = simulated_time
+            await db.commit()
+
+
+def _remaining_tick_delay(
+    frequency_minutes: int,
+    speedup: float,
+    elapsed_seconds: float,
+) -> float:
+    target_seconds = frequency_minutes * 60 / speedup
+    return max(0.0, target_seconds - elapsed_seconds)
 
 
 def _combine_delivery_reports(
@@ -229,7 +283,9 @@ async def _wait_between_ticks(simulation_id: int, delay_seconds: float) -> bool:
             if session is None:
                 return False
             if session.status == "stopping":
-                logger.info("Simulacion %s detenida por solicitud de control.", simulation_id)
+                logger.info(
+                    "Simulacion %s detenida por solicitud de control.", simulation_id
+                )
                 session.status = "completed"
                 session.finished_at = _utc_now()
                 await db.commit()
@@ -281,7 +337,7 @@ async def _effective_controls(
                     )
                     for item in overrides
                 )
-            )
+            ),
         )
 
 

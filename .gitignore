@@ -22,6 +22,7 @@ db/datos/*.csv
 db/datos/*.geojson
 db/datos/*.txt
 db/datos/*.xls
+db/datos/*.xlsx
 
 # Tests
 .pytest_cache/

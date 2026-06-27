@@ -42,7 +42,10 @@ def test_effective_multiplier_interpolates_in_simulated_time():
     ends = started + timedelta(minutes=60)
 
     assert effective_multiplier(1, 2, started, started, ends) == 1
-    assert effective_multiplier(1, 2, started + timedelta(minutes=30), started, ends) == 1.5
+    assert (
+        effective_multiplier(1, 2, started + timedelta(minutes=30), started, ends)
+        == 1.5
+    )
     assert effective_multiplier(1, 2, ends, started, ends) == 2
 
 
@@ -67,8 +70,12 @@ def test_incremental_engine_preserves_state_and_applies_geographic_demand():
     first = simulator.run_tick(datetime(2026, 1, 1, 12, 0))
     second = simulator.run_tick(datetime(2026, 1, 1, 13, 0))
 
-    first_levels = {item.container_id: item.fill_level_pct for item in first.measurements}
-    second_levels = {item.container_id: item.fill_level_pct for item in second.measurements}
+    first_levels = {
+        item.container_id: item.fill_level_pct for item in first.measurements
+    }
+    second_levels = {
+        item.container_id: item.fill_level_pct for item in second.measurements
+    }
     assert first_levels["2"] > first_levels["1"]
     assert second_levels["1"] > first_levels["1"]
     assert second_levels["2"] > first_levels["2"]

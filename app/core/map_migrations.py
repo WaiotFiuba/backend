@@ -80,10 +80,20 @@ async def seed_map_data() -> None:
             else:
                 print("[INFO] No se agregaron nuevos WasteTypes.")
         else:
-            print(f"[WARNING] Archivo {wt_file.name} NO encontrado. Cargando tipos de residuos predeterminados...")
+            print(
+                f"[WARNING] Archivo {wt_file.name} NO encontrado. Cargando tipos de residuos predeterminados..."
+            )
             default_wts = [
-                {"name": "RSU Fracción Húmeda", "description": "Residuos sólidos urbanos húmedos", "color": "#27ae60"},
-                {"name": "RSU Fracción Seca (Reciclables)", "description": "Residuos sólidos urbanos secos reciclables", "color": "#3498db"}
+                {
+                    "name": "RSU Fracción Húmeda",
+                    "description": "Residuos sólidos urbanos húmedos",
+                    "color": "#27ae60",
+                },
+                {
+                    "name": "RSU Fracción Seca (Reciclables)",
+                    "description": "Residuos sólidos urbanos secos reciclables",
+                    "color": "#3498db",
+                },
             ]
             wt_added_count = 0
             for item in default_wts:
@@ -92,7 +102,9 @@ async def seed_map_data() -> None:
                 res = await session.execute(stmt)
                 if res.scalar_one_or_none():
                     continue
-                wt = WasteType(name=name, description=item["description"], color=item["color"])
+                wt = WasteType(
+                    name=name, description=item["description"], color=item["color"]
+                )
                 session.add(wt)
                 wt_added_count += 1
             if wt_added_count > 0:
@@ -170,12 +182,38 @@ async def seed_map_data() -> None:
             else:
                 print("[INFO] No se agregaron nuevos ContainerTypes.")
         else:
-            print(f"[WARNING] Archivo {ct_file.name} NO encontrado. Cargando tipos de contenedores predeterminados...")
+            print(
+                f"[WARNING] Archivo {ct_file.name} NO encontrado. Cargando tipos de contenedores predeterminados..."
+            )
             default_cts = [
-                {"name": "RSU Fracción Húmeda - Carga Lateral", "description": "Carga Lateral Húmedo", "height_cm": 145, "volume_m3": 3.2, "overflow_zone_cm": 20},
-                {"name": "RSU Fracción Húmeda - Carga Bilateral", "description": "Carga Bilateral Húmedo", "height_cm": 165, "volume_m3": 4.0, "overflow_zone_cm": 25},
-                {"name": "RSU Fracción Húmeda - Semi Soterrado", "description": "Semi Soterrado Húmedo", "height_cm": 120, "volume_m3": 5.0, "overflow_zone_cm": 15},
-                {"name": "RSU Fracción Seca - Carga Lateral", "description": "Carga Lateral Seco", "height_cm": 145, "volume_m3": 3.2, "overflow_zone_cm": 20}
+                {
+                    "name": "RSU Fracción Húmeda - Carga Lateral",
+                    "description": "Carga Lateral Húmedo",
+                    "height_cm": 145,
+                    "volume_m3": 3.2,
+                    "overflow_zone_cm": 20,
+                },
+                {
+                    "name": "RSU Fracción Húmeda - Carga Bilateral",
+                    "description": "Carga Bilateral Húmedo",
+                    "height_cm": 165,
+                    "volume_m3": 4.0,
+                    "overflow_zone_cm": 25,
+                },
+                {
+                    "name": "RSU Fracción Húmeda - Semi Soterrado",
+                    "description": "Semi Soterrado Húmedo",
+                    "height_cm": 120,
+                    "volume_m3": 5.0,
+                    "overflow_zone_cm": 15,
+                },
+                {
+                    "name": "RSU Fracción Seca - Carga Lateral",
+                    "description": "Carga Lateral Seco",
+                    "height_cm": 145,
+                    "volume_m3": 3.2,
+                    "overflow_zone_cm": 20,
+                },
             ]
             ct_added_count = 0
             for item in default_cts:
@@ -189,22 +227,26 @@ async def seed_map_data() -> None:
                     description=item["description"],
                     height_cm=item["height_cm"],
                     volume_m3=item["volume_m3"],
-                    overflow_zone_cm=item["overflow_zone_cm"]
+                    overflow_zone_cm=item["overflow_zone_cm"],
                 )
-                
+
                 if "Fracción Húmeda" in name:
-                    stmt_wt = select(WasteType).where(WasteType.name == "RSU Fracción Húmeda")
+                    stmt_wt = select(WasteType).where(
+                        WasteType.name == "RSU Fracción Húmeda"
+                    )
                     res_wt = await session.execute(stmt_wt)
                     wt_obj = res_wt.scalar_one_or_none()
                     if wt_obj:
                         ct.waste_types.append(wt_obj)
                 elif "Fracción Seca" in name:
-                    stmt_wt = select(WasteType).where(WasteType.name == "RSU Fracción Seca (Reciclables)")
+                    stmt_wt = select(WasteType).where(
+                        WasteType.name == "RSU Fracción Seca (Reciclables)"
+                    )
                     res_wt = await session.execute(stmt_wt)
                     wt_obj = res_wt.scalar_one_or_none()
                     if wt_obj:
                         ct.waste_types.append(wt_obj)
-                        
+
                 session.add(ct)
                 ct_added_count += 1
             if ct_added_count > 0:
@@ -229,7 +271,15 @@ async def seed_map_data() -> None:
 
             # Contadores para estadísticas del log final
             stats = {"success": 0, "no_id": 0, "duplicate": 0, "bad_geom": 0}
-            cached_types = {}
+            existing_site_ids = set(
+                (await session.execute(select(Container.site_id))).scalars()
+            )
+            cached_types = {
+                container_type.name: container_type
+                for container_type in (
+                    await session.execute(select(ContainerType))
+                ).scalars()
+            }
 
             for index, f in enumerate(features):
                 props = f.get("properties", {})
@@ -238,13 +288,12 @@ async def seed_map_data() -> None:
                 if not site_id:
                     stats["no_id"] += 1
                     continue
+                site_id = str(site_id)
 
-                # Evitamos duplicados de contenedores individuales
-                stmt = select(Container).where(Container.site_id == site_id)
-                res = await session.execute(stmt)
-                if res.scalar_one_or_none():
+                if site_id in existing_site_ids:
                     stats["duplicate"] += 1
                     continue
+                existing_site_ids.add(site_id)
 
                 geom = f.get("geometry", {})
                 coords = geom.get("coordinates") or []
@@ -256,7 +305,7 @@ async def seed_map_data() -> None:
                 # Mapeamos según CodEquipa de BA Data
                 cod_equipa = str(props.get("CodEquipa", "")).upper()
                 if cod_equipa == "LATERAL":
-                    type_target = "RSU Fracción Húmeda - Carga Lateral" 
+                    type_target = "RSU Fracción Húmeda - Carga Lateral"
                 elif cod_equipa == "BILATERAL":
                     type_target = "RSU Fracción Húmeda - Carga Bilateral"
                 elif cod_equipa == "SOTERRADO":
@@ -264,31 +313,21 @@ async def seed_map_data() -> None:
                 else:
                     type_target = "RSU Fracción Húmeda - Carga Lateral"
 
-                # Obtenemos el ContainerType correspondiente utilizando la caché local
-                if type_target in cached_types:
-                    ct = cached_types[type_target]
-                else:
-                    stmt_ct = select(ContainerType).where(
-                        ContainerType.name == type_target
+                ct = cached_types.get(type_target)
+                if not ct:
+                    print(
+                        f"[WARNING] El tipo '{type_target}' no existía en DB. Creándolo al vuelo."
                     )
-                    res_ct = await session.execute(stmt_ct)
-                    ct = res_ct.scalar_one_or_none()
-
-                    if not ct:
-                        print(
-                            f"[WARNING] El tipo '{type_target}' no existía en DB. Creándolo al vuelo."
-                        )
-                        ct = ContainerType(name=type_target)
-                        stmt_wt = select(WasteType).where(
-                            WasteType.name == "RSU Fracción Húmeda"
-                        )
-                        res_wt = await session.execute(stmt_wt)
-                        wt_humeda = res_wt.scalar_one_or_none()
-                        if wt_humeda:
-                            ct.waste_types.append(wt_humeda)
-                        session.add(ct)
-                        await session.flush()
-
+                    ct = ContainerType(name=type_target)
+                    stmt_wt = select(WasteType).where(
+                        WasteType.name == "RSU Fracción Húmeda"
+                    )
+                    res_wt = await session.execute(stmt_wt)
+                    wt_humeda = res_wt.scalar_one_or_none()
+                    if wt_humeda:
+                        ct.waste_types.append(wt_humeda)
+                    session.add(ct)
+                    await session.flush()
                     cached_types[type_target] = ct
 
                 container = Container(
@@ -327,10 +366,10 @@ async def seed_map_data() -> None:
                     "[INFO] No se envió nada a la base de datos porque no hubo registros nuevos válidos."
                 )
         else:
-            print(f"[WARNING] Archivo {cont_file.name} NO encontrado. Generando contenedores sintéticos de respaldo...")
-            import random
-            from app.models.map.neighborhood_demographic import NeighborhoodDemographic
-            
+            print(
+                f"[WARNING] Archivo {cont_file.name} NO encontrado. Generando contenedores sintéticos de respaldo..."
+            )
+
             # CABA_ZONES = [
             #     ("Palermo", -34.5832, -58.4243),
             #     ("Recoleta", -34.5889, -58.3974),
@@ -338,7 +377,7 @@ async def seed_map_data() -> None:
             #     ("Caballito", -34.6180, -58.4410),
             #     ("Flores", -34.6282, -58.4633),
             # ]
-            
+
             # # Esto es solo para que aparezcan las zonas cargadas las varibables container.zone en el front.
             # # for idx, (zone_name, base_lat, base_lng) in enumerate(CABA_ZONES):
             # #     stmt_barrio_check = select(NeighborhoodDemographic).where(NeighborhoodDemographic.neighborhood == zone_name)
@@ -347,10 +386,10 @@ async def seed_map_data() -> None:
             # #         lng_min, lng_max = base_lng - 0.005, base_lng + 0.005
             # #         lat_min, lat_max = base_lat - 0.005, base_lat + 0.005
             # #         wkt_geom = f"MULTIPOLYGON((({lng_min} {lat_min}, {lng_max} {lat_min}, {lng_max} {lat_max}, {lng_min} {lat_max}, {lng_min} {lat_min})))"
-                    
+
             # #         densities = [1.2, 1.5, 1.3, 1.1, 0.9]
             # #         factor = densities[idx % len(densities)]
-                    
+
             # #         barrio = NeighborhoodDemographic(
             # #             neighborhood=zone_name,
             # #             commune=f"Comuna {idx + 1}",
@@ -364,7 +403,7 @@ async def seed_map_data() -> None:
             # #         )
             # #         session.add(barrio)
             # # await session.flush()
-            
+
             # stmt_cts = select(ContainerType)
             # res_cts = await session.execute(stmt_cts)
             # cts = res_cts.scalars().all()
@@ -379,7 +418,7 @@ async def seed_map_data() -> None:
             #     session.add(default_ct)
             #     await session.flush()
             #     cts = [default_ct]
-            
+
             # # Inicializamos el generador de números aleatorios con una semilla fija (42) para que las posiciones sean reproducibles
             # rng = random.Random(42)
             # stats = {"success": 0}
@@ -392,7 +431,7 @@ async def seed_map_data() -> None:
             #     lng = base_lng + rng.uniform(-0.004, 0.004)
             #     # Formateamos el ID del sitio con relleno de ceros (ej: SITE-SYNTH-0001)
             #     site_id = f"SITE-SYNTH-{i + 1:04d}"
-                
+
             #     # Verificamos si ya existe un contenedor con este site_id en la base de datos para evitar duplicados
             #     stmt_dup = select(Container).where(Container.site_id == site_id)
             #     res_dup = await session.execute(stmt_dup)
@@ -424,7 +463,7 @@ async def seed_map_data() -> None:
             #     )
             #     session.add(container)
             #     stats["success"] += 1
-            
+
             # # Si se añadieron nuevos registros, confirmamos los cambios físicos en la base de datos
             # if stats["success"] > 0:
             #     print(f"[OK] Se generaron {stats['success']} contenedores sintéticos de respaldo.")

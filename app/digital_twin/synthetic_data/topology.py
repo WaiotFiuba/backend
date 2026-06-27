@@ -31,7 +31,9 @@ class SimulationTopology:
     initial_levels: dict[str, float]
 
 
-def topology_from_backend_records(records: Sequence[BackendContainerRecord]) -> SimulationTopology:
+def topology_from_backend_records(
+    records: Sequence[BackendContainerRecord],
+) -> SimulationTopology:
     sites_by_id: dict[str, Site] = {}
     containers: list[Container] = []
     devices: list[Device] = []
@@ -76,7 +78,9 @@ def topology_from_backend_records(records: Sequence[BackendContainerRecord]) -> 
     )
 
 
-def topology_from_backend_api(payload: Sequence[dict[str, object]]) -> SimulationTopology:
+def topology_from_backend_api(
+    payload: Sequence[dict[str, object]],
+) -> SimulationTopology:
     records = [_record_from_backend_api_item(item) for item in payload]
     return topology_from_backend_records(records)
 
@@ -90,7 +94,9 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
 
     if isinstance(container_type, dict):
         raw_container_type_name = container_type.get("name")
-        container_type_name = str(raw_container_type_name) if raw_container_type_name else None
+        container_type_name = (
+            str(raw_container_type_name) if raw_container_type_name else None
+        )
         raw_height_cm = container_type.get("height_cm")
         height_cm = float(raw_height_cm) if raw_height_cm is not None else None
         raw_volume_m3 = container_type.get("volume_m3")
@@ -100,7 +106,9 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
             first_waste_type = waste_types[0]
             if isinstance(first_waste_type, dict):
                 raw_waste_type_name = first_waste_type.get("name")
-                waste_type_name = str(raw_waste_type_name) if raw_waste_type_name else None
+                waste_type_name = (
+                    str(raw_waste_type_name) if raw_waste_type_name else None
+                )
 
     container_id = item["id"]
     site_id = item["site_id"]

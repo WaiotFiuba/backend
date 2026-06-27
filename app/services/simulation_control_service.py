@@ -36,7 +36,15 @@ async def create_simulation(
         )
 
     try:
-        config = scenario_from_mapping(payload.scenario)
+        scenario_data = dict(payload.scenario)
+        if payload.start_time is not None:
+            scenario_data["start"] = payload.start_time
+        if (
+            "frequency_minutes" not in scenario_data
+            and payload.transition_minutes is not None
+        ):
+            scenario_data["frequency_minutes"] = payload.transition_minutes
+        config = scenario_from_mapping(scenario_data)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _validate_neighborhoods(
@@ -52,7 +60,7 @@ async def create_simulation(
         global_demand_start=payload.global_demand_multiplier,
         global_demand_target=payload.global_demand_multiplier,
         transition_minutes=payload.transition_minutes,
-        simulated_time=_as_utc(config.start),
+        simulated_time=None,
         total_periods=config.periods,
         created_by=user_id,
     )
@@ -200,13 +208,16 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
         await db.execute(
             select(NeighborhoodDemographic)
             .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
+            .options(
+                joinedload(NeighborhoodDemographic.neighborhood).joinedload(Barrio.comuna)
+            )
             .order_by(Barrio.nombre)
         )
     ).scalars()
     return [
         ZoneDemandRead(
             neighborhood=row.neighborhood.nombre,
-            commune=str(row.neighborhood.commune.commune) if row.neighborhood.comuna else None,
+            commune=str(row.neighborhood.comuna.comuna) if row.neighborhood.comuna else None,
             population=row.population,
             year=row.year,
             source=row.source,
@@ -254,11 +265,15 @@ def _set_session_transition(
     session.global_demand_start = current
     session.global_demand_target = target
     session.transition_started_at = now
-    session.transition_ends_at = now + timedelta(minutes=transition_minutes) if now else None
+    session.transition_ends_at = (
+        now + timedelta(minutes=transition_minutes) if now else None
+    )
 
 
 async def _set_zone_transitions(db, session, requested, transition_minutes) -> None:
-    existing = {item.neighborhood: item for item in await _zone_overrides(db, session.id)}
+    existing = {
+        item.neighborhood: item for item in await _zone_overrides(db, session.id)
+    }
     for override in requested:
         item = existing.get(override.neighborhood)
         if item is None:
@@ -295,7 +310,9 @@ async def _active_session(db: AsyncSession) -> SimulationSession | None:
     return result.scalar_one_or_none()
 
 
-async def _zone_overrides(db: AsyncSession, simulation_id: int) -> list[SimulationZoneOverride]:
+async def _zone_overrides(
+    db: AsyncSession, simulation_id: int
+) -> list[SimulationZoneOverride]:
     return list(
         (
             await db.execute(
@@ -323,7 +340,9 @@ async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
         )
 
 
-async def _simulation_read(db: AsyncSession, session: SimulationSession) -> SimulationRead:
+async def _simulation_read(
+    db: AsyncSession, session: SimulationSession
+) -> SimulationRead:
     overrides = await _zone_overrides(db, session.id)
     return SimulationRead(
         id=session.id,
@@ -369,7 +388,11 @@ async def _simulation_read(db: AsyncSession, session: SimulationSession) -> Simu
 
 def _scenario_record(config) -> dict[str, object]:
     return {
-        key: value.isoformat() if isinstance(value, datetime) else list(value) if isinstance(value, tuple) else value
+        key: value.isoformat()
+        if isinstance(value, datetime)
+        else list(value)
+        if isinstance(value, tuple)
+        else value
         for key, value in config.__dict__.items()
     }
 
