@@ -57,3 +57,6 @@ class Container(MapBase):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     container_type: Mapped["ContainerType"] = relationship(back_populates="containers")
+    spatial_metadata: Mapped["CabaContainerSpatialMetadata | None"] = relationship(
+        back_populates="container", uselist=False
+    )

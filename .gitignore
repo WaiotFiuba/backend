@@ -20,6 +20,7 @@ venv/
 db/datos/*.json
 db/datos/*.csv
 db/datos/*.geojson
+db/datos/*.txt
 db/datos/*.xls
 
 # Tests

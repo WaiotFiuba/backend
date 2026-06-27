@@ -93,3 +93,9 @@ class ContainerStatsOutputSchema(BaseModel):
     available: int
     avg_fill: int
     alert_level: int
+
+
+class PaginatedContainersOutputSchema(BaseModel):
+    items: List[ContainersMapOutputSchema]
+    total: int
+

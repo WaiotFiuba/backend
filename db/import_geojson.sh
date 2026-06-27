@@ -119,6 +119,10 @@ for filepath in "$IMPORT_DIR"/*.geojson; do
             --config PG_USE_COPY YES \
             -skipfailures
 
+        # Crear índice espacial para acelerar búsquedas por cercanía.
+        psql "${PSQL_ARGS[@]}" -v ON_ERROR_STOP=1 -c "CREATE INDEX IF NOT EXISTS \"idx_${filename}_geom\" ON \"${filename}\" USING GIST (geom);" >/dev/null
+        psql "${PSQL_ARGS[@]}" -v ON_ERROR_STOP=1 -c "ANALYZE \"${filename}\";" >/dev/null
+
         # --- Validación de integridad post-importación ---
         # Contar features en el archivo fuente
         SOURCE_COUNT=$(ogrinfo -al -so "$filepath" 2>/dev/null | grep "Feature Count" | awk '{print $3}')

@@ -9,6 +9,7 @@ from geoalchemy2 import functions as geo_funcs
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.waste_type import WasteType
+from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata, Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.schemas.map.container import ContainersMapOutputSchema, ContainerCluster
 
@@ -74,7 +75,7 @@ def _base_select():
             ContainerType.overflow_zone_cm,
             WasteType.name.label("waste_type_name"),
             WasteType.color.label("waste_type_color"),
-            NeighborhoodDemographic.neighborhood.label("zone"),
+            Barrio.nombre.label("zone"),
             NeighborhoodDemographic.density_factor,
         )
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
@@ -86,8 +87,15 @@ def _base_select():
             WasteType, container_type_waste_types.c.waste_type_id == WasteType.id
         )
         .outerjoin(
+            CabaContainerSpatialMetadata,
+            CabaContainerSpatialMetadata.container_id == Container.id,
+        )
+        .outerjoin(
+            Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
+        )
+        .outerjoin(
             NeighborhoodDemographic,
-            geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
+            NeighborhoodDemographic.neighborhood_id == Barrio.id,
         )
     )
 
@@ -222,3 +230,58 @@ async def get_container_stats(db: AsyncSession) -> dict:
         "avg_fill": avg_fill,
         "alert_level": alert_level,
     }
+
+
+async def get_all_containers_paginated(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 10,
+    search: str | None = None,
+    type: str | None = None,
+    only_alerts: bool = False,
+) -> dict:
+    stmt = _base_select()
+    filters = []
+
+    if search:
+        from sqlalchemy import cast, String
+        filters.append(
+            (Container.site_id.ilike(f"%{search}%")) |
+            (Container.site_name.ilike(f"%{search}%")) |
+            (Barrio.nombre.ilike(f"%{search}%")) |
+            (cast(Container.id, String).ilike(f"%{search}%"))
+        )
+    if type and type != 'all':
+        filters.append(ContainerType.name.ilike(f"%{type}%"))
+    if only_alerts:
+        filters.append(Container.current_level >= 80)
+
+    if filters:
+        stmt = stmt.where(*filters)
+
+    # Count total matching records
+    count_stmt = select(func.count(Container.id)).outerjoin(
+        ContainerType, Container.container_type_id == ContainerType.id
+    ).outerjoin(
+        CabaContainerSpatialMetadata, CabaContainerSpatialMetadata.container_id == Container.id
+    ).outerjoin(
+        Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
+    )
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # Fetch paginated items
+    offset = (page - 1) * page_size
+    stmt = stmt.order_by(Container.id).limit(page_size).offset(offset)
+    result = await db.execute(stmt)
+    rows = result.mappings().all()
+    items = [_row_to_container(row) for row in rows]
+
+    return {
+        "items": items,
+        "total": total
+    }
+

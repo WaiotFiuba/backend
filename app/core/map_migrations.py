@@ -435,41 +435,19 @@ async def seed_map_data() -> None:
 
 
 async def _seed_neighborhood_demographics(datos_dir: Path) -> None:
-    print("\n[5/5] Iniciando carga de barrios y poblacion...")
-    geojson_file = next(
-        (
-            path
-            for path in (
-                datos_dir / "barrios.geojson",
-                datos_dir / "barrios.json",
-            )
-            if path.exists()
-        ),
-        None,
-    )
+    print("\n[5/5] Iniciando carga de poblacion por barrio...")
     population_file = datos_dir / "poblacion_barrios.csv"
 
-    missing = [
-        name
-        for name, path in (
-            ("barrios.geojson o barrios.json", geojson_file),
-            ("poblacion_barrios.csv", population_file if population_file.exists() else None),
-        )
-        if path is None
-    ]
-    if missing:
+    if not population_file.exists():
         print(
-            "[WARNING] No se cargaron datos demograficos. Archivos faltantes: "
-            + ", ".join(missing)
+            "[WARNING] No se cargaron datos demograficos. Archivo faltante: "
+            "poblacion_barrios.csv"
         )
         return
 
-    report = await import_neighborhood_demographics(
-        geojson_path=geojson_file,
-        population_csv_path=population_file,
-    )
+    report = await import_neighborhood_demographics(population_csv_path=population_file)
     print(
-        "[OK] Barrios y poblacion cargados. "
+        "[OK] Poblacion cargada. "
         f"Importados/actualizados: {report['imported']}; "
         f"sin correspondencia: {len(report['unmatched'])}; "
         f"densidad mediana: {report['median_density_per_km2']} hab/km2."

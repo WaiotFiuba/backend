@@ -1,18 +1,17 @@
 """add geographic simulation control
 
 Revision ID: d4f07c8e6a12
-Revises: 9c1f2f1a7b8d
+Revises: a7d9f3c1b2e4
 Create Date: 2026-06-08 00:00:00.000000
 
 """
 from typing import Sequence, Union
 
 from alembic import op
-import geoalchemy2
 import sqlalchemy as sa
 
 revision: str = "d4f07c8e6a12"
-down_revision: Union[str, Sequence[str], None] = "9c1f2f1a7b8d"
+down_revision: Union[str, Sequence[str], None] = "a7d9f3c1b2e4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -21,33 +20,18 @@ def upgrade() -> None:
     op.create_table(
         "neighborhood_demographics",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("neighborhood", sa.String(), nullable=False),
-        sa.Column("commune", sa.String(), nullable=True),
+        sa.Column("neighborhood_id", sa.Integer(), nullable=False),
         sa.Column("population", sa.Integer(), nullable=False),
         sa.Column("year", sa.Integer(), nullable=False),
         sa.Column("source", sa.Text(), nullable=False),
         sa.Column("area_km2", sa.DOUBLE_PRECISION(), nullable=False),
         sa.Column("density_per_km2", sa.DOUBLE_PRECISION(), nullable=False),
         sa.Column("density_factor", sa.DOUBLE_PRECISION(), nullable=False),
-        sa.Column(
-            "geom",
-            geoalchemy2.types.Geometry(
-                geometry_type="MULTIPOLYGON",
-                srid=4326,
-                spatial_index=False,
-            ),
-            nullable=False,
-        ),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("neighborhood"),
-    )
-    op.create_index(
-        "idx_neighborhood_demographics_geom",
-        "neighborhood_demographics",
-        ["geom"],
-        postgresql_using="gist",
+        sa.ForeignKeyConstraint(["neighborhood_id"], ["barrios.id"], ondelete="CASCADE"),
+        sa.UniqueConstraint("neighborhood_id"),
     )
     op.create_table(
         "simulation_sessions",
@@ -82,7 +66,7 @@ def upgrade() -> None:
         [sa.text("(1)")],
         unique=True,
         postgresql_where=sa.text(
-            "status IN ('pending', 'running', 'paused', 'stopping')"
+            "status IN ('pendinNDemogg', 'running', 'paused', 'stopping')"
         ),
     )
     op.create_table(
@@ -109,9 +93,4 @@ def downgrade() -> None:
     )
     op.drop_index("idx_simulation_sessions_status", table_name="simulation_sessions")
     op.drop_table("simulation_sessions")
-    op.drop_index(
-        "idx_neighborhood_demographics_geom",
-        table_name="neighborhood_demographics",
-        postgresql_using="gist",
-    )
     op.drop_table("neighborhood_demographics")
