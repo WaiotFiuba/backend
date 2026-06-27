@@ -87,15 +87,57 @@ async def _run_session(simulation_id: int) -> None:
             control = await _wait_until_runnable(simulation_id)
             if control is None:
                 return
-            simulated_time = config.start + timedelta(
-                minutes=period * config.frequency_minutes
-            )
-            simulated_time = _as_utc(simulated_time)
-            controls = await _effective_controls(
-                simulation_id,
-                simulated_time,
-            )
-            await _publish_tick_time(simulation_id, simulated_time)
+
+            # Consolidar lectura de controles y actualización de simulated_time al inicio del tick
+            async with MapSessionLocal() as db:
+                session = await db.get(SimulationSession, simulation_id)
+                if session is None or session.status not in ACTIVE_STATUSES:
+                    return
+                
+                simulated_time = config.start + timedelta(
+                    minutes=period * config.frequency_minutes
+                )
+                simulated_time = _as_utc(simulated_time)
+                session.simulated_time = simulated_time
+                
+                global_multiplier = effective_multiplier(
+                    session.global_demand_start,
+                    session.global_demand_target,
+                    simulated_time,
+                    session.transition_started_at,
+                    session.transition_ends_at,
+                )
+                
+                overrides_result = await db.execute(
+                    select(SimulationZoneOverride).where(
+                        SimulationZoneOverride.simulation_id == simulation_id
+                    )
+                )
+                overrides = overrides_result.scalars().all()
+                
+                controls = ControlSnapshot(
+                    speedup=session.speedup,
+                    global_current=global_multiplier,
+                    global_target=session.global_demand_target,
+                    zones=tuple(
+                        sorted(
+                            (
+                                item.neighborhood,
+                                effective_multiplier(
+                                    item.multiplier_start,
+                                    item.multiplier_target,
+                                    simulated_time,
+                                    item.transition_started_at,
+                                    item.transition_ends_at,
+                                ),
+                                item.multiplier_target,
+                            )
+                            for item in overrides
+                        )
+                    ),
+                )
+                await db.commit()
+
             if _control_targets(controls) != _control_targets(previous_controls):
                 _log_control_change(simulation_id, previous_controls, controls)
             previous_controls = controls
@@ -125,6 +167,7 @@ async def _run_session(simulation_id: int) -> None:
                 session.global_demand_current = controls.global_current
                 session.collections_generated += len(tick.collections)
                 session.alarms_generated += len(tick.alarms)
+                session.measurements_sent += delivery.sent
                 speedup = session.speedup
                 await db.commit()
             logger.info(
@@ -231,22 +274,7 @@ async def _record_delivered_measurements(
     simulation_id: int,
     sent: int,
 ) -> None:
-    async with MapSessionLocal() as db:
-        session = await db.get(SimulationSession, simulation_id)
-        if session is not None:
-            session.measurements_sent += sent
-            await db.commit()
-
-
-async def _publish_tick_time(
-    simulation_id: int,
-    simulated_time: datetime,
-) -> None:
-    async with MapSessionLocal() as db:
-        session = await db.get(SimulationSession, simulation_id)
-        if session is not None:
-            session.simulated_time = simulated_time
-            await db.commit()
+    pass
 
 
 def _remaining_tick_delay(
@@ -294,51 +322,6 @@ async def _wait_between_ticks(simulation_id: int, delay_seconds: float) -> bool:
                 if await _wait_until_runnable(simulation_id) is None:
                     return False
     return True
-
-
-async def _effective_controls(
-    simulation_id: int,
-    simulated_time: datetime,
-) -> ControlSnapshot:
-    async with MapSessionLocal() as db:
-        session = await db.get(SimulationSession, simulation_id)
-        if session is None:
-            return ControlSnapshot(1.0, 1.0, 1.0, ())
-        global_multiplier = effective_multiplier(
-            session.global_demand_start,
-            session.global_demand_target,
-            simulated_time,
-            session.transition_started_at,
-            session.transition_ends_at,
-        )
-        overrides = (
-            await db.execute(
-                select(SimulationZoneOverride).where(
-                    SimulationZoneOverride.simulation_id == simulation_id
-                )
-            )
-        ).scalars()
-        return ControlSnapshot(
-            speedup=session.speedup,
-            global_current=global_multiplier,
-            global_target=session.global_demand_target,
-            zones=tuple(
-                sorted(
-                    (
-                        item.neighborhood,
-                        effective_multiplier(
-                            item.multiplier_start,
-                            item.multiplier_target,
-                            simulated_time,
-                            item.transition_started_at,
-                            item.transition_ends_at,
-                        ),
-                        item.multiplier_target,
-                    )
-                    for item in overrides
-                )
-            ),
-        )
 
 
 async def _next_pending_session_id() -> int | None:

@@ -15,13 +15,53 @@ async def ingest_telemetry_batch(
     db: AsyncSession,
     measurements: list[TelemetryIngestPayload],
 ) -> TelemetryIngestResult:
+    # Recolectar todos los container_ids y device_ids (IMEIs) del lote
+    container_ids = []
+    device_ids = []
+    for m in measurements:
+        if m.container_id:
+            try:
+                container_ids.append(int(m.container_id))
+            except ValueError:
+                pass
+        if m.device_id:
+            device_ids.append(m.device_id)
+
+    # Realizar una única consulta para traer todos los contenedores coincidentes
+    containers = []
+    if container_ids or device_ids:
+        query = _container_select().where(
+            or_(
+                Container.id.in_(container_ids),
+                Container.device_imei.in_(device_ids)
+            )
+        )
+        result = await db.execute(query)
+        containers = result.scalars().all()
+
+    # Indexar los contenedores en memoria para búsquedas rápidas
+    container_by_id = {c.id: c for c in containers}
+    container_by_imei = {c.device_imei: c for c in containers if c.device_imei}
+
     updated = 0
     not_found = 0
 
     for measurement in measurements:
-        container = await _find_container(db, measurement)
+        # Buscar el contenedor en memoria
+        container = None
+        try:
+            cid = int(measurement.container_id) if measurement.container_id else None
+        except ValueError:
+            cid = None
+
+        if cid is not None and cid in container_by_id:
+            container = container_by_id[cid]
+        elif measurement.device_id in container_by_imei:
+            container = container_by_imei[measurement.device_id]
+
         neighborhood = container.spatial_metadata.barrio if container and container.spatial_metadata else None
         db.add(_data_level_row(measurement, container, neighborhood))
+        
         if container is None:
             not_found += 1
             continue
@@ -42,29 +82,6 @@ async def ingest_telemetry_batch(
         updated=updated,
         not_found=not_found,
     )
-
-
-async def _find_container(
-    db: AsyncSession,
-    measurement: TelemetryIngestPayload,
-) -> Container | None:
-    try:
-        container_id = int(measurement.container_id)
-    except ValueError:
-        container_id = None
-
-    if container_id is not None:
-        result = await db.execute(
-            _container_select().where(Container.id == container_id)
-        )
-        container = result.scalar_one_or_none()
-        if container is not None:
-            return container
-
-    result = await db.execute(
-        _container_select().where(Container.device_imei == measurement.device_id)
-    )
-    return result.scalar_one_or_none()
 
 
 def _container_select():
