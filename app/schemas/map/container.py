@@ -99,3 +99,16 @@ class ContainerCreateSchema(BaseModel):
     container_type_id: int
     address: str | None = None
     description: str | None = None
+
+
+class ContainerStatsOutputSchema(BaseModel):
+    total: int
+    available: int
+    avg_fill: int
+    alert_level: int
+
+
+class PaginatedContainersOutputSchema(BaseModel):
+    items: List[ContainersMapOutputSchema]
+    total: int
+

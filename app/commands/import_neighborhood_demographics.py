@@ -9,9 +9,12 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import select, text
+from geoalchemy2 import Geography
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.map_database import MapSessionLocal
+from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 
 
@@ -30,78 +33,66 @@ def normalize_neighborhood(value: str) -> str:
 
 
 async def import_neighborhood_demographics(
-    geojson_path: str | Path,
     population_csv_path: str | Path,
     year: int = 2010,
     source: str = "Censo 2010",
 ) -> dict[str, object]:
     populations = _read_populations(population_csv_path, year=year, source=source)
-    features = _read_features(geojson_path)
     matched: list[str] = []
     unmatched: list[str] = []
 
     async with MapSessionLocal() as session:
-        for feature in features:
-            properties = feature.get("properties") or {}
-            neighborhood = _property(properties, "barrio", "neighborhood", "nombre")
-            if not neighborhood:
-                continue
-            population = populations.get(normalize_neighborhood(neighborhood))
+        # Trae cada barrio junto con su área en km2, calculada desde su geom (ya en la base)
+        rows = (
+            await session.execute(
+                select(
+                    Barrio,
+                    (func.ST_Area(cast(Barrio.geom, Geography)) / 1_000_000.0).label("area_km2"),
+                )
+            )
+        ).all()
+
+        for barrio, area_km2 in rows:
+            population = populations.get(normalize_neighborhood(barrio.nombre))
             if population is None:
-                unmatched.append(neighborhood)
+                unmatched.append(barrio.nombre)
                 continue
 
-            commune = _property(properties, "comuna", "commune")
-            geometry = json.dumps(feature.get("geometry"))
-            area_km2 = await session.scalar(
-                select(
-                    text(
-                        "ST_Area(ST_SetSRID(ST_GeomFromGeoJSON(:geometry), 4326)::geography) / 1000000.0"
-                    )
-                ).params(geometry=geometry)
-            )
             density = population.population / float(area_km2)
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO neighborhood_demographics
-                        (neighborhood, commune, population, year, source, area_km2,
-                         density_per_km2, density_factor, geom)
-                    VALUES
-                        (:neighborhood, :commune, :population, :year, :source, :area_km2,
-                         :density, 1.0,
-                         ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(:geometry), 4326)))
-                    ON CONFLICT (neighborhood) DO UPDATE SET
-                        commune = EXCLUDED.commune,
-                        population = EXCLUDED.population,
-                        year = EXCLUDED.year,
-                        source = EXCLUDED.source,
-                        area_km2 = EXCLUDED.area_km2,
-                        density_per_km2 = EXCLUDED.density_per_km2,
-                        geom = EXCLUDED.geom,
-                        updated_at = now()
-                    """
-                ),
-                {
-                    "neighborhood": neighborhood,
-                    "commune": commune,
-                    "population": population.population,
-                    "year": population.year,
-                    "source": population.source,
-                    "area_km2": area_km2,
-                    "density": density,
-                    "geometry": geometry,
-                },
+
+            stmt = (
+                pg_insert(NeighborhoodDemographic)
+                .values(
+                    neighborhood_id=barrio.id,
+                    population=population.population,
+                    year=population.year,
+                    source=population.source,
+                    area_km2=area_km2,
+                    density_per_km2=density,
+                    density_factor=1.0,
+                )
+                .on_conflict_do_update(
+                    index_elements=["neighborhood_id"],
+                    set_={
+                        "population": population.population,
+                        "year": population.year,
+                        "source": population.source,
+                        "area_km2": area_km2,
+                        "density_per_km2": density,
+                        "updated_at": func.now(),
+                    },
+                )
             )
-            matched.append(neighborhood)
+            await session.execute(stmt)
+            matched.append(barrio.nombre)
 
         await session.flush()
-        rows = (await session.execute(select(NeighborhoodDemographic))).scalars().all()
+        demographics = (await session.execute(select(NeighborhoodDemographic))).scalars().all()
         median_density = (
-            statistics.median(row.density_per_km2 for row in rows) if rows else 0
+            statistics.median(row.density_per_km2 for row in demographics) if demographics else 0
         )
         if median_density:
-            for row in rows:
+            for row in demographics:
                 row.density_factor = density_factor(row.density_per_km2, median_density)
         await session.commit()
 
@@ -139,28 +130,8 @@ def _read_populations(
         }
 
 
-def _read_features(path: str | Path) -> list[dict[str, object]]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    features = payload.get("features")
-    if not isinstance(features, list):
-        raise ValueError("El GeoJSON debe ser un FeatureCollection.")
-    return features
-
-
-def _property(properties: dict[str, object], *names: str) -> str | None:
-    normalized = {str(key).casefold(): value for key, value in properties.items()}
-    for name in names:
-        value = normalized.get(name.casefold())
-        if value not in (None, ""):
-            return str(value)
-    return None
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Importa demografia por barrio a PostGIS."
-    )
-    parser.add_argument("--geojson", type=Path, required=True)
+    parser = argparse.ArgumentParser(description="Importa demografia por barrio usando los barrios ya en PostGIS.")
     parser.add_argument("--population-csv", type=Path, required=True)
     parser.add_argument("--year", type=int, default=2010)
     parser.add_argument("--source", default="Censo 2010")
@@ -169,7 +140,6 @@ def main() -> None:
         json.dumps(
             asyncio.run(
                 import_neighborhood_demographics(
-                    args.geojson,
                     args.population_csv,
                     year=args.year,
                     source=args.source,

@@ -615,7 +615,7 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
         db.execute = AsyncMock()
         db.commit = AsyncMock()
         mock_result = MagicMock()
-        mock_result.all.return_value = [(container, None)]
+        mock_result.scalars.return_value.all.return_value = [container]
         db.execute.return_value = mock_result
 
         result = await ingest_telemetry_batch(db, [payload])

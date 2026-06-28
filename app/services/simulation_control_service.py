@@ -6,8 +6,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
+from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.schemas.digital_twin import (
@@ -204,22 +206,25 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
         }
     rows = (
         await db.execute(
-            select(NeighborhoodDemographic).order_by(
-                NeighborhoodDemographic.neighborhood
+            select(NeighborhoodDemographic)
+            .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
+            .options(
+                joinedload(NeighborhoodDemographic.neighborhood).joinedload(Barrio.comuna)
             )
+            .order_by(Barrio.nombre)
         )
     ).scalars()
     return [
         ZoneDemandRead(
-            neighborhood=row.neighborhood,
-            commune=row.commune,
+            neighborhood=row.neighborhood.nombre,
+            commune=str(row.neighborhood.comuna.comuna) if row.neighborhood.comuna else None,
             population=row.population,
             year=row.year,
             source=row.source,
             area_km2=row.area_km2,
             density_per_km2=row.density_per_km2,
             density_factor=row.density_factor,
-            multiplier_effective=overrides.get(row.neighborhood, 1.0),
+            multiplier_effective=overrides.get(row.neighborhood.nombre, 1.0),
         )
         for row in rows
     ]
@@ -324,11 +329,7 @@ async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
         return
     existing = set(
         (
-            await db.execute(
-                select(NeighborhoodDemographic.neighborhood).where(
-                    NeighborhoodDemographic.neighborhood.in_(names)
-                )
-            )
+            await db.execute(select(Barrio.nombre).where(Barrio.nombre.in_(names)))
         ).scalars()
     )
     missing = sorted(set(names) - existing)
@@ -394,3 +395,9 @@ def _scenario_record(config) -> dict[str, object]:
         else value
         for key, value in config.__dict__.items()
     }
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

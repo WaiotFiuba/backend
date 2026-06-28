@@ -10,6 +10,8 @@ from app.schemas.map.container import (
     ContainerCluster,
     ContainerDetailOutputSchema,
     ContainerCreateSchema,
+    ContainerStatsOutputSchema,
+    PaginatedContainersOutputSchema,
     ContainerMapSnapshot,
 )
 from app.services.map.container_service import (
@@ -18,6 +20,8 @@ from app.services.map.container_service import (
     get_container_map_snapshot,
     get_containers_clustered,
     get_container_by_id,
+    get_container_stats,
+    get_all_containers_paginated,
 )
 
 router = APIRouter(prefix="/containers", tags=["containers"])
@@ -26,16 +30,42 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 
 @router.get(
     "/",
-    response_model=List[ContainersMapOutputSchema],
+    response_model=PaginatedContainersOutputSchema,
     status_code=status.HTTP_200_OK,
-    summary="Obtener todos los contenedores para el mapa",
+    summary="Obtener contenedores con paginación y filtros",
 )
 async def read_all_containers(
-    limit: int = Query(500, ge=1, le=5000),
-    offset: int = Query(0, ge=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: str | None = Query(None),
+    type: str | None = Query(None),
+    only_alerts: bool = Query(False),
     db: AsyncSession = Depends(get_map_db),
-) -> list[ContainersMapOutputSchema]:
-    return await get_all_containers(db, limit=limit, offset=offset)
+) -> PaginatedContainersOutputSchema:
+    return await get_all_containers_paginated(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        type=type,
+        only_alerts=only_alerts,
+    )
+
+
+@router.get(
+    "/types",
+    response_model=List[dict],
+    summary="Obtener todos los tipos de contenedores",
+)
+async def read_container_types(
+    db: AsyncSession = Depends(get_map_db),
+):
+    from sqlalchemy import select
+    from app.models.map.container_type import ContainerType
+    result = await db.execute(select(ContainerType.id, ContainerType.name).order_by(ContainerType.id))
+    rows = result.all()
+    return [{"id": row[0], "name": row[1]} for row in rows]
+
 
 
 @router.get(
@@ -48,6 +78,7 @@ async def get_containers_by_bbox(
     lng_max: float = Query(...),
     zoom: int = Query(..., ge=0, le=22),
     limit: int | None = Query(None, ge=1),
+    offset: int | None = Query(None, ge=0),
     db: AsyncSession = Depends(get_map_db),
 ) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
     return await get_containers_clustered(
@@ -58,6 +89,7 @@ async def get_containers_by_bbox(
         lng_max=lng_max,
         zoom=zoom,
         limit=limit,
+        offset=offset,
     )
 
 
@@ -101,6 +133,18 @@ async def read_container_changes(
         lng_max=lng_max,
         limit=limit,
     )
+
+
+@router.get(
+    "/stats",
+    response_model=ContainerStatsOutputSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener estadísticas generales de los contenedores",
+)
+async def read_container_stats(
+    db: AsyncSession = Depends(get_map_db),
+) -> ContainerStatsOutputSchema:
+    return await get_container_stats(db)
 
 
 @router.get(

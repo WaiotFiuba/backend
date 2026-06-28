@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text, func, case
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from geoalchemy2 import functions as geo_funcs
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.waste_type import WasteType
+from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata, Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.schemas.map.container import (
     ContainerChanges,
@@ -89,7 +90,7 @@ def _base_select():
             ContainerType.overflow_zone_cm,
             WasteType.name.label("waste_type_name"),
             WasteType.color.label("waste_type_color"),
-            NeighborhoodDemographic.neighborhood.label("zone"),
+            Barrio.nombre.label("zone"),
             NeighborhoodDemographic.density_factor,
         )
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
@@ -101,8 +102,15 @@ def _base_select():
             WasteType, container_type_waste_types.c.waste_type_id == WasteType.id
         )
         .outerjoin(
+            CabaContainerSpatialMetadata,
+            CabaContainerSpatialMetadata.container_id == Container.id,
+        )
+        .outerjoin(
+            Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
+        )
+        .outerjoin(
             NeighborhoodDemographic,
-            geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
+            NeighborhoodDemographic.neighborhood_id == Barrio.id,
         )
     )
 
@@ -142,6 +150,7 @@ async def get_containers_in_bbox(
     lng_min: float,
     lng_max: float,
     limit: int = 500,
+    offset: int | None = None,
 ) -> list[ContainersMapOutputSchema]:
     # Usamos GeoAlchemy2 para armar el filtro espacial usando el índice GIST de la columna 'geom'
     # Pasamos las coordenadas en el orden correcto de PostGIS: (LngMin, LatMin, LngMax, LatMax, SRID)
@@ -151,6 +160,8 @@ async def get_containers_in_bbox(
         .order_by(Container.id)
         .limit(limit)
     )
+    if offset is not None:
+        query = query.offset(offset)
 
     result = await db.execute(query)
     rows = result.mappings().all()
@@ -238,13 +249,14 @@ async def get_containers_clustered(
     lng_max: float,
     zoom: int,
     limit: int = 500,
+    offset: int | None = None,
 ) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
     grid_size = _zoom_to_grid_size(zoom)
 
     # Si el zoom es muy cercano, delegamos al BBox de puntos exactos
     if grid_size is None:
         return await get_containers_in_bbox(
-            db, lat_min, lat_max, lng_min, lng_max, limit
+            db, lat_min, lat_max, lng_min, lng_max, limit, offset
         )
 
     # Query optimizada con ST_SnapToGrid y ST_Centroid para obtener el centro real del cluster
@@ -256,7 +268,8 @@ async def get_containers_clustered(
         FROM containers
         WHERE geom && ST_MakeEnvelope(:lng_min, :lat_min, :lng_max, :lat_max, 4326)
         GROUP BY ST_SnapToGrid(geom, :grid_size)
-        LIMIT :limit;
+        LIMIT :limit
+        OFFSET :offset;
     """)
 
     result = await db.execute(
@@ -268,6 +281,7 @@ async def get_containers_clustered(
             "lng_min": lng_min,
             "lng_max": lng_max,
             "limit": limit,
+            "offset": offset or 0,
         },
     )
 
@@ -301,3 +315,83 @@ async def get_container_by_id(db: AsyncSession, container_id: int) -> Container:
         )
 
     return container
+
+
+async def get_container_stats(db: AsyncSession) -> dict:
+    stmt = select(
+        func.count(Container.id).label("total"),
+        func.sum(case((Container.available, 1), else_=0)).label("available"),
+        func.sum(case((Container.current_level >= 80, 1), else_=0)).label(
+            "alert_level"
+        ),
+        func.avg(Container.current_level).label("avg_fill"),
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+
+    total = row.total or 0
+    available = int(row.available or 0)
+    alert_level = int(row.alert_level or 0)
+    avg_fill = round(float(row.avg_fill or 0)) if row.avg_fill is not None else 0
+
+    return {
+        "total": total,
+        "available": available,
+        "avg_fill": avg_fill,
+        "alert_level": alert_level,
+    }
+
+
+async def get_all_containers_paginated(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 10,
+    search: str | None = None,
+    type: str | None = None,
+    only_alerts: bool = False,
+) -> dict:
+    stmt = _base_select()
+    filters = []
+
+    if search:
+        from sqlalchemy import cast, String
+        filters.append(
+            (Container.site_id.ilike(f"%{search}%")) |
+            (Container.site_name.ilike(f"%{search}%")) |
+            (Barrio.nombre.ilike(f"%{search}%")) |
+            (cast(Container.id, String).ilike(f"%{search}%"))
+        )
+    if type and type != 'all':
+        filters.append(ContainerType.name.ilike(f"%{type}%"))
+    if only_alerts:
+        filters.append(Container.current_level >= 80)
+
+    if filters:
+        stmt = stmt.where(*filters)
+
+    # Count total matching records
+    count_stmt = select(func.count(Container.id)).outerjoin(
+        ContainerType, Container.container_type_id == ContainerType.id
+    ).outerjoin(
+        CabaContainerSpatialMetadata, CabaContainerSpatialMetadata.container_id == Container.id
+    ).outerjoin(
+        Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
+    )
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # Fetch paginated items
+    offset = (page - 1) * page_size
+    stmt = stmt.order_by(Container.id).limit(page_size).offset(offset)
+    result = await db.execute(stmt)
+    rows = result.mappings().all()
+    items = [_row_to_container(row) for row in rows]
+
+    return {
+        "items": items,
+        "total": total
+    }
+

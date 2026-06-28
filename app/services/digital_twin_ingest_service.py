@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
-from geoalchemy2 import functions as geo_funcs
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
-from app.models.map.neighborhood_demographic import NeighborhoodDemographic
+from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
 
 
@@ -16,72 +15,53 @@ async def ingest_telemetry_batch(
     db: AsyncSession,
     measurements: list[TelemetryIngestPayload],
 ) -> TelemetryIngestResult:
-    updated = 0
-    not_found = 0
-    changed_containers: dict[int, Container] = {}
-
+    # Recolectar todos los container_ids y device_ids (IMEIs) del lote
     container_ids = []
     device_ids = []
     for m in measurements:
-        try:
-            if m.container_id is not None:
+        if m.container_id:
+            try:
                 container_ids.append(int(m.container_id))
-        except (ValueError, TypeError):
-            pass
+            except ValueError:
+                pass
         if m.device_id:
             device_ids.append(m.device_id)
 
-    container_by_id = {}
-    container_by_imei = {}
-    neighborhood_by_container_id = {}
-
+    # Realizar una única consulta para traer todos los contenedores coincidentes
+    containers = []
     if container_ids or device_ids:
-        conditions = []
-        if container_ids:
-            conditions.append(Container.id.in_(container_ids))
-        if device_ids:
-            conditions.append(Container.device_imei.in_(device_ids))
-
-        stmt = (
-            select(Container, NeighborhoodDemographic)
-            .outerjoin(
-                NeighborhoodDemographic,
-                geo_funcs.ST_Covers(NeighborhoodDemographic.geom, Container.geom),
+        query = _container_select().where(
+            or_(
+                Container.id.in_(container_ids),
+                Container.device_imei.in_(device_ids)
             )
-            .options(
-                joinedload(Container.container_type).selectinload(
-                    ContainerType.waste_types
-                )
-            )
-            .where(or_(*conditions))
         )
-        result = await db.execute(stmt)
-        rows = result.all()
+        result = await db.execute(query)
+        containers = result.scalars().all()
 
-        for container, neighborhood in rows:
-            container_by_id[container.id] = container
-            if container.device_imei:
-                container_by_imei[container.device_imei] = container
-            if neighborhood:
-                neighborhood_by_container_id[container.id] = neighborhood
+    # Indexar los contenedores en memoria para búsquedas rápidas
+    container_by_id = {c.id: c for c in containers}
+    container_by_imei = {c.device_imei: c for c in containers if c.device_imei}
+
+    updated = 0
+    not_found = 0
 
     for measurement in measurements:
+        # Buscar el contenedor en memoria
         container = None
         try:
-            if measurement.container_id is not None:
-                cid = int(measurement.container_id)
-                container = container_by_id.get(cid)
-        except (ValueError, TypeError):
-            pass
+            cid = int(measurement.container_id) if measurement.container_id else None
+        except ValueError:
+            cid = None
 
-        if container is None and measurement.device_id:
-            container = container_by_imei.get(measurement.device_id)
+        if cid is not None and cid in container_by_id:
+            container = container_by_id[cid]
+        elif measurement.device_id in container_by_imei:
+            container = container_by_imei[measurement.device_id]
 
-        neighborhood = None
-        if container:
-            neighborhood = neighborhood_by_container_id.get(container.id)
-
+        neighborhood = container.spatial_metadata.barrio if container and container.spatial_metadata else None
         db.add(_data_level_row(measurement, container, neighborhood))
+        
         if container is None:
             not_found += 1
             continue
@@ -93,11 +73,9 @@ async def ingest_telemetry_batch(
             container.device_imei = measurement.device_id
         if measurement.flags.is_collection_detected:
             container.last_pickup = measurement.timestamp
-        changed_containers[container.id] = container
+        container.change_version = func.nextval("container_change_version_seq")
         updated += 1
 
-    for container in changed_containers.values():
-        container.change_version = func.nextval("container_change_version_seq")
     await db.commit()
     return TelemetryIngestResult(
         accepted=len(measurements),
@@ -106,39 +84,19 @@ async def ingest_telemetry_batch(
     )
 
 
-async def _find_container(
-    db: AsyncSession,
-    measurement: TelemetryIngestPayload,
-) -> Container | None:
-    try:
-        container_id = int(measurement.container_id)
-    except ValueError:
-        container_id = None
-
-    if container_id is not None:
-        result = await db.execute(
-            _container_select().where(Container.id == container_id)
-        )
-        container = result.scalar_one_or_none()
-        if container is not None:
-            return container
-
-    result = await db.execute(
-        _container_select().where(Container.device_imei == measurement.device_id)
-    )
-    return result.scalar_one_or_none()
-
-
 def _container_select():
     return select(Container).options(
-        joinedload(Container.container_type).selectinload(ContainerType.waste_types)
+        joinedload(Container.container_type).selectinload(ContainerType.waste_types),
+        joinedload(Container.spatial_metadata).joinedload(
+            CabaContainerSpatialMetadata.barrio
+        ).selectinload(Barrio.demographic),
     )
 
 
 def _data_level_row(
     measurement: TelemetryIngestPayload,
     container: Container | None,
-    neighborhood: NeighborhoodDemographic | None = None,
+    neighborhood: Barrio | None = None,
 ) -> DataLevel:
     container_type = container.container_type if container else None
     waste_type = (
@@ -179,7 +137,7 @@ def _data_level_row(
         site_id=container.site_id if container else None,
         site_name=container.site_name if container else None,
         zone_id=neighborhood.id if neighborhood else None,
-        zone_name=neighborhood.neighborhood if neighborhood else None,
+        zone_name=neighborhood.nombre if neighborhood else None,
         waste_type_id=waste_type.id if waste_type else None,
         waste_type_name=waste_type.name if waste_type else None,
         rssi=measurement.telemetry.signal_rssi_dbm,
@@ -188,18 +146,6 @@ def _data_level_row(
         device_serial_id=measurement.device_id,
         container_serie_id=container.serie_id if container else None,
     )
-
-
-async def _find_neighborhood(
-    db: AsyncSession,
-    container: Container,
-) -> NeighborhoodDemographic | None:
-    result = await db.execute(
-        select(NeighborhoodDemographic)
-        .where(geo_funcs.ST_Covers(NeighborhoodDemographic.geom, container.geom))
-        .limit(1)
-    )
-    return result.scalar_one_or_none()
 
 
 def _current_volume_m3(volume_m3: float | None, fill_level_pct: float) -> float | None:
