@@ -36,7 +36,6 @@ from app.digital_twin.synthetic_data.worker import (
 from app.digital_twin.synthetic_data.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
-from app.models.map.waste_type import WasteType
 from app.schemas.digital_twin import (
     TelemetryFlags,
     TelemetryIngestPayload,
@@ -474,8 +473,6 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(context.exception.report.requests, 1)
 
 
-
-
 class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
     def test_tick_wait_subtracts_delivery_time(self) -> None:
         self.assertEqual(_remaining_tick_delay(15, 60, 4), 11)
@@ -558,8 +555,12 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value = mock_result
 
         # Reset globals for test
-        from app.services.digital_twin_ingest_service import _cache_by_id, _cache_by_imei, _cache_loaded
+        from app.services.digital_twin_ingest_service import (
+            _cache_by_id,
+            _cache_by_imei,
+        )
         import app.services.digital_twin_ingest_service as ingest_svc
+
         ingest_svc._cache_loaded = False
         _cache_by_id.clear()
         _cache_by_imei.clear()
