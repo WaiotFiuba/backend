@@ -1,10 +1,10 @@
 import pytest_asyncio
-from httpx import AsyncClient, ASGILifecycleLoop
+from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from app.main import app  # Ajustá el import a tu app FastAPI
 from app.core.map_database import get_map_db
-from app.models.map.base import MapBase  # Tu Base de SQLAlchemy
+from app.core.map_database import MapBase  # Tu Base de SQLAlchemy
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.waste_type import WasteType
@@ -49,7 +49,7 @@ async def client(db_session):
 
     app.dependency_overrides[get_map_db] = _override_get_map_db
     async with AsyncClient(
-        transport=ASGILifecycleLoop(app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
     app.dependency_overrides.clear()

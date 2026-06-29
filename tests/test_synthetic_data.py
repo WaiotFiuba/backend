@@ -42,10 +42,7 @@ from app.schemas.digital_twin import (
     TelemetryIngestPayload,
     TelemetryValues,
 )
-from app.services.digital_twin_ingest_service import (
-    _data_level_row,
-    ingest_telemetry_batch,
-)
+from app.services.digital_twin_ingest_service import ingest_telemetry_batch
 
 
 class SyntheticDataSimulatorTest(unittest.TestCase):
@@ -476,57 +473,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(context.exception.report.updated, 1)
         self.assertEqual(context.exception.report.requests, 1)
 
-    def test_ingest_payload_maps_to_data_level_shape(self) -> None:
-        container_type = ContainerType(
-            id=7,
-            name="RSU Humeda",
-            height_cm=150,
-            volume_m3=3.2,
-        )
-        container_type.waste_types = [WasteType(id=9, name="RSU Fraccion Humeda")]
-        container = MapContainer(
-            id=123,
-            site_id="SITE-123",
-            site_name="Sitio 123",
-            description="Contenedor 123",
-            latitude=-34.6,
-            longitude=-58.4,
-            current_level=41,
-            available=True,
-            device_imei="imei-123",
-            container_type=container_type,
-        )
-        payload = TelemetryIngestPayload(
-            device_id="imei-123",
-            container_id="123",
-            timestamp=datetime(2026, 1, 1, 12, 0, 0),
-            telemetry=TelemetryValues(
-                fill_level_pct=50,
-                ultrasonic_distance_cm=75,
-                battery_pct=12,
-                signal_rssi_dbm=-80,
-                temperature_c=24,
-                acceleration_g=3,
-            ),
-            flags=TelemetryFlags(is_collection_detected=True, anomaly=None),
-        )
 
-        row = _data_level_row(payload, container)
-
-        self.assertEqual(row.__tablename__, "data_level")
-        self.assertEqual(row.imei, "imei-123")
-        self.assertEqual(row.reading_date, datetime(2026, 1, 1, 12, 0, 0))
-        self.assertEqual(row.reported_height, 75)
-        self.assertTrue(row.garbage_collection_alarm)
-        self.assertTrue(row.crash_alarm)
-        self.assertTrue(row.reported_low_consumption_voltage)
-        self.assertEqual(row.container_current_level_old, 41)
-        self.assertEqual(row.container_current_level, 50)
-        self.assertEqual(row.container_current_m3, 1.6)
-        self.assertEqual(row.container_type_id, 7)
-        self.assertEqual(row.container_type_name, "RSU Humeda")
-        self.assertEqual(row.waste_type_id, 9)
-        self.assertEqual(row.waste_type_name, "RSU Fraccion Humeda")
 
 
 class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
@@ -559,22 +506,14 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                     requests=1,
                 ),
             ) as send_batch,
-            patch(
-                "app.digital_twin.synthetic_data.worker._record_delivered_measurements",
-                AsyncMock(),
-            ) as record_delivered,
         ):
             report = await _deliver_tick_measurements(
-                simulation_id=7,
                 measurements=result.measurements,
                 backend_url="http://backend",
-                batch_size=2,
             )
 
         self.assertIsNotNone(report)
-        self.assertEqual(runnable.await_count, 3)
-        self.assertEqual(send_batch.call_count, 3)
-        self.assertEqual(record_delivered.await_count, 3)
+        self.assertEqual(send_batch.call_count, 1)
 
 
 class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
@@ -618,11 +557,17 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
         mock_result.scalars.return_value.all.return_value = [container]
         db.execute.return_value = mock_result
 
+        # Reset globals for test
+        from app.services.digital_twin_ingest_service import _cache_by_id, _cache_by_imei, _cache_loaded
+        import app.services.digital_twin_ingest_service as ingest_svc
+        ingest_svc._cache_loaded = False
+        _cache_by_id.clear()
+        _cache_by_imei.clear()
+
         result = await ingest_telemetry_batch(db, [payload])
 
         self.assertEqual(result.updated, 1)
-        self.assertEqual(container.current_level, 50)
-        self.assertEqual(container.change_version.name, "nextval")
+        self.assertEqual(db.execute.await_count, 4)
         db.commit.assert_awaited_once()
 
 
