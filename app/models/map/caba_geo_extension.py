@@ -93,12 +93,9 @@ class Barrio(MapBase):
     )
 
 
-
 class Manzana(MapBase):
     __tablename__ = "manzanas"
-    __table_args__ = (
-        Index("idx_manzanas_geom", "geom", postgresql_using="gist"),
-    )
+    __table_args__ = (Index("idx_manzanas_geom", "geom", postgresql_using="gist"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)

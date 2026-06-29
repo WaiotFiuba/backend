@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DOUBLE_PRECISION, ForeignKey, Integer, TIMESTAMP, Text, func
+from sqlalchemy import (
+    BigInteger,
+    DOUBLE_PRECISION,
+    ForeignKey,
+    Integer,
+    TIMESTAMP,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.map_database import MapBase

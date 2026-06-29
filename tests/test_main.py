@@ -1,9 +1,6 @@
-import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGILifecycleLoop
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from geoalchemy2.shape import from_shape
-from shapely.geometry import Point
 
 from app.main import app  # Ajustá el import a tu app FastAPI
 from app.core.map_database import get_map_db
@@ -14,6 +11,7 @@ from app.models.map.waste_type import WasteType
 
 # Cambiá esto por tu URL de test o una DB temporal de pruebas en tu Docker
 TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/test_map_db"
+
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def setup_test_db():
@@ -27,27 +25,35 @@ async def setup_test_db():
     yield
     await engine.dispose()
 
+
 @pytest_asyncio.fixture
 async def db_session():
     """Provee una sesión de base de datos limpia con rollback automático al terminar el test"""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    
+    TestingSessionLocal = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
     async with TestingSessionLocal() as session:
         yield session
         # Hacemos rollback para que los inserts de un test no ensucien al siguiente
         await session.rollback()
 
+
 @pytest_asyncio.fixture
 async def client(db_session):
     """Cliente HTTP asincrónico para pegarle a los endpoints de FastAPI"""
+
     async def _override_get_map_db():
         yield db_session
 
     app.dependency_overrides[get_map_db] = _override_get_map_db
-    async with AsyncClient(transport=ASGILifecycleLoop(app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGILifecycleLoop(app), base_url="http://test"
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
+
 
 @pytest_asyncio.fixture
 async def seed_data(db_session):
@@ -67,7 +73,7 @@ async def seed_data(db_session):
         geom="SRID=4326;POINT(-58.3815 -34.6037)",
         current_level=20,
         available=True,
-        container_type_id=ct.id
+        container_type_id=ct.id,
     )
     # Contenedor 2: Cerca del Obelisco
     c2 = Container(
@@ -78,7 +84,7 @@ async def seed_data(db_session):
         geom="SRID=4326;POINT(-58.3810 -34.6039)",
         current_level=85,
         available=True,
-        container_type_id=ct.id
+        container_type_id=ct.id,
     )
     # Contenedor 3: Lejos (Zoná de Belgrano, fuera del BBox de prueba)
     c3 = Container(
@@ -89,7 +95,7 @@ async def seed_data(db_session):
         geom="SRID=4326;POINT(-58.4560 -34.5620)",
         current_level=10,
         available=True,
-        container_type_id=ct.id
+        container_type_id=ct.id,
     )
 
     db_session.add_all([c1, c2, c3])

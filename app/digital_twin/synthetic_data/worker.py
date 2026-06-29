@@ -95,13 +95,13 @@ async def _run_session(simulation_id: int) -> None:
                 session = await db.get(SimulationSession, simulation_id)
                 if session is None or session.status not in ACTIVE_STATUSES:
                     break
-                
+
                 simulated_time = config.start + timedelta(
                     minutes=period * config.frequency_minutes
                 )
                 simulated_time = _as_utc(simulated_time)
                 session.simulated_time = simulated_time
-                
+
                 global_multiplier = effective_multiplier(
                     session.global_demand_start,
                     session.global_demand_target,
@@ -109,14 +109,14 @@ async def _run_session(simulation_id: int) -> None:
                     session.transition_started_at,
                     session.transition_ends_at,
                 )
-                
+
                 overrides_result = await db.execute(
                     select(SimulationZoneOverride).where(
                         SimulationZoneOverride.simulation_id == simulation_id
                     )
                 )
                 overrides = overrides_result.scalars().all()
-                
+
                 controls = ControlSnapshot(
                     speedup=session.speedup,
                     global_current=global_multiplier,
@@ -294,8 +294,6 @@ def _remaining_tick_delay(
 ) -> float:
     target_seconds = frequency_minutes * 60 / speedup
     return max(0.0, target_seconds - elapsed_seconds)
-
-
 
 
 async def _wait_between_ticks(simulation_id: int, delay_seconds: float) -> bool:

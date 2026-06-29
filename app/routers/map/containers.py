@@ -15,7 +15,6 @@ from app.schemas.map.container import (
     ContainerMapSnapshot,
 )
 from app.services.map.container_service import (
-    get_all_containers,
     get_container_changes,
     get_container_map_snapshot,
     get_containers_clustered,
@@ -62,10 +61,12 @@ async def read_container_types(
 ):
     from sqlalchemy import select
     from app.models.map.container_type import ContainerType
-    result = await db.execute(select(ContainerType.id, ContainerType.name).order_by(ContainerType.id))
+
+    result = await db.execute(
+        select(ContainerType.id, ContainerType.name).order_by(ContainerType.id)
+    )
     rows = result.all()
     return [{"id": row[0], "name": row[1]} for row in rows]
-
 
 
 @router.get(

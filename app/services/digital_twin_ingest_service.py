@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
-from sqlalchemy import func, or_, select, insert, update
+from sqlalchemy import func, select, insert, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload
 
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
@@ -13,6 +12,7 @@ from app.models.map.data_level import DataLevel
 from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
 from app.core.redis import redis_client
+
 
 @dataclass
 class ContainerCacheMeta:
@@ -37,15 +37,16 @@ _cache_by_id: dict[int, ContainerCacheMeta] = {}
 _cache_by_imei: dict[str, ContainerCacheMeta] = {}
 _cache_loaded: bool = False
 
+
 async def ensure_cache(db: AsyncSession):
     global _cache_loaded
     if _cache_loaded:
         return
     query = select(Container).options(
         joinedload(Container.container_type).selectinload(ContainerType.waste_types),
-        joinedload(Container.spatial_metadata).joinedload(
-            CabaContainerSpatialMetadata.barrio
-        ).selectinload(Barrio.demographic),
+        joinedload(Container.spatial_metadata)
+        .joinedload(CabaContainerSpatialMetadata.barrio)
+        .selectinload(Barrio.demographic),
     )
     result = await db.execute(query)
     containers = result.scalars().all()
@@ -85,7 +86,12 @@ async def queue_telemetry_batch(
     pipe = redis_client.pipeline()
     for m in measurements:
         # maxlen=500000 (~150MB) asegura que si el worker se cae, Redis no consuma toda la RAM
-        pipe.xadd("telemetry:stream", {"payload": m.model_dump_json()}, maxlen=500000, approximate=True)
+        pipe.xadd(
+            "telemetry:stream",
+            {"payload": m.model_dump_json()},
+            maxlen=500000,
+            approximate=True,
+        )
     await pipe.execute()
 
     return TelemetryIngestResult(
@@ -127,42 +133,48 @@ async def ingest_telemetry_batch(
         old_level = meta.current_level
         new_level = round(m.telemetry.fill_level_pct)
 
-        vol_m3 = round(meta.container_type_volume_m3 * new_level / 100, 4) if meta.container_type_volume_m3 is not None else None
+        vol_m3 = (
+            round(meta.container_type_volume_m3 * new_level / 100, 4)
+            if meta.container_type_volume_m3 is not None
+            else None
+        )
         collection_date = m.timestamp if m.flags.is_collection_detected else None
 
-        data_level_inserts.append({
-            "message_time": m.timestamp,
-            "imei": m.device_id,
-            "m_id": "",
-            "reading_date": m.timestamp,
-            "reported_height": m.telemetry.ultrasonic_distance_cm,
-            "fire_alarm": m.flags.anomaly == "incendio",
-            "freeze_alarm": False,
-            "reported_temperature": m.telemetry.temperature_c,
-            "crash_alarm": m.telemetry.acceleration_g >= 2.5,
-            "garbage_collection_alarm": m.flags.is_collection_detected,
-            "reported_collection_date": collection_date,
-            "reported_low_consumption_voltage": m.telemetry.battery_pct <= 15,
-            "reported_high_consumption_voltage": False,
-            "container_current_level_old": old_level,
-            "container_id": meta.id,
-            "container_name": meta.description,
-            "container_current_level": new_level,
-            "container_type_id": meta.container_type_id,
-            "container_type_name": meta.container_type_name,
-            "container_type_height": meta.container_type_height,
-            "site_id": meta.site_id,
-            "site_name": meta.site_name,
-            "zone_id": meta.zone_id,
-            "zone_name": meta.zone_name,
-            "waste_type_id": meta.waste_type_id,
-            "waste_type_name": meta.waste_type_name,
-            "rssi": m.telemetry.signal_rssi_dbm,
-            "container_current_m3": vol_m3,
-            "device_name": m.device_id,
-            "device_serial_id": m.device_id,
-            "container_serie_id": meta.serie_id,
-        })
+        data_level_inserts.append(
+            {
+                "message_time": m.timestamp,
+                "imei": m.device_id,
+                "m_id": "",
+                "reading_date": m.timestamp,
+                "reported_height": m.telemetry.ultrasonic_distance_cm,
+                "fire_alarm": m.flags.anomaly == "incendio",
+                "freeze_alarm": False,
+                "reported_temperature": m.telemetry.temperature_c,
+                "crash_alarm": m.telemetry.acceleration_g >= 2.5,
+                "garbage_collection_alarm": m.flags.is_collection_detected,
+                "reported_collection_date": collection_date,
+                "reported_low_consumption_voltage": m.telemetry.battery_pct <= 15,
+                "reported_high_consumption_voltage": False,
+                "container_current_level_old": old_level,
+                "container_id": meta.id,
+                "container_name": meta.description,
+                "container_current_level": new_level,
+                "container_type_id": meta.container_type_id,
+                "container_type_name": meta.container_type_name,
+                "container_type_height": meta.container_type_height,
+                "site_id": meta.site_id,
+                "site_name": meta.site_name,
+                "zone_id": meta.zone_id,
+                "zone_name": meta.zone_name,
+                "waste_type_id": meta.waste_type_id,
+                "waste_type_name": meta.waste_type_name,
+                "rssi": m.telemetry.signal_rssi_dbm,
+                "container_current_m3": vol_m3,
+                "device_name": m.device_id,
+                "device_serial_id": m.device_id,
+                "container_serie_id": meta.serie_id,
+            }
+        )
 
         upd = {
             "id": meta.id,
@@ -174,7 +186,7 @@ async def ingest_telemetry_batch(
             upd["device_imei"] = m.device_id
             meta.device_imei = m.device_id
             _cache_by_imei[m.device_id] = meta
-            
+
         if m.flags.is_collection_detected:
             upd["last_pickup"] = m.timestamp
 
@@ -190,7 +202,7 @@ async def ingest_telemetry_batch(
     if container_updates:
         # SQLAlchemy 2.0 Bulk Update using a list of dicts (id is the primary key)
         await db.execute(update(Container), container_updates)
-        
+
         # Bulk Update the change_version sequence for the modified containers
         updated_ids = [u["id"] for u in container_updates]
         await db.execute(
@@ -200,4 +212,6 @@ async def ingest_telemetry_batch(
         )
 
     await db.commit()
-    return TelemetryIngestResult(accepted=len(measurements), updated=updated, not_found=not_found)
+    return TelemetryIngestResult(
+        accepted=len(measurements), updated=updated, not_found=not_found
+    )

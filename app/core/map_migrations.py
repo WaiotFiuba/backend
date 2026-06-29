@@ -492,4 +492,7 @@ async def _seed_neighborhood_demographics(datos_dir: Path) -> None:
         f"densidad mediana: {report['median_density_per_km2']} hab/km2."
     )
     if report["unmatched"]:
-        print("[WARNING] Barrios sin poblacion asociada: " + ", ".join(report["unmatched"]))
+        print(
+            "[WARNING] Barrios sin poblacion asociada: "
+            + ", ".join(report["unmatched"])
+        )

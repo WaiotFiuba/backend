@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.map.container_type import ContainerType
+    from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (

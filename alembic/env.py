@@ -12,7 +12,6 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.core.map_database import MapBase
-from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata, Comuna, Manzana  # noqa: F401
 from app.models.map.container import Container  # noqa: F401
 from app.models.map.container_type import ContainerType  # noqa: F401
 from app.models.map.data_level import DataLevel  # noqa: F401

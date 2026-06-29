@@ -22,12 +22,12 @@ async def lifespan(app: FastAPI):
         await init_db()
         if settings.enable_map_db and settings.auto_create_map_db:
             await init_map_db()
-            
+
     await init_redis()
     consumer_task = asyncio.create_task(consume_telemetry())
-    
+
     yield
-    
+
     consumer_task.cancel()
     try:
         await consumer_task

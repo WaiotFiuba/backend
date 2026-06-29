@@ -111,4 +111,3 @@ class ContainerStatsOutputSchema(BaseModel):
 class PaginatedContainersOutputSchema(BaseModel):
     items: List[ContainersMapOutputSchema]
     total: int
-

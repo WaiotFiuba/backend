@@ -47,7 +47,9 @@ async def import_neighborhood_demographics(
             await session.execute(
                 select(
                     Barrio,
-                    (func.ST_Area(cast(Barrio.geom, Geography)) / 1_000_000.0).label("area_km2"),
+                    (func.ST_Area(cast(Barrio.geom, Geography)) / 1_000_000.0).label(
+                        "area_km2"
+                    ),
                 )
             )
         ).all()
@@ -87,9 +89,13 @@ async def import_neighborhood_demographics(
             matched.append(barrio.nombre)
 
         await session.flush()
-        demographics = (await session.execute(select(NeighborhoodDemographic))).scalars().all()
+        demographics = (
+            (await session.execute(select(NeighborhoodDemographic))).scalars().all()
+        )
         median_density = (
-            statistics.median(row.density_per_km2 for row in demographics) if demographics else 0
+            statistics.median(row.density_per_km2 for row in demographics)
+            if demographics
+            else 0
         )
         if median_density:
             for row in demographics:
@@ -131,7 +137,9 @@ def _read_populations(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Importa demografia por barrio usando los barrios ya en PostGIS.")
+    parser = argparse.ArgumentParser(
+        description="Importa demografia por barrio usando los barrios ya en PostGIS."
+    )
     parser.add_argument("--population-csv", type=Path, required=True)
     parser.add_argument("--year", type=int, default=2010)
     parser.add_argument("--source", default="Censo 2010")

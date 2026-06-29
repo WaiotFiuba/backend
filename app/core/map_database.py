@@ -5,8 +5,8 @@ from app.core.config import get_settings
 
 settings = get_settings()
 map_engine = create_async_engine(
-    settings.map_database_url, 
-    echo=False, 
+    settings.map_database_url,
+    echo=False,
     future=True,
     pool_size=30,
     max_overflow=20,

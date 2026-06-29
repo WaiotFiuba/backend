@@ -16,19 +16,6 @@ from app.digital_twin.synthetic_data.domain.entities import (
 )
 from app.digital_twin.synthetic_data.generators.anomalies import (
     alarm_from_measurement,
-    pick_sensor_anomaly,
-)
-from app.digital_twin.synthetic_data.generators.collections import (
-    level_after_collection,
-    should_collect,
-)
-from app.digital_twin.synthetic_data.generators.filling import filling_increment
-from app.digital_twin.synthetic_data.generators.sensors import (
-    acceleration_g,
-    battery_pct,
-    signal_rssi_dbm,
-    temperature_c,
-    ultrasonic_distance_cm,
 )
 from app.digital_twin.synthetic_data.generators.topology import (
     generate_synthetic_topology,
@@ -66,12 +53,14 @@ class SyntheticDataSimulator:
         self.config = config
         self.rng = random.Random(config.seed)
         import numpy as np
+
         self.np_rng = np.random.default_rng(config.seed)
         self.topology = topology
         self.state: SimulationState | None = None
 
     def initialize(self) -> SimulationState:
         import numpy as np
+
         self.rng = random.Random(self.config.seed)
         self.np_rng = np.random.default_rng(self.config.seed)
         topology = self.topology or generate_synthetic_topology(self.config, self.rng)
@@ -136,9 +125,11 @@ class SyntheticDataSimulator:
         zone_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         import numpy as np
-        from app.digital_twin.synthetic_data.generators.filling import _hour_factor, _weekday_factor
+        from app.digital_twin.synthetic_data.generators.filling import (
+            _hour_factor,
+            _weekday_factor,
+        )
         from app.digital_twin.synthetic_data.generators.sensors import _daily_wave
-        from app.digital_twin.synthetic_data.generators.anomalies import alarm_from_measurement
 
         state = self.state or self.initialize()
         containers = state.topology.containers
@@ -153,7 +144,7 @@ class SyntheticDataSimulator:
                 alarms=[],
             )
 
-        if not hasattr(state, '_cached_arrays'):
+        if not hasattr(state, "_cached_arrays"):
             # Cache static mappings to avoid rebuilding on every tick
             site_list = []
             device_list = []
@@ -161,17 +152,19 @@ class SyntheticDataSimulator:
             waste_factors = []
             heights = []
             reading_offsets = []
-            
+
             for container in containers:
                 site = state.site_by_id[container.site_id]
                 device = state.device_by_container_id[container.id]
                 site_list.append(site)
                 device_list.append(device)
                 demand_bases.append(site.demand_base)
-                waste_factors.append(self.config.waste_type_factors.get(container.waste_type, 1.0))
+                waste_factors.append(
+                    self.config.waste_type_factors.get(container.waste_type, 1.0)
+                )
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
-                
+
             state._cached_sites = site_list
             state._cached_devices = device_list
             state._cached_demand_bases = np.array(demand_bases, dtype=np.float64)
@@ -186,14 +179,19 @@ class SyntheticDataSimulator:
 
         # Get current state as arrays
         levels = np.array([state.levels[c.id] for c in containers], dtype=np.float64)
-        batteries = np.array([state.batteries[d.id] for d in state._cached_devices], dtype=np.float64)
+        batteries = np.array(
+            [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
+        )
 
         # 1. Calculate filling increments
         h_factor = _hour_factor(timestamp.hour)
         wd_factor = _weekday_factor(timestamp.weekday())
-        
+
         if zone_multiplier:
-            zone_mults = np.array([zone_multiplier(site.zone) for site in state._cached_sites], dtype=np.float64)
+            zone_mults = np.array(
+                [zone_multiplier(site.zone) for site in state._cached_sites],
+                dtype=np.float64,
+            )
         else:
             zone_mults = np.ones(N, dtype=np.float64)
 
@@ -224,30 +222,30 @@ class SyntheticDataSimulator:
         if is_collection_hour:
             omitted_roll = self.np_rng.random(size=N)
             not_omitted = omitted_roll >= self.config.omitted_collection_probability
-            
+
             threshold = 62.0 if timestamp.weekday() < 5 else 55.0
             above_threshold = levels >= threshold
-            
+
             collect_roll = self.np_rng.random(size=N)
             will_collect = collect_roll < self.config.collection_probability
-            
+
             collected = not_omitted & above_threshold & will_collect
         else:
             collected = np.zeros(N, dtype=bool)
 
         level_before_collection = levels.copy()
-        
+
         # Collection results
         partial_roll = self.np_rng.random(size=N)
         is_partial = partial_roll < self.config.partial_collection_probability
-        
+
         reduction = self.np_rng.uniform(25.0, 55.0, size=N)
         total_val = self.np_rng.uniform(0.0, 8.0, size=N)
-        
+
         partial_level = np.maximum(0.0, levels - reduction)
         new_levels_if_collected = np.where(is_partial, partial_level, total_val)
         new_levels_if_collected = np.round(new_levels_if_collected, 2)
-        
+
         levels = np.where(collected, new_levels_if_collected, levels)
         collection_detected = (level_before_collection - levels) >= 20.0
 
@@ -274,18 +272,20 @@ class SyntheticDataSimulator:
         anomaly_rolls = self.np_rng.random(size=N)
         stuck_p = self.config.stuck_sensor_probability
         noisy_p = self.config.noisy_sensor_probability
-        
+
         anomalies = np.empty(N, dtype=object)
         anomalies[:] = None
         anomalies[anomaly_rolls < stuck_p] = "sensor_trabado"
-        anomalies[(anomaly_rolls >= stuck_p) & (anomaly_rolls < stuck_p + noisy_p)] = "sensor_ruidoso"
+        anomalies[(anomaly_rolls >= stuck_p) & (anomaly_rolls < stuck_p + noisy_p)] = (
+            "sensor_ruidoso"
+        )
 
         fire_rolls = self.np_rng.random(size=N)
         fire = fire_rolls < self.config.fire_probability
-        
+
         signal_rolls = self.np_rng.random(size=N)
         signal_lost = signal_rolls < self.config.signal_loss_probability
-        
+
         low_battery_rolls = self.np_rng.random(size=N)
         low_battery = low_battery_rolls < self.config.low_battery_probability
 
@@ -293,9 +293,11 @@ class SyntheticDataSimulator:
         is_noisy_anomaly = anomalies == "sensor_ruidoso"
         sigmas = np.where(is_noisy_anomaly, 6.5, 1.2)
         ultrasonic_noises = self.np_rng.normal(0.0, sigmas)
-        
+
         empty_distances = state._cached_heights
-        calculated_distances = empty_distances * (1.0 - levels / 100.0) + ultrasonic_noises
+        calculated_distances = (
+            empty_distances * (1.0 - levels / 100.0) + ultrasonic_noises
+        )
         calculated_distances = np.maximum(2.0, calculated_distances)
         calculated_distances = np.round(calculated_distances, 2)
 
@@ -304,7 +306,9 @@ class SyntheticDataSimulator:
             anom = anomalies[idx]
             if anom == "sensor_trabado":
                 if container.id not in state.stuck_distances:
-                    state.stuck_distances[container.id] = float(calculated_distances[idx])
+                    state.stuck_distances[container.id] = float(
+                        calculated_distances[idx]
+                    )
             else:
                 state.stuck_distances.pop(container.id, None)
 
@@ -320,7 +324,7 @@ class SyntheticDataSimulator:
         force_low_vals = self.np_rng.uniform(3.0, 14.0, size=N)
         final_batteries = np.where(low_battery, force_low_vals, normal_batteries)
         final_batteries = np.round(final_batteries, 2)
-        
+
         for idx, device in enumerate(state._cached_devices):
             state.batteries[device.id] = float(final_batteries[idx])
 
@@ -350,13 +354,13 @@ class SyntheticDataSimulator:
 
         for idx, container in enumerate(containers):
             state.levels[container.id] = float(levels[idx])
-            
+
             site = state._cached_sites[idx]
             device = state._cached_devices[idx]
             reading_timestamp = timestamp + timedelta(
                 minutes=int(state._cached_reading_offsets[idx])
             )
-            
+
             measurement = Measurement(
                 timestamp=reading_timestamp,
                 site_id=site.id,
@@ -369,7 +373,7 @@ class SyntheticDataSimulator:
                 temperature_c=float(temps[idx]),
                 acceleration_g=float(accelerations[idx]),
                 is_collection_detected=bool(is_collection_detected[idx]),
-                anomaly=final_anomalies[idx]
+                anomaly=final_anomalies[idx],
             )
             measurements.append(measurement)
             alarm = alarm_from_measurement(measurement)

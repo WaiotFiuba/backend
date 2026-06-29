@@ -209,7 +209,9 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
             select(NeighborhoodDemographic)
             .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
             .options(
-                joinedload(NeighborhoodDemographic.neighborhood).joinedload(Barrio.comuna)
+                joinedload(NeighborhoodDemographic.neighborhood).joinedload(
+                    Barrio.comuna
+                )
             )
             .order_by(Barrio.nombre)
         )
@@ -217,7 +219,9 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
     return [
         ZoneDemandRead(
             neighborhood=row.neighborhood.nombre,
-            commune=str(row.neighborhood.comuna.comuna) if row.neighborhood.comuna else None,
+            commune=str(row.neighborhood.comuna.comuna)
+            if row.neighborhood.comuna
+            else None,
             population=row.population,
             year=row.year,
             source=row.source,

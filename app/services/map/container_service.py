@@ -105,9 +105,7 @@ def _base_select():
             CabaContainerSpatialMetadata,
             CabaContainerSpatialMetadata.container_id == Container.id,
         )
-        .outerjoin(
-            Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
-        )
+        .outerjoin(Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id)
         .outerjoin(
             NeighborhoodDemographic,
             NeighborhoodDemographic.neighborhood_id == Barrio.id,
@@ -355,13 +353,14 @@ async def get_all_containers_paginated(
 
     if search:
         from sqlalchemy import cast, String
+
         filters.append(
-            (Container.site_id.ilike(f"%{search}%")) |
-            (Container.site_name.ilike(f"%{search}%")) |
-            (Barrio.nombre.ilike(f"%{search}%")) |
-            (cast(Container.id, String).ilike(f"%{search}%"))
+            (Container.site_id.ilike(f"%{search}%"))
+            | (Container.site_name.ilike(f"%{search}%"))
+            | (Barrio.nombre.ilike(f"%{search}%"))
+            | (cast(Container.id, String).ilike(f"%{search}%"))
         )
-    if type and type != 'all':
+    if type and type != "all":
         filters.append(ContainerType.name.ilike(f"%{type}%"))
     if only_alerts:
         filters.append(Container.current_level >= 80)
@@ -370,12 +369,14 @@ async def get_all_containers_paginated(
         stmt = stmt.where(*filters)
 
     # Count total matching records
-    count_stmt = select(func.count(Container.id)).outerjoin(
-        ContainerType, Container.container_type_id == ContainerType.id
-    ).outerjoin(
-        CabaContainerSpatialMetadata, CabaContainerSpatialMetadata.container_id == Container.id
-    ).outerjoin(
-        Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id
+    count_stmt = (
+        select(func.count(Container.id))
+        .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
+        .outerjoin(
+            CabaContainerSpatialMetadata,
+            CabaContainerSpatialMetadata.container_id == Container.id,
+        )
+        .outerjoin(Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id)
     )
     if filters:
         count_stmt = count_stmt.where(*filters)
@@ -390,8 +391,4 @@ async def get_all_containers_paginated(
     rows = result.mappings().all()
     items = [_row_to_container(row) for row in rows]
 
-    return {
-        "items": items,
-        "total": total
-    }
-
+    return {"items": items, "total": total}
