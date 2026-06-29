@@ -211,13 +211,14 @@ async def _wait_until_runnable(simulation_id: int) -> SimulationSession | None:
             session = await db.get(SimulationSession, simulation_id)
             if session is None:
                 return None
-            if session.status == "stopping":
+            if session.status in ("stopping", "completed"):
                 logger.info(
                     "Simulacion %s detenida por solicitud de control.", simulation_id
                 )
-                session.status = "completed"
-                session.finished_at = _utc_now()
-                await db.commit()
+                if session.status == "stopping":
+                    session.status = "completed"
+                    session.finished_at = _utc_now()
+                    await db.commit()
                 return None
             if session.status == "running":
                 if paused_logged:
@@ -310,13 +311,14 @@ async def _wait_between_ticks(simulation_id: int, delay_seconds: float) -> bool:
             session = await db.get(SimulationSession, simulation_id)
             if session is None:
                 return False
-            if session.status == "stopping":
+            if session.status in ("stopping", "completed"):
                 logger.info(
                     "Simulacion %s detenida por solicitud de control.", simulation_id
                 )
-                session.status = "completed"
-                session.finished_at = _utc_now()
-                await db.commit()
+                if session.status == "stopping":
+                    session.status = "completed"
+                    session.finished_at = _utc_now()
+                    await db.commit()
                 return False
             if session.status == "paused":
                 if await _wait_until_runnable(simulation_id) is None:

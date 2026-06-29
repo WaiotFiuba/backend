@@ -140,7 +140,7 @@ async def set_simulation_status(
             status_code=409,
             detail=f"No se puede ejecutar {action} desde estado {session.status}.",
         )
-    if action == "stop" and session.status == "pending":
+    if action == "stop":
         session.status = "completed"
         session.finished_at = datetime.now(timezone.utc)
     else:
