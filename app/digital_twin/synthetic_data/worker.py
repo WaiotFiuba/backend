@@ -83,16 +83,18 @@ async def _run_session(simulation_id: int) -> None:
             await db.commit()
 
         previous_controls: ControlSnapshot | None = None
+        delivery_sem = asyncio.Semaphore(5)
+        pending_deliveries: list[asyncio.Task] = []
         for period in range(config.periods):
             control = await _wait_until_runnable(simulation_id)
             if control is None:
-                return
+                break
 
             # Consolidar lectura de controles y actualización de simulated_time al inicio del tick
             async with MapSessionLocal() as db:
                 session = await db.get(SimulationSession, simulation_id)
                 if session is None or session.status not in ACTIVE_STATUSES:
-                    return
+                    break
                 
                 simulated_time = config.start + timedelta(
                     minutes=period * config.frequency_minutes
@@ -151,37 +153,41 @@ async def _run_session(simulation_id: int) -> None:
                 ),
                 zone_multiplier=lambda zone: zone_multipliers.get(zone, 1.0),
             )
-            delivery = await _deliver_tick_measurements(
-                simulation_id,
-                tick.measurements,
-                settings.simulator_backend_url,
-                settings.simulator_batch_size,
+            # Enviar mediciones en background sin bloquear el simulador
+            task = asyncio.create_task(
+                _deliver_in_background(
+                    delivery_sem,
+                    simulation_id,
+                    tick.measurements,
+                    settings.simulator_backend_url,
+                    period + 1,
+                    config.periods,
+                )
             )
-            if delivery is None:
-                return
+            pending_deliveries.append(task)
+            # Limpiar tareas completadas para no acumular memoria
+            pending_deliveries = [t for t in pending_deliveries if not t.done()]
+
             async with MapSessionLocal() as db:
                 session = await db.get(SimulationSession, simulation_id)
                 if session is None:
-                    return
+                    break
                 session.current_period = period + 1
                 session.global_demand_current = controls.global_current
                 session.collections_generated += len(tick.collections)
                 session.alarms_generated += len(tick.alarms)
-                session.measurements_sent += delivery.sent
+                session.measurements_sent += len(tick.measurements)
                 speedup = session.speedup
                 await db.commit()
             logger.info(
-                "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s actualizadas=%s "
-                "no_encontradas=%s lotes=%s recolecciones=%s alarmas=%s speedup=%sx "
+                "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
+                "recolecciones=%s alarmas=%s speedup=%sx "
                 "demanda=%.3f.",
                 simulation_id,
                 period + 1,
                 config.periods,
                 simulated_time.isoformat(),
-                delivery.sent,
-                delivery.updated,
-                delivery.not_found,
-                delivery.requests,
+                len(tick.measurements),
                 len(tick.collections),
                 len(tick.alarms),
                 speedup,
@@ -191,10 +197,13 @@ async def _run_session(simulation_id: int) -> None:
                 simulation_id,
                 config.frequency_minutes / speedup,
             ):
-                return
-
-        await _finish_session(simulation_id, "completed")
-        logger.info("Simulacion %s completada.", simulation_id)
+                break
+        else:
+            # El for terminó sin break: todos los períodos completados
+            if pending_deliveries:
+                await asyncio.gather(*pending_deliveries, return_exceptions=True)
+            await _finish_session(simulation_id, "completed")
+            logger.info("Simulacion %s completada.", simulation_id)
     except asyncio.CancelledError:
         await _finish_session(simulation_id, "failed", "Worker cancelado.")
         raise
@@ -232,49 +241,50 @@ async def _wait_until_runnable(simulation_id: int) -> SimulationSession | None:
 
 
 async def _deliver_tick_measurements(
+    measurements: list[Measurement],
+    backend_url: str,
+) -> DeliveryReport:
+    if not measurements:
+        return DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+
+    settings = get_settings()
+    return await asyncio.to_thread(
+        send_measurements_batch,
+        measurements,
+        backend_url,
+        batch_size=settings.simulator_batch_size,
+    )
+
+
+async def _deliver_in_background(
+    sem: asyncio.Semaphore,
     simulation_id: int,
     measurements: list[Measurement],
     backend_url: str,
-    batch_size: int,
-) -> DeliveryReport | None:
-    if batch_size <= 0:
-        raise ValueError("SIMULATOR_BATCH_SIZE debe ser mayor a 0.")
-
-    sem = asyncio.Semaphore(10)
-
-    async def send_batch_with_sem(batch_chunk):
-        async with sem:
-            if await _wait_until_runnable(simulation_id) is None:
-                return None
-            res = await asyncio.to_thread(
-                send_measurements_batch,
-                batch_chunk,
-                backend_url,
-                batch_size=batch_size,
-            )
-            await _record_delivered_measurements(simulation_id, res.sent)
-            return res
-
-    tasks = []
-    for offset in range(0, len(measurements), batch_size):
-        chunk = measurements[offset : offset + batch_size]
-        tasks.append(send_batch_with_sem(chunk))
-
-    results = await asyncio.gather(*tasks)
-
-    report = DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
-    for res in results:
-        if res is None:
-            return None
-        report = _combine_delivery_reports(report, res)
-    return report
-
-
-async def _record_delivered_measurements(
-    simulation_id: int,
-    sent: int,
+    tick_number: int,
+    total_ticks: int,
 ) -> None:
-    pass
+    async with sem:
+        try:
+            report = await _deliver_tick_measurements(measurements, backend_url)
+            logger.debug(
+                "Simulacion %s tick %s/%s entrega: enviadas=%s actualizadas=%s "
+                "no_encontradas=%s requests=%s.",
+                simulation_id,
+                tick_number,
+                total_ticks,
+                report.sent,
+                report.updated,
+                report.not_found,
+                report.requests,
+            )
+        except Exception:
+            logger.exception(
+                "Simulacion %s tick %s/%s: error enviando mediciones.",
+                simulation_id,
+                tick_number,
+                total_ticks,
+            )
 
 
 def _remaining_tick_delay(
@@ -286,16 +296,6 @@ def _remaining_tick_delay(
     return max(0.0, target_seconds - elapsed_seconds)
 
 
-def _combine_delivery_reports(
-    left: DeliveryReport,
-    right: DeliveryReport,
-) -> DeliveryReport:
-    return DeliveryReport(
-        sent=left.sent + right.sent,
-        updated=left.updated + right.updated,
-        not_found=left.not_found + right.not_found,
-        requests=left.requests + right.requests,
-    )
 
 
 async def _wait_between_ticks(simulation_id: int, delay_seconds: float) -> bool:

@@ -10,6 +10,9 @@ from app.routers.auth import router as auth_router
 from app.routers.digital_twin import router as digital_twin_router
 from app.routers.users import router as users_router
 from app.routers.map import router as map_router
+from app.core.redis import init_redis, close_redis
+from app.services.telemetry_consumer import consume_telemetry
+import asyncio
 
 
 @asynccontextmanager
@@ -19,7 +22,18 @@ async def lifespan(app: FastAPI):
         await init_db()
         if settings.enable_map_db and settings.auto_create_map_db:
             await init_map_db()
+            
+    await init_redis()
+    consumer_task = asyncio.create_task(consume_telemetry())
+    
     yield
+    
+    consumer_task.cancel()
+    try:
+        await consumer_task
+    except asyncio.CancelledError:
+        pass
+    await close_redis()
 
 
 app = FastAPI(lifespan=lifespan)

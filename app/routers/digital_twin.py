@@ -18,7 +18,7 @@ from app.schemas.digital_twin import (
     TelemetryIngestResult,
     ZoneDemandRead,
 )
-from app.services.digital_twin_ingest_service import ingest_telemetry_batch
+from app.services.digital_twin_ingest_service import queue_telemetry_batch
 from app.services.simulation_control_service import (
     create_simulation,
     get_active_simulation,
@@ -37,9 +37,8 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 @router.post("/telemetry", response_model=TelemetryIngestResult)
 async def ingest_telemetry(
     payload: TelemetryIngestPayload,
-    db: MapDbDep,
 ) -> TelemetryIngestResult:
-    result = await ingest_telemetry_batch(db, [payload])
+    result = await queue_telemetry_batch([payload])
     _log_telemetry_ingest("individual", result)
     return result
 
@@ -47,9 +46,8 @@ async def ingest_telemetry(
 @router.post("/telemetry/batch", response_model=TelemetryIngestResult)
 async def ingest_telemetry_batch_endpoint(
     payload: TelemetryBatchIngestPayload,
-    db: MapDbDep,
 ) -> TelemetryIngestResult:
-    result = await ingest_telemetry_batch(db, payload.measurements)
+    result = await queue_telemetry_batch(payload.measurements)
     _log_telemetry_ingest("batch", result)
     return result
 

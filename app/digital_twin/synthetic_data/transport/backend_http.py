@@ -71,7 +71,7 @@ def send_measurements_batch(
     path: str = "/digital-twin/telemetry/batch",
     batch_size: int = 250,
     token: str | None = None,
-    timeout_seconds: float = 30,
+    timeout_seconds: float = 120,
     post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]]
     | None = None,
 ) -> DeliveryReport:

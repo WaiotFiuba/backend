@@ -4,7 +4,13 @@ from sqlalchemy.orm import declarative_base
 from app.core.config import get_settings
 
 settings = get_settings()
-map_engine = create_async_engine(settings.map_database_url, echo=False, future=True)
+map_engine = create_async_engine(
+    settings.map_database_url, 
+    echo=False, 
+    future=True,
+    pool_size=30,
+    max_overflow=20,
+)
 MapSessionLocal = async_sessionmaker(map_engine, expire_on_commit=False)
 MapBase = declarative_base()
 

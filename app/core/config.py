@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
     )
+    redis_url: str = "redis://redis:6379/0"
 
     class Config:
         env_file = ".env"
