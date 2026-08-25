@@ -21,9 +21,11 @@ def filling_increment(
     weekday_factor = _weekday_factor(timestamp.weekday())
     waste_factor = config.waste_type_factors.get(container.waste_type, 1.0)
     noise = max(0.2, rng.lognormvariate(0, 0.18))
+    time_ratio = config.frequency_minutes / 60.0
 
     increment = (
         site.demand_base
+        * time_ratio
         * hour_factor
         * weekday_factor
         * waste_factor

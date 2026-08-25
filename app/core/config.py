@@ -20,6 +20,8 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
     )
     redis_url: str = "redis://redis:6379/0"
+    promedio_generacion_basura_personas_24h: float = 1.5  # kg por persona cada 24 horas
+    densidad_basura_kg_m3: float = 150.0                  # kg/m3 de residuo suelto
 
     class Config:
         env_file = ".env"

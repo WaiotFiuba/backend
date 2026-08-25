@@ -203,9 +203,11 @@ class SyntheticDataSimulator:
 
         noises = self.np_rng.lognormal(0.0, 0.18, size=N)
         noises = np.maximum(0.2, noises)
+        time_ratio = self.config.frequency_minutes / 60.0
 
         increments = (
             state._cached_demand_bases
+            * time_ratio
             * h_factor
             * wd_factor
             * state._cached_waste_factors

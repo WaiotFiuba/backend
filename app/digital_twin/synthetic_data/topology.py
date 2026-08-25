@@ -31,6 +31,9 @@ class SimulationTopology:
     initial_levels: dict[str, float]
 
 
+from app.digital_twin.synthetic_data.density_processor import get_density_processor
+
+
 def topology_from_backend_records(
     records: Sequence[BackendContainerRecord],
 ) -> SimulationTopology:
@@ -39,17 +42,40 @@ def topology_from_backend_records(
     devices: list[Device] = []
     initial_levels: dict[str, float] = {}
 
+    # Procesamiento espacial de densidad censal para todos los contenedores
+    containers_input = [
+        {
+            "id": r.id,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "volume_m3": r.volume_m3,
+        }
+        for r in records
+    ]
+    processor = get_density_processor()
+    demands, _ = processor.process_containers(containers_input)
+
     for record in records:
         container_id = str(record.id)
         site_id = record.site_id
+        demand_info = demands.get(record.id)
+        calculated_demand = (
+            demand_info.hourly_fill_pct if demand_info is not None else record.demand_base
+        )
+
         if site_id not in sites_by_id:
+            zone_name = (
+                demand_info.department_name
+                if (demand_info and demand_info.department_name != "UNKNOWN")
+                else (record.zone or "")
+            )
             sites_by_id[site_id] = Site(
                 id=site_id,
                 name=record.site_name or "",
-                zone=record.zone or "",
+                zone=zone_name,
                 latitude=record.latitude,
                 longitude=record.longitude,
-                demand_base=record.demand_base,
+                demand_base=calculated_demand,
             )
 
         containers.append(
