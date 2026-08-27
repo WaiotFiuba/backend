@@ -190,6 +190,69 @@ async def update_simulation_controls(
     return await get_simulation(db, simulation_id)
 
 
+async def update_simulation_progress(
+    db: AsyncSession,
+    simulation_id: int,
+    simulated_time: datetime | None = None,
+    current_period: int | None = None,
+    global_demand_current: float | None = None,
+    measurements_sent: int = 0,
+    collections_generated: int = 0,
+    alarms_generated: int = 0,
+    status: str | None = None,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    if status is not None:
+        session.status = status
+        if status == "running" and session.started_at is None:
+            session.started_at = datetime.now(timezone.utc)
+    if simulated_time is not None:
+        session.simulated_time = simulated_time
+    if current_period is not None:
+        session.current_period = current_period
+    if global_demand_current is not None:
+        session.global_demand_current = global_demand_current
+    session.measurements_sent += measurements_sent
+    session.collections_generated += collections_generated
+    session.alarms_generated += alarms_generated
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def finish_simulation_session(
+    db: AsyncSession,
+    simulation_id: int,
+    status: str,
+    error_message: str | None = None,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    session.status = status
+    session.error_message = error_message
+    session.finished_at = datetime.now(timezone.utc)
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def fail_interrupted_sessions(db: AsyncSession) -> int:
+    from sqlalchemy import update
+
+    result = await db.execute(
+        update(SimulationSession)
+        .where(SimulationSession.status.in_(("running", "paused", "stopping")))
+        .values(
+            status="failed",
+            error_message="El worker se reinicio durante la simulacion.",
+            finished_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
+    return result.rowcount
+
+
 async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
     active = await _active_session(db)
     overrides = {}

@@ -21,7 +21,6 @@ dependencies = [
     "alembic>=1.13.0",
     "pyyaml>=6.0.3",
     "numpy>=2.5.0",
-    "redis>=5.0.0",
     "shapely>=2.1.2",
 ]
 

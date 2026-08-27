@@ -69,7 +69,7 @@ def send_measurements_batch(
     measurements: Iterable[Measurement],
     backend_url: str,
     path: str = "/digital-twin/telemetry/batch",
-    batch_size: int = 250,
+    batch_size: int = 30000,
     token: str | None = None,
     timeout_seconds: float = 120,
     post_json: Callable[[str, dict[str, object], str | None, float], dict[str, object]]
@@ -82,9 +82,21 @@ def send_measurements_batch(
     endpoint = _endpoint_url(backend_url, path)
     report = _MutableReport()
 
-    for batch in _chunks(_payloads(measurements), batch_size):
+    t_start = time.perf_counter()
+    payload_list = list(_payloads(measurements))
+    t_payloads = time.perf_counter()
+
+    for batch in _chunks(payload_list, batch_size):
         response = sender(endpoint, {"measurements": batch}, token, timeout_seconds)
         report.add(response, sent=len(batch))
+
+    t_total = time.perf_counter() - t_start
+    print(
+        f"[PERF WORKER HTTP] Envio {report.sent} mediciones | Total: {t_total:.3f}s | "
+        f"Dict serialization: {t_payloads - t_start:.3f}s | "
+        f"HTTP requests ({report.requests}): {t_total - (t_payloads - t_start):.3f}s",
+        flush=True,
+    )
 
     return report.freeze()
 
@@ -108,14 +120,15 @@ def stream_result(
 
     sender = post_json or _post_json
     endpoint = _endpoint_url(backend_url, path)
-    measurements = sorted(result.measurements, key=lambda item: item.timestamp)
     report = _MutableReport()
     previous: Measurement | None = None
 
     try:
-        for measurement in measurements:
+        for measurement in sorted(result.measurements, key=lambda item: item.timestamp):
             if previous is not None:
-                sleep(_delay_between(previous, measurement, delay_seconds, speedup))
+                delay = _delay_between(previous, measurement, delay_seconds, speedup)
+                if delay > 0:
+                    sleep(delay)
             response = sender(
                 endpoint,
                 api_payload_from_measurement(measurement),
@@ -153,7 +166,7 @@ class _MutableReport:
 
 
 def _payloads(measurements: Iterable[Measurement]) -> Iterable[dict[str, object]]:
-    for measurement in sorted(measurements, key=lambda item: item.timestamp):
+    for measurement in measurements:
         yield api_payload_from_measurement(measurement)
 
 
@@ -190,9 +203,11 @@ def _post_json(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    data_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+
     request = Request(
         url,
-        data=json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"),
+        data=data_bytes,
         headers=headers,
         method="POST",
     )

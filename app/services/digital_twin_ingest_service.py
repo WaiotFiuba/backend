@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+import logging
+import time
 
 from sqlalchemy import func, select, insert, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +14,8 @@ from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
 from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
-from app.core.redis import redis_client
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,6 +40,41 @@ class ContainerCacheMeta:
 _cache_by_id: dict[int, ContainerCacheMeta] = {}
 _cache_by_imei: dict[str, ContainerCacheMeta] = {}
 _cache_loaded: bool = False
+
+
+DATA_LEVEL_COLS = [
+    "message_time",
+    "imei",
+    "m_id",
+    "reading_date",
+    "reported_height",
+    "fire_alarm",
+    "freeze_alarm",
+    "reported_temperature",
+    "crash_alarm",
+    "garbage_collection_alarm",
+    "reported_collection_date",
+    "reported_low_consumption_voltage",
+    "reported_high_consumption_voltage",
+    "container_current_level_old",
+    "container_id",
+    "container_name",
+    "container_current_level",
+    "container_type_id",
+    "container_type_name",
+    "container_type_height",
+    "site_id",
+    "site_name",
+    "zone_id",
+    "zone_name",
+    "waste_type_id",
+    "waste_type_name",
+    "rssi",
+    "container_current_m3",
+    "device_name",
+    "device_serial_id",
+    "container_serie_id",
+]
 
 
 async def ensure_cache(db: AsyncSession):
@@ -77,53 +116,68 @@ async def ensure_cache(db: AsyncSession):
     _cache_loaded = True
 
 
-async def queue_telemetry_batch(
-    measurements: list[TelemetryIngestPayload],
-) -> TelemetryIngestResult:
-    if not measurements:
-        return TelemetryIngestResult(accepted=0, updated=0, not_found=0)
-
-    pipe = redis_client.pipeline()
-    for m in measurements:
-        # maxlen=500000 (~150MB) asegura que si el worker se cae, Redis no consuma toda la RAM
-        pipe.xadd(
-            "telemetry:stream",
-            {"payload": m.model_dump_json()},
-            maxlen=500000,
-            approximate=True,
-        )
-    await pipe.execute()
-
-    return TelemetryIngestResult(
-        accepted=len(measurements),
-        updated=0,
-        not_found=0,
-    )
-
-
 async def ingest_telemetry_batch(
     db: AsyncSession,
-    measurements: list[TelemetryIngestPayload],
+    measurements: list[TelemetryIngestPayload | dict],
 ) -> TelemetryIngestResult:
+    t_start = time.perf_counter()
+
     await ensure_cache(db)
+    t_cache = time.perf_counter()
 
     updated = 0
     not_found = 0
 
+    data_level_tuples = []
     data_level_inserts = []
     container_updates = []
+    update_tuples = []
 
     for m in measurements:
+        if isinstance(m, dict):
+            container_id_raw = m.get("container_id")
+            device_id = m.get("device_id")
+            ts = m.get("timestamp")
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts)
+                except Exception:
+                    ts = datetime.now()
+            tel = m.get("telemetry") or {}
+            fill_level = tel.get("fill_level_pct", 0.0)
+            distance = tel.get("ultrasonic_distance_cm")
+            battery = tel.get("battery_pct", 100.0)
+            rssi = tel.get("signal_rssi_dbm")
+            temp = tel.get("temperature_c")
+            acc = tel.get("acceleration_g", 1.0)
+            flags = m.get("flags") or {}
+            is_pickup = bool(flags.get("is_collection_detected", False))
+            anomaly = flags.get("anomaly")
+        else:
+            container_id_raw = m.container_id
+            device_id = m.device_id
+            ts = m.timestamp
+            tel = m.telemetry
+            fill_level = tel.fill_level_pct
+            distance = tel.ultrasonic_distance_cm
+            battery = tel.battery_pct
+            rssi = tel.signal_rssi_dbm
+            temp = tel.temperature_c
+            acc = tel.acceleration_g
+            flags = m.flags
+            is_pickup = bool(flags.is_collection_detected)
+            anomaly = flags.anomaly
+
         try:
-            cid = int(m.container_id) if m.container_id else None
+            cid = int(container_id_raw) if container_id_raw else None
         except ValueError:
             cid = None
 
         meta = None
         if cid is not None and cid in _cache_by_id:
             meta = _cache_by_id[cid]
-        elif m.device_id in _cache_by_imei:
-            meta = _cache_by_imei[m.device_id]
+        elif device_id in _cache_by_imei:
+            meta = _cache_by_imei[device_id]
 
         if not meta:
             not_found += 1
@@ -131,29 +185,69 @@ async def ingest_telemetry_batch(
 
         # Old level is from cache
         old_level = meta.current_level
-        new_level = round(m.telemetry.fill_level_pct)
+        new_level = round(fill_level)
 
         vol_m3 = (
             round(meta.container_type_volume_m3 * new_level / 100, 4)
             if meta.container_type_volume_m3 is not None
             else None
         )
-        collection_date = m.timestamp if m.flags.is_collection_detected else None
+        collection_date = ts if is_pickup else None
 
+        # Record tuple for fast asyncpg COPY
+        data_level_tuples.append(
+            (
+                ts,
+                device_id,
+                "",
+                ts,
+                distance,
+                anomaly == "incendio",
+                False,
+                temp,
+                acc >= 2.5,
+                is_pickup,
+                collection_date,
+                battery <= 15,
+                False,
+                old_level,
+                meta.id,
+                meta.description,
+                new_level,
+                meta.container_type_id,
+                meta.container_type_name,
+                meta.container_type_height,
+                meta.site_id,
+                meta.site_name,
+                meta.zone_id,
+                meta.zone_name,
+                meta.waste_type_id,
+                meta.waste_type_name,
+                rssi,
+                vol_m3,
+                device_id,
+                device_id,
+                meta.serie_id,
+            )
+        )
+
+        update_tuples.append((meta.id, new_level, ts, is_pickup))
+
+        # Fallback dicts for SQLite/mock
         data_level_inserts.append(
             {
-                "message_time": m.timestamp,
-                "imei": m.device_id,
+                "message_time": ts,
+                "imei": device_id,
                 "m_id": "",
-                "reading_date": m.timestamp,
-                "reported_height": m.telemetry.ultrasonic_distance_cm,
-                "fire_alarm": m.flags.anomaly == "incendio",
+                "reading_date": ts,
+                "reported_height": distance,
+                "fire_alarm": anomaly == "incendio",
                 "freeze_alarm": False,
-                "reported_temperature": m.telemetry.temperature_c,
-                "crash_alarm": m.telemetry.acceleration_g >= 2.5,
-                "garbage_collection_alarm": m.flags.is_collection_detected,
+                "reported_temperature": temp,
+                "crash_alarm": acc >= 2.5,
+                "garbage_collection_alarm": is_pickup,
                 "reported_collection_date": collection_date,
-                "reported_low_consumption_voltage": m.telemetry.battery_pct <= 15,
+                "reported_low_consumption_voltage": battery <= 15,
                 "reported_high_consumption_voltage": False,
                 "container_current_level_old": old_level,
                 "container_id": meta.id,
@@ -168,10 +262,10 @@ async def ingest_telemetry_batch(
                 "zone_name": meta.zone_name,
                 "waste_type_id": meta.waste_type_id,
                 "waste_type_name": meta.waste_type_name,
-                "rssi": m.telemetry.signal_rssi_dbm,
+                "rssi": rssi,
                 "container_current_m3": vol_m3,
-                "device_name": m.device_id,
-                "device_serial_id": m.device_id,
+                "device_name": device_id,
+                "device_serial_id": device_id,
                 "container_serie_id": meta.serie_id,
             }
         )
@@ -179,39 +273,124 @@ async def ingest_telemetry_batch(
         upd = {
             "id": meta.id,
             "current_level": new_level,
-            "last_reading": m.timestamp,
+            "last_reading": ts,
             "available": True,
         }
-        if meta.device_imei is None:
-            upd["device_imei"] = m.device_id
-            meta.device_imei = m.device_id
-            _cache_by_imei[m.device_id] = meta
+        if meta.device_imei is None and device_id:
+            upd["device_imei"] = device_id
+            meta.device_imei = device_id
+            _cache_by_imei[device_id] = meta
 
-        if m.flags.is_collection_detected:
-            upd["last_pickup"] = m.timestamp
+        if is_pickup:
+            upd["last_pickup"] = ts
 
         container_updates.append(upd)
 
-        # Update cache for next iteration
         meta.current_level = new_level
         updated += 1
 
+    t_dict_prep = time.perf_counter()
+
+    # Try high-performance native asyncpg COPY + Staging Table in PostgreSQL
+    try:
+        conn = await db.connection()
+        raw_conn = await conn.get_raw_connection()
+        asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
+
+        if hasattr(asyncpg_conn, "copy_records_to_table"):
+            t_c0 = time.perf_counter()
+            if data_level_tuples:
+                await asyncpg_conn.copy_records_to_table(
+                    "data_level",
+                    records=data_level_tuples,
+                    columns=DATA_LEVEL_COLS,
+                )
+            t_c1 = time.perf_counter()
+            if update_tuples:
+                # 1. Create temp table with ON COMMIT DELETE ROWS for maximum performance
+                await asyncpg_conn.execute(
+                    """
+                    CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
+                        id bigint PRIMARY KEY,
+                        level integer,
+                        reading_date timestamptz,
+                        is_pickup boolean
+                    ) ON COMMIT DELETE ROWS;
+                    """
+                )
+                # 2. Fast binary COPY into temp table
+                await asyncpg_conn.copy_records_to_table(
+                    "temp_container_updates",
+                    records=update_tuples,
+                    columns=["id", "level", "reading_date", "is_pickup"],
+                )
+                # 3. High-speed JOIN update
+                await asyncpg_conn.execute(
+                    """
+                    UPDATE containers AS c
+                    SET current_level = v.level,
+                        last_reading = v.reading_date,
+                        last_pickup = CASE WHEN v.is_pickup THEN v.reading_date ELSE c.last_pickup END,
+                        available = true,
+                        change_version = nextval('container_change_version_seq')
+                    FROM temp_container_updates AS v
+                    WHERE c.id = v.id;
+                    """
+                )
+            t_c2 = time.perf_counter()
+            await db.commit()
+            t_end = time.perf_counter()
+            print(
+                f"[PERF DB FAST-INGEST] Total: {t_end - t_start:.3f}s | "
+                f"Prep: {t_dict_prep - t_cache:.3f}s | "
+                f"COPY data_level: {t_c1 - t_c0:.3f}s | "
+                f"Temp Table Update: {t_c2 - t_c1:.3f}s | "
+                f"Commit (fsync): {t_end - t_c2:.3f}s for {len(measurements)} rows",
+                flush=True,
+            )
+            return TelemetryIngestResult(
+                accepted=len(measurements), updated=updated, not_found=not_found
+            )
+    except Exception as e:
+        logger.warning("Fast PostgreSQL ingest fallback to standard SQLAlchemy: %s", e)
+
+    # Standard SQLAlchemy Fallback
+    t_insert_start = time.perf_counter()
     if data_level_inserts:
         await db.execute(insert(DataLevel), data_level_inserts)
+    t_insert_end = time.perf_counter()
 
+    t_update_start = time.perf_counter()
     if container_updates:
-        # SQLAlchemy 2.0 Bulk Update using a list of dicts (id is the primary key)
         await db.execute(update(Container), container_updates)
+    t_update_end = time.perf_counter()
 
-        # Bulk Update the change_version sequence for the modified containers
+    t_change_version_start = time.perf_counter()
+    if container_updates:
         updated_ids = [u["id"] for u in container_updates]
         await db.execute(
             update(Container)
             .where(Container.id.in_(updated_ids))
             .values(change_version=func.nextval("container_change_version_seq"))
         )
+    t_change_version_end = time.perf_counter()
 
+    t_commit_start = time.perf_counter()
     await db.commit()
+    t_commit_end = time.perf_counter()
+
+    total_time = t_commit_end - t_start
+    print(
+        f"[PERF DB INGEST] Total: {total_time:.3f}s | "
+        f"Cache: {t_cache - t_start:.3f}s | "
+        f"Prep dicts ({len(data_level_inserts)}): {t_dict_prep - t_cache:.3f}s | "
+        f"Insert DataLevel: {t_insert_end - t_insert_start:.3f}s | "
+        f"Update Container: {t_update_end - t_update_start:.3f}s | "
+        f"Update ChangeVersion IN: {t_change_version_end - t_change_version_start:.3f}s | "
+        f"Commit: {t_commit_end - t_commit_start:.3f}s",
+        flush=True,
+    )
+
     return TelemetryIngestResult(
         accepted=len(measurements), updated=updated, not_found=not_found
     )

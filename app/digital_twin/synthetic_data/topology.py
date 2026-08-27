@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from app.digital_twin.synthetic_data.density_processor import get_density_processor
 from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
 
 
@@ -31,9 +32,6 @@ class SimulationTopology:
     initial_levels: dict[str, float]
 
 
-from app.digital_twin.synthetic_data.density_processor import get_density_processor
-
-
 def topology_from_backend_records(
     records: Sequence[BackendContainerRecord],
 ) -> SimulationTopology:
@@ -60,7 +58,9 @@ def topology_from_backend_records(
         site_id = record.site_id
         demand_info = demands.get(record.id)
         calculated_demand = (
-            demand_info.hourly_fill_pct if demand_info is not None else record.demand_base
+            demand_info.hourly_fill_pct
+            if demand_info is not None
+            else record.demand_base
         )
 
         if site_id not in sites_by_id:

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from datetime import datetime
 
 from app.digital_twin.synthetic_data.density_processor import (
     DAILY_WASTE_PER_PERSON_KG,
     WASTE_DENSITY_KG_M3,
-    DensityProcessor,
     get_density_processor,
 )
 from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
@@ -51,7 +49,10 @@ def test_process_containers_shares_population_in_same_radio():
     assert set(summary.container_ids) == {101, 102, 103}
 
     expected_daily_kg_per_cont = (summary.population * DAILY_WASTE_PER_PERSON_KG) / 3.0
-    assert pytest.approx(summary.daily_waste_per_container_kg, rel=1e-3) == expected_daily_kg_per_cont
+    assert (
+        pytest.approx(summary.daily_waste_per_container_kg, rel=1e-3)
+        == expected_daily_kg_per_cont
+    )
 
     # Comprobar el cálculo de llenado para cada contenedor
     capacity_kg = 3.2 * WASTE_DENSITY_KG_M3
@@ -61,7 +62,9 @@ def test_process_containers_shares_population_in_same_radio():
     for cid in [101, 102, 103]:
         info = demands[cid]
         assert info.containers_in_radio == 3
-        assert pytest.approx(info.daily_waste_kg, rel=1e-3) == expected_daily_kg_per_cont
+        assert (
+            pytest.approx(info.daily_waste_kg, rel=1e-3) == expected_daily_kg_per_cont
+        )
         assert pytest.approx(info.daily_fill_pct, rel=1e-3) == expected_daily_fill_pct
         assert pytest.approx(info.hourly_fill_pct, rel=1e-3) == expected_hourly_fill_pct
 

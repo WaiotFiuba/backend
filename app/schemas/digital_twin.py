@@ -59,6 +59,21 @@ class SimulationControlsUpdate(BaseModel):
     zone_overrides: list[ZoneDemandOverride] | None = None
 
 
+class SimulationProgressUpdate(BaseModel):
+    simulated_time: datetime | None = None
+    current_period: int | None = None
+    global_demand_current: float | None = None
+    measurements_sent: int = 0
+    collections_generated: int = 0
+    alarms_generated: int = 0
+    status: str | None = None
+
+
+class SimulationFinish(BaseModel):
+    status: Literal["completed", "failed"]
+    error_message: str | None = None
+
+
 class SimulationZoneState(BaseModel):
     neighborhood: str
     multiplier_current: float

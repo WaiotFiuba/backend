@@ -174,7 +174,25 @@ def _current_volume_m3(volume_m3: float | None, fill_level_pct: float) -> float 
 
 
 def api_payload_from_measurement(measurement: Measurement) -> dict[str, object]:
-    return _api_payload(measurement.to_record())
+    return {
+        "device_id": measurement.device_id,
+        "container_id": measurement.container_id,
+        "timestamp": measurement.timestamp.isoformat()
+        if hasattr(measurement.timestamp, "isoformat")
+        else str(measurement.timestamp),
+        "telemetry": {
+            "fill_level_pct": measurement.fill_level_pct,
+            "ultrasonic_distance_cm": measurement.ultrasonic_distance_cm,
+            "battery_pct": measurement.battery_pct,
+            "signal_rssi_dbm": measurement.signal_rssi_dbm,
+            "temperature_c": measurement.temperature_c,
+            "acceleration_g": measurement.acceleration_g,
+        },
+        "flags": {
+            "is_collection_detected": measurement.is_collection_detected,
+            "anomaly": measurement.anomaly,
+        },
+    }
 
 
 def _api_payload(row: dict[str, object]) -> dict[str, object]:

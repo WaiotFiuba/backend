@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 # Constantes de cálculo en Backend
 PROMEDIO_GENERACION_BASURA_PERSONAS_24H: float = 1.5  # kg por persona cada 24 horas
-DENSIDAD_BASURA_KG_M3: float = 150.0                  # kg/m3 de residuo suelto
+DENSIDAD_BASURA_KG_M3: float = 150.0  # kg/m3 de residuo suelto
 DAILY_WASTE_PER_PERSON_KG: float = PROMEDIO_GENERACION_BASURA_PERSONAS_24H
 WASTE_DENSITY_KG_M3: float = DENSIDAD_BASURA_KG_M3
-DEFAULT_HOURLY_FILL_PCT: float = 1.0                  # Tasa de fallback por hora
+DEFAULT_HOURLY_FILL_PCT: float = 1.0  # Tasa de fallback por hora
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class DensityProcessor:
         if custom_path and Path(custom_path).exists():
             return Path(custom_path)
 
-        app_dir = Path(__file__).resolve().parents[2]      # app/
+        app_dir = Path(__file__).resolve().parents[2]  # app/
         backend_dir = Path(__file__).resolve().parents[3]  # backend/
 
         candidates = [
@@ -109,7 +109,11 @@ class DensityProcessor:
                     continue
 
                 try:
-                    pop_val = row.get("Población total") or row.get("Población total (en hogares familiares)") or "0"
+                    pop_val = (
+                        row.get("Población total")
+                        or row.get("Población total (en hogares familiares)")
+                        or "0"
+                    )
                     population = int(float(pop_val))
                 except (ValueError, TypeError):
                     population = 0
@@ -145,7 +149,9 @@ class DensityProcessor:
 
         if self._geometries:
             self._tree = STRtree(self._geometries)
-            logger.info(f"Índice espacial construido con {len(self.radios)} radios censales.")
+            logger.info(
+                f"Índice espacial construido con {len(self.radios)} radios censales."
+            )
 
     def find_radio(self, latitude: float, longitude: float) -> CensusRadio | None:
         """
@@ -210,7 +216,8 @@ class DensityProcessor:
             r = radio_by_code[code]
             total_c = len(c_ids)
             daily_kg_per_container = (
-                ((r.population * daily_kg_per_person) / total_c) * global_demand_multiplier
+                ((r.population * daily_kg_per_person) / total_c)
+                * global_demand_multiplier
                 if total_c > 0
                 else 0.0
             )
@@ -250,7 +257,9 @@ class DensityProcessor:
                         (population * daily_kg_per_person) / count_in_radio
                     ) * global_demand_multiplier
                 else:
-                    daily_kg = 150.0 * global_demand_multiplier  # Fallback si población es 0
+                    daily_kg = (
+                        150.0 * global_demand_multiplier
+                    )  # Fallback si población es 0
 
                 daily_fill_pct = (daily_kg / capacity_kg) * 100.0
                 hourly_fill_pct = daily_fill_pct / 24.0
