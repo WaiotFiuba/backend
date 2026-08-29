@@ -21,8 +21,8 @@ from app.schemas.map.container import (
 
 def _zoom_to_grid_size(zoom: int) -> float | None:
     """
-    Retorna el tamaño de la celda en grados para ST_SnapToGrid.
-    Ajustamos los rangos para la escala de Buenos Aires con 5 niveles de granularidad.
+    Retorna el tamaño de la celda en grados para el agrupamiento espacial.
+    Ajustamos los rangos para la escala de Buenos Aires con 6 niveles de granularidad progresiva.
     """
     if zoom < 13:
         return 0.1  # ~10km

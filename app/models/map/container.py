@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.models.map.container_type import ContainerType
     from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata
+    from app.models.map.site import Site
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -26,7 +27,9 @@ class Container(MapBase):
     __tablename__ = "containers"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    site_id: Mapped[str] = mapped_column(String, unique=True)
+    site_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sites.id"), nullable=True, index=True
+    )
     geom: Mapped[Geometry] = mapped_column(
         Geometry("POINT", srid=4326, spatial_index=False), nullable=False
     )
@@ -47,8 +50,6 @@ class Container(MapBase):
     available: Mapped[bool] = mapped_column(Boolean, default=False)
     last_pickup: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_reading: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    # client_id: Mapped[int | None] = mapped_column(BIGINT)
-    # site_id: Mapped[int | None] = mapped_column(BIGINT)
     site_name: Mapped[str | None] = mapped_column(String, nullable=True)
     device_imei: Mapped[str | None] = mapped_column(String, nullable=True)
     container_type_id: Mapped[int | None] = mapped_column(
@@ -65,6 +66,7 @@ class Container(MapBase):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     container_type: Mapped["ContainerType"] = relationship(back_populates="containers")
+    site: Mapped["Site | None"] = relationship(back_populates="containers")
     spatial_metadata: Mapped["CabaContainerSpatialMetadata | None"] = relationship(
         back_populates="container", uselist=False
     )

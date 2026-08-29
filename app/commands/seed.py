@@ -11,9 +11,12 @@ if str(ROOT) not in sys.path:
 
 
 async def main():
-    print("Iniciando siembra de datos de mapa...")
+    recluster = "--recluster" in sys.argv
+    print(
+        f"Iniciando siembra de datos de mapa{' (modo re-clustering)' if recluster else ''}..."
+    )
     try:
-        await seed_map_data()
+        await seed_map_data(recluster=recluster)
         print("Siembra de datos finalizada exitosamente.")
     except Exception as e:
         print(f"Error durante la siembra de datos: {e}")

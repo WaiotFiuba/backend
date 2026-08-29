@@ -10,16 +10,16 @@ from app.digital_twin.synthetic_data.domain.entities import Container, Device, S
 @dataclass(frozen=True)
 class BackendContainerRecord:
     id: int
-    site_id: str
-    site_name: str | None
-    latitude: float
-    longitude: float
-    current_level: int
-    device_imei: str | None
-    container_type: str | None
-    waste_type: str | None
-    height_cm: float | None
-    volume_m3: float | None
+    site_id: str | int | None = None
+    site_name: str | None = None
+    latitude: float = 0.0
+    longitude: float = 0.0
+    current_level: int = 0
+    device_imei: str | None = None
+    container_type: str | None = None
+    waste_type: str | None = None
+    height_cm: float | None = None
+    volume_m3: float | None = None
     zone: str | None = None
     demand_base: float = 1.0
 
@@ -55,7 +55,9 @@ def topology_from_backend_records(
 
     for record in records:
         container_id = str(record.id)
-        site_id = record.site_id
+        site_id = (
+            str(record.site_id) if record.site_id is not None else f"SITE-{record.id}"
+        )
         demand_info = demands.get(record.id)
         calculated_demand = (
             demand_info.hourly_fill_pct
