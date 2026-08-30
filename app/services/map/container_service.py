@@ -1,16 +1,14 @@
 from fastapi import HTTPException, status
-
-from sqlalchemy import select, text, func, case
-from sqlalchemy.orm import joinedload
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from geoalchemy2 import functions as geo_funcs
+from sqlalchemy import case, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
+from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
-from app.models.map.waste_type import WasteType
-from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata, Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
+from app.models.map.waste_type import WasteType
 from app.schemas.map.container import (
     ContainerChanges,
     ContainerCluster,
@@ -41,9 +39,10 @@ def _zoom_to_grid_size(zoom: int) -> float | None:
 
 
 def _row_to_container(row) -> ContainersMapOutputSchema:
+    site_id = row["site_id"]
     return ContainersMapOutputSchema(
         id=row["id"],
-        site_id=row["site_id"],
+        site_id=str(site_id) if site_id is not None else str(row["id"]),
         site_name=row["site_name"],
         device_imei=row["device_imei"],
         latitude=row["latitude"],
@@ -352,10 +351,10 @@ async def get_all_containers_paginated(
     filters = []
 
     if search:
-        from sqlalchemy import cast, String
+        from sqlalchemy import String, cast
 
         filters.append(
-            (Container.site_id.ilike(f"%{search}%"))
+            (cast(Container.site_id, String).ilike(f"%{search}%"))
             | (Container.site_name.ilike(f"%{search}%"))
             | (Barrio.nombre.ilike(f"%{search}%"))
             | (cast(Container.id, String).ilike(f"%{search}%"))
