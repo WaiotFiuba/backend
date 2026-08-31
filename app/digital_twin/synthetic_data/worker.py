@@ -82,12 +82,11 @@ async def run_worker() -> None:
     settings = get_settings()
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
     while True:
-        try:
-            await _mark_interrupted_sessions_failed(settings.simulator_backend_url)
+        success = await _mark_interrupted_sessions_failed(settings.simulator_backend_url)
+        if success:
+            logger.info("Inicializacion del worker completada. Esperando simulaciones...")
             break
-        except Exception:
-            logger.exception("No se pudo inicializar el estado del worker.")
-            await asyncio.sleep(settings.simulator_poll_seconds)
+        await asyncio.sleep(settings.simulator_poll_seconds)
 
     while True:
         try:
@@ -113,9 +112,10 @@ async def _fetch_active_session(backend_url: str) -> dict | None:
     return await asyncio.to_thread(_http_get_json, url)
 
 
-async def _mark_interrupted_sessions_failed(backend_url: str) -> None:
+async def _mark_interrupted_sessions_failed(backend_url: str) -> bool:
     url = urljoin(backend_url.rstrip("/") + "/", "digital-twin/worker/fail-interrupted")
-    await asyncio.to_thread(_http_post_json, url, {})
+    res = await asyncio.to_thread(_http_post_json, url, {})
+    return res is not None
 
 
 async def _finish_session(
@@ -149,7 +149,7 @@ async def _run_session(session: dict) -> None:
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.simulator_backend_url,
-            "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
+            "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18&limit=100000",
             None,
         )
         simulator = SyntheticDataSimulator(config, topology=topology)

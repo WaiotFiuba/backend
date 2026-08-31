@@ -19,6 +19,7 @@ from app.schemas.digital_twin import (
     SimulationZoneState,
     ZoneDemandRead,
 )
+from app.services.digital_twin_ingest_service import reset_database_container_levels
 
 ACTIVE_STATUSES = ("pending", "running", "paused", "stopping")
 
@@ -34,6 +35,9 @@ async def create_simulation(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ya existe una simulacion activa.",
         )
+
+    #CAMBIO: Cuando el front le da a iniciar simulacion, reinicia las demas en caso de haber alguna corriendo.
+    await reset_database_container_levels(db)
 
     try:
         scenario_data = dict(payload.scenario)
@@ -242,13 +246,14 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
     result = await db.execute(
         update(SimulationSession)
-        .where(SimulationSession.status.in_(("running", "paused", "stopping")))
+        .where(SimulationSession.status.in_(("running", "paused", "stopping", "pending")))
         .values(
             status="failed",
             error_message="El worker se reinicio durante la simulacion.",
             finished_at=datetime.now(timezone.utc),
         )
     )
+    await reset_database_container_levels(db)
     await db.commit()
     return result.rowcount
 

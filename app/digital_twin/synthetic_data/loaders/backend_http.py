@@ -94,6 +94,9 @@ def _fetch_container_page(
             f"El endpoint {url} respondio contenido que no es JSON valido."
         ) from exc
 
+    if isinstance(page, dict) and "items" in page and isinstance(page["items"], list):
+        return page["items"]
+
     if not isinstance(page, list):
         raise BackendConnectionError(
             f"El endpoint {url} no devolvio una lista de contenedores."

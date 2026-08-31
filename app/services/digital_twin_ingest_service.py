@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 import time
 
-from sqlalchemy import func, select, insert, update
+from sqlalchemy import func, select, insert, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -40,7 +40,6 @@ class ContainerCacheMeta:
 _cache_by_id: dict[int, ContainerCacheMeta] = {}
 _cache_by_imei: dict[str, ContainerCacheMeta] = {}
 _cache_loaded: bool = False
-
 
 DATA_LEVEL_COLS = [
     "message_time",
@@ -79,8 +78,10 @@ DATA_LEVEL_COLS = [
 
 async def ensure_cache(db: AsyncSession):
     global _cache_loaded
-    if _cache_loaded:
+    if _cache_loaded and len(_cache_by_id) >= 20000:
         return
+    _cache_by_id.clear()
+    _cache_by_imei.clear()
     query = select(Container).options(
         joinedload(Container.container_type).selectinload(ContainerType.waste_types),
         joinedload(Container.spatial_metadata)
@@ -114,6 +115,25 @@ async def ensure_cache(db: AsyncSession):
         if meta.device_imei:
             _cache_by_imei[meta.device_imei] = meta
     _cache_loaded = True
+    logger.info("Caché de telemetría cargada con %d contenedores.", len(_cache_by_id))
+
+
+async def reset_database_container_levels(db: AsyncSession) -> None:
+    """Reinicia los niveles de los contenedores a 0 en la base de datos y en caché."""
+    global _cache_loaded
+    await db.execute(
+        update(Container)
+        .values(
+            current_level=0,
+            last_reading=None,
+            change_version=func.nextval("container_change_version_seq"),
+        )
+    )
+    await db.commit()
+    for meta in _cache_by_id.values():
+        meta.current_level = 0
+    _cache_loaded = False
+    logger.info("Niveles de contenedores reiniciados a 0 en base de datos.")
 
 
 async def ingest_telemetry_batch(
@@ -183,7 +203,6 @@ async def ingest_telemetry_batch(
             not_found += 1
             continue
 
-        # Old level is from cache
         old_level = meta.current_level
         new_level = round(fill_level)
 
@@ -194,6 +213,16 @@ async def ingest_telemetry_batch(
         )
         collection_date = ts if is_pickup else None
 
+        ctype_height_int = (
+            int(round(meta.container_type_height))
+            if meta.container_type_height is not None
+            else None
+        )
+        reported_height_float = float(distance) if distance is not None else None
+        temp_float = float(temp) if temp is not None else None
+        rssi_float = float(rssi) if rssi is not None else None
+        vol_m3_float = float(vol_m3) if vol_m3 is not None else None
+
         # Record tuple for fast asyncpg COPY
         data_level_tuples.append(
             (
@@ -201,10 +230,10 @@ async def ingest_telemetry_batch(
                 device_id,
                 "",
                 ts,
-                distance,
+                reported_height_float,
                 anomaly == "incendio",
                 False,
-                temp,
+                temp_float,
                 acc >= 2.5,
                 is_pickup,
                 collection_date,
@@ -216,15 +245,15 @@ async def ingest_telemetry_batch(
                 new_level,
                 meta.container_type_id,
                 meta.container_type_name,
-                meta.container_type_height,
+                ctype_height_int,
                 str(meta.site_id) if meta.site_id is not None else None,
                 meta.site_name,
                 meta.zone_id,
                 meta.zone_name,
                 meta.waste_type_id,
                 meta.waste_type_name,
-                rssi,
-                vol_m3,
+                rssi_float,
+                vol_m3_float,
                 device_id,
                 device_id,
                 meta.serie_id,
@@ -233,7 +262,7 @@ async def ingest_telemetry_batch(
 
         update_tuples.append((meta.id, new_level, ts, is_pickup))
 
-        # Fallback dicts for SQLite/mock
+        # Fallback dicts for standard SQLAlchemy
         data_level_inserts.append(
             {
                 "message_time": ts,
@@ -255,7 +284,7 @@ async def ingest_telemetry_batch(
                 "container_current_level": new_level,
                 "container_type_id": meta.container_type_id,
                 "container_type_name": meta.container_type_name,
-                "container_type_height": meta.container_type_height,
+                "container_type_height": ctype_height_int,
                 "site_id": str(meta.site_id) if meta.site_id is not None else None,
                 "site_name": meta.site_name,
                 "zone_id": meta.zone_id,
@@ -285,7 +314,6 @@ async def ingest_telemetry_batch(
             upd["last_pickup"] = ts
 
         container_updates.append(upd)
-
         meta.current_level = new_level
         updated += 1
 
@@ -307,24 +335,22 @@ async def ingest_telemetry_batch(
                 )
             t_c1 = time.perf_counter()
             if update_tuples:
-                # 1. Create temp table with ON COMMIT DELETE ROWS for maximum performance
                 await asyncpg_conn.execute(
                     """
                     CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
-                        id bigint PRIMARY KEY,
+                        id bigint,
                         level integer,
                         reading_date timestamptz,
                         is_pickup boolean
-                    ) ON COMMIT DELETE ROWS;
+                    );
+                    TRUNCATE temp_container_updates;
                     """
                 )
-                # 2. Fast binary COPY into temp table
                 await asyncpg_conn.copy_records_to_table(
                     "temp_container_updates",
                     records=update_tuples,
                     columns=["id", "level", "reading_date", "is_pickup"],
                 )
-                # 3. High-speed JOIN update
                 await asyncpg_conn.execute(
                     """
                     UPDATE containers AS c
@@ -339,20 +365,15 @@ async def ingest_telemetry_batch(
                 )
             t_c2 = time.perf_counter()
             await db.commit()
-            t_end = time.perf_counter()
-            print(
-                f"[PERF DB FAST-INGEST] Total: {t_end - t_start:.3f}s | "
-                f"Prep: {t_dict_prep - t_cache:.3f}s | "
-                f"COPY data_level: {t_c1 - t_c0:.3f}s | "
-                f"Temp Table Update: {t_c2 - t_c1:.3f}s | "
-                f"Commit (fsync): {t_end - t_c2:.3f}s for {len(measurements)} rows",
-                flush=True,
-            )
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found
             )
     except Exception as e:
-        logger.warning("Fast PostgreSQL ingest fallback to standard SQLAlchemy: %s", e)
+        logger.warning("Fast PostgreSQL ingest fallback: %s", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     # Standard SQLAlchemy Fallback
     t_insert_start = time.perf_counter()

@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 # Constantes de cálculo en Backend
 PROMEDIO_GENERACION_BASURA_PERSONAS_24H: float = 1.5  # kg por persona cada 24 horas
-DENSIDAD_BASURA_KG_M3: float = 150.0  # kg/m3 de residuo suelto
+DENSIDAD_BASURA_KG_M3: float = 150.0
 DAILY_WASTE_PER_PERSON_KG: float = PROMEDIO_GENERACION_BASURA_PERSONAS_24H
 WASTE_DENSITY_KG_M3: float = DENSIDAD_BASURA_KG_M3
-DEFAULT_HOURLY_FILL_PCT: float = 1.0  # Tasa de fallback por hora
+DEFAULT_HOURLY_FILL_PCT: float = 1.0 #2.5  # Tasa base por hora (50-60% llenado diario)
 
 
 @dataclass(frozen=True)
@@ -72,18 +72,9 @@ class DensityProcessor:
             return Path(custom_path)
 
         app_dir = Path(__file__).resolve().parents[2]  # app/
-        backend_dir = Path(__file__).resolve().parents[3]  # backend/
+        csv_file = app_dir / "datos" / "radios_caba_filtrado.csv"
 
-        candidates = [
-            app_dir / "datos" / "radios_caba_filtrado.csv",
-            backend_dir / "datos" / "radios_caba_filtrado.csv",
-            Path("/app/app/datos/radios_caba_filtrado.csv"),
-            Path("/app/datos/radios_caba_filtrado.csv"),
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return None
+        return csv_file if csv_file.exists() else None
 
     def _load_dataset(self, csv_path: str | Path | None) -> None:
         resolved = self._resolve_csv_path(csv_path)
@@ -261,7 +252,7 @@ class DensityProcessor:
                         150.0 * global_demand_multiplier
                     )  # Fallback si población es 0
 
-                daily_fill_pct = (daily_kg / capacity_kg) * 100.0
+                daily_fill_pct = max(40.0, (daily_kg / capacity_kg) * 100.0)
                 hourly_fill_pct = daily_fill_pct / 24.0
 
                 info = ContainerDemandInfo(
@@ -278,7 +269,7 @@ class DensityProcessor:
             else:
                 # Contenedor fuera de CABA / sin radio
                 daily_kg = 150.0 * global_demand_multiplier
-                daily_fill_pct = (daily_kg / capacity_kg) * 100.0
+                daily_fill_pct = max(40.0, (daily_kg / capacity_kg) * 100.0)
                 hourly_fill_pct = daily_fill_pct / 24.0
 
                 info = ContainerDemandInfo(

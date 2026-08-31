@@ -41,6 +41,7 @@ class ContainerCluster(BaseModel):
     latitude: float
     longitude: float
     total: int
+    avg_level: int = 0
 
 
 class ContainerMapSnapshot(BaseModel):
@@ -75,7 +76,7 @@ class ContainerTypeDetailSchema(BaseModel):
 
 class ContainerDetailOutputSchema(BaseModel):
     id: int
-    site_id: str
+    site_id: str | int | None = None
     address: str | None
     description: str | None
     latitude: float

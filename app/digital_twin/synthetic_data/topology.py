@@ -96,7 +96,7 @@ def topology_from_backend_records(
                 container_id=container_id,
             )
         )
-        initial_levels[container_id] = float(record.current_level)
+        initial_levels[container_id] = float(record.current_level or 0.0)
 
     return SimulationTopology(
         sites=list(sites_by_id.values()),

@@ -20,20 +20,16 @@ from app.schemas.map.container import (
 def _zoom_to_grid_size(zoom: int) -> float | None:
     """
     Retorna el tamaño de la celda en grados para el agrupamiento espacial.
-    Ajustamos los rangos para la escala de Buenos Aires con 6 niveles de granularidad progresiva.
+    A partir de zoom 17 se muestran puntos individuales exactos.
     """
-    if zoom < 13:
-        return 0.1  # ~10km
-    elif zoom < 14:
-        return 0.05  # ~5km
+    if zoom < 11:
+        return 0.15
+    elif zoom < 13:
+        return 0.05
     elif zoom < 15:
-        return 0.02  # ~2km
-    elif zoom < 16:
-        return 0.01  # ~1km
+        return 0.015
     elif zoom < 17:
-        return 0.005  # ~500m
-    elif zoom < 18:
-        return 0.002  # ~200m
+        return 0.003
     else:
         return None
 
@@ -261,7 +257,8 @@ async def get_containers_clustered(
         SELECT
             ST_Y(ST_Centroid(ST_Collect(geom))) AS cluster_lat,
             ST_X(ST_Centroid(ST_Collect(geom))) AS cluster_lng,
-            COUNT(*) AS total
+            COUNT(*) AS total,
+            COALESCE(ROUND(AVG(current_level)), 0) AS avg_level
         FROM containers
         WHERE geom && ST_MakeEnvelope(:lng_min, :lat_min, :lng_max, :lat_max, 4326)
         GROUP BY ST_SnapToGrid(geom, :grid_size)
@@ -288,6 +285,7 @@ async def get_containers_clustered(
             latitude=row["cluster_lat"],
             longitude=row["cluster_lng"],
             total=row["total"],
+            avg_level=int(row["avg_level"]),
         )
         for row in rows
     ]
