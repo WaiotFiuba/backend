@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -98,6 +98,12 @@ async def get_active_simulation(db: AsyncSession) -> SimulationRead:
     return await _simulation_read(db, session)
 
 
+async def get_active_simulation_session(
+    db: AsyncSession,
+) -> SimulationSession | None:
+    return await _active_session(db)
+
+
 async def set_active_simulation_status(
     db: AsyncSession,
     action: str,
@@ -146,7 +152,7 @@ async def set_simulation_status(
         )
     if action == "stop" and session.status == "pending":
         session.status = "completed"
-        session.finished_at = datetime.now(timezone.utc)
+        session.finished_at = datetime.now(UTC)
     else:
         session.status = target
     await db.commit()
@@ -211,7 +217,7 @@ async def update_simulation_progress(
     if status is not None:
         session.status = status
         if status == "running" and session.started_at is None:
-            session.started_at = datetime.now(timezone.utc)
+            session.started_at = datetime.now(UTC)
     if simulated_time is not None:
         session.simulated_time = simulated_time
     if current_period is not None:
@@ -236,7 +242,7 @@ async def finish_simulation_session(
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
     session.status = status
     session.error_message = error_message
-    session.finished_at = datetime.now(timezone.utc)
+    session.finished_at = datetime.now(UTC)
     await db.commit()
     return await get_simulation(db, simulation_id)
 
@@ -250,7 +256,7 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
         .values(
             status="failed",
             error_message="El worker se reinicio durante la simulacion.",
-            finished_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(UTC),
         )
     )
     await reset_database_container_levels(db)
@@ -471,5 +477,5 @@ def _scenario_record(config) -> dict[str, object]:
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

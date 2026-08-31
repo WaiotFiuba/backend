@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -59,3 +60,19 @@ class SiteChanges(BaseModel):
     sites: list[SiteMapOutputSchema]
     latest_cursor: int
     has_more: bool = False
+
+
+class SiteLevelHistoryPoint(BaseModel):
+    timestamp: datetime
+    avg_level: float
+    max_level: int
+    min_level: int
+    measurement_count: int
+
+
+class SiteLevelHistory(BaseModel):
+    site_id: int
+    simulation_id: int | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    points: list[SiteLevelHistoryPoint] = Field(default_factory=list)

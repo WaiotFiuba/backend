@@ -1,22 +1,35 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
+
 from fastapi import HTTPException, status
-from sqlalchemy import case, cast, func, select, Numeric
+from sqlalchemy import Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
+from app.models.map.data_level import DataLevel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.site import (
     SiteChanges,
     SiteCluster,
     SiteContainerSummary,
+    SiteLevelHistory,
+    SiteLevelHistoryPoint,
     SiteMapOutputSchema,
     SiteMapSnapshot,
 )
 from app.services.map.container_service import _zoom_to_grid_size
+from app.services.simulation_control_service import get_active_simulation_session
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _level_expr(level_aggregation: Literal["avg", "max"] = "avg"):
@@ -460,4 +473,78 @@ async def get_site_by_id(
         last_pickup=row.last_pickup,
         updated_at=row.updated_at,
         containers=containers,
+    )
+
+
+async def get_site_level_history(
+    db: AsyncSession,
+    site_id: int,
+    limit: int = 168,
+) -> SiteLevelHistory:
+    exists_stmt = select(Site.id).where(Site.id == site_id, Site.deleted_at.is_(None))
+    exists = await db.scalar(exists_stmt)
+    if exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
+        )
+
+    active_session = await get_active_simulation_session(db)
+    if active_session is None or active_session.simulated_time is None:
+        return SiteLevelHistory(site_id=site_id)
+
+    config = scenario_from_mapping(active_session.scenario)
+    window_start = _as_utc(config.start)
+    window_end = _as_utc(active_session.simulated_time)
+    if window_end < window_start:
+        return SiteLevelHistory(
+            site_id=site_id,
+            simulation_id=active_session.id,
+            window_start=window_start,
+            window_end=window_end,
+        )
+
+    stmt = (
+        select(
+            DataLevel.reading_date.label("timestamp"),
+            func.coalesce(
+                func.round(cast(func.avg(DataLevel.container_current_level), Numeric), 2),
+                0,
+            ).label("avg_level"),
+            func.coalesce(func.max(DataLevel.container_current_level), 0).label(
+                "max_level"
+            ),
+            func.coalesce(func.min(DataLevel.container_current_level), 0).label(
+                "min_level"
+            ),
+            func.count(DataLevel.id).label("measurement_count"),
+        )
+        .join(Container, DataLevel.container_id == Container.id)
+        .where(
+            Container.site_id == site_id,
+            DataLevel.container_current_level.is_not(None),
+            DataLevel.reading_date >= window_start,
+            DataLevel.reading_date <= window_end,
+        )
+        .group_by(DataLevel.reading_date)
+        .order_by(DataLevel.reading_date.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    rows = list(reversed(result.all()))
+
+    return SiteLevelHistory(
+        site_id=site_id,
+        simulation_id=active_session.id,
+        window_start=window_start,
+        window_end=window_end,
+        points=[
+            SiteLevelHistoryPoint(
+                timestamp=row.timestamp,
+                avg_level=float(row.avg_level),
+                max_level=int(row.max_level),
+                min_level=int(row.min_level),
+                measurement_count=int(row.measurement_count),
+            )
+            for row in rows
+        ],
     )

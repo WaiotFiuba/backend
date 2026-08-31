@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
+
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import LineString
 from sqlalchemy import select
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
+from app.models.map.data_level import DataLevel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.site_clustering_service import (
@@ -19,6 +22,7 @@ from app.services.map.site_clustering_service import (
 from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
+    get_site_level_history,
     get_site_map_snapshot,
     get_sites_clustered,
 )
@@ -114,6 +118,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             container_type_waste_types,
             Container.__table__,
             Site.__table__,
+            DataLevel.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -128,6 +133,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
 
         tables = [
             Site.__table__,
+            DataLevel.__table__,
             Container.__table__,
             container_type_waste_types,
             ContainerType.__table__,
@@ -305,6 +311,52 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(no_changes.sites), 0)
             self.assertEqual(no_changes.latest_cursor, 10)
 
+            session.add_all(
+                [
+                    DataLevel(
+                        reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+                        container_id=1,
+                        container_current_level=20,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    ),
+                    DataLevel(
+                        reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+                        container_id=2,
+                        container_current_level=80,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    ),
+                    DataLevel(
+                        reading_date=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
+                        container_id=1,
+                        container_current_level=40,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    ),
+                ]
+            )
+            await session.commit()
+
+            history = await get_site_level_history(session, site_id=1)
+            self.assertEqual(len(history.points), 2)
+            self.assertEqual(history.points[0].avg_level, 50)
+            self.assertEqual(history.points[0].max_level, 80)
+            self.assertEqual(history.points[0].min_level, 20)
+            self.assertEqual(history.points[0].measurement_count, 2)
+
     async def test_get_sites_clustered_bbox(self):
         async with self.session_maker() as session:
             wt = WasteType(id=1, name="RSU Fracción Húmeda")
@@ -367,8 +419,9 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
 
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient
-        from app.main import app
+
         from app.core.map_database import get_map_db
+        from app.main import app
 
         async with self.session_maker() as session:
             wt = WasteType(id=1, name="RSU Fracción Húmeda", color="#000000")
