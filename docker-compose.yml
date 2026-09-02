@@ -21,7 +21,7 @@ services:
         export ENABLE_MAP_DB=false;
         echo 'Base de mapa deshabilitada. Iniciando API sin PostGIS.';
       fi &&
-      uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
     depends_on:
       postgis:
@@ -64,7 +64,7 @@ services:
       - ./app:/app/app
     command: >
       sh -c "
-      uv run python -m app.digital_twin.synthetic_data.worker
+      exec uv run python -m app.digital_twin.synthetic_data.worker
       "
     depends_on:
       api:

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import shapely
@@ -27,11 +27,18 @@ class StreetSegment:
     geometry: LineString
     nomoficial: str = ""
     sentido: str = "DOBLE"  # "CRECIENTE", "DECRECIENTE", "DOBLE"
+    tipo_c: str = ""
     coords: tuple[tuple[float, float], ...] = field(default_factory=tuple)
 
     def __post_init__(self):
         if not self.coords and self.geometry is not None:
             self.coords = tuple(self.geometry.coords)
+
+    @property
+    def is_avenida(self) -> bool:
+        nom = self.nomoficial.upper()
+        tipo = self.tipo_c.upper()
+        return tipo == "AVENIDA" or "AV." in nom or "AVENIDA" in nom
 
 
 class StreetSpatialIndex:
@@ -66,6 +73,7 @@ class StreetSpatialIndex:
                 .strip()
             )
             sentido = str(props.get("sentido") or "DOBLE").upper().strip()
+            tipo_c = str(props.get("tipo_c") or "").upper().strip()
 
             if isinstance(geom, LineString) and len(geom.coords) >= 2:
                 segments.append(
@@ -73,6 +81,7 @@ class StreetSpatialIndex:
                         geometry=geom,
                         nomoficial=nom,
                         sentido=sentido,
+                        tipo_c=tipo_c,
                         coords=tuple(geom.coords),
                     )
                 )
@@ -81,6 +90,23 @@ class StreetSpatialIndex:
             "Índice espacial de calles construido con %d tramos.", len(segments)
         )
         return cls(segments)
+
+    def is_avenida_segment(self, idx: int) -> bool:
+        if 0 <= idx < len(self.segments):
+            return self.segments[idx].is_avenida
+        return False
+
+    def get_street_segment_indices_batch(
+        self, lons: list[float], lats: list[float]
+    ) -> list[int]:
+        """
+        Retorna el índice del tramo de calle (cuadra) más cercano para cada coordenada.
+        """
+        if not self.tree or not self.segments or not lons:
+            return [0] * len(lons)
+        points = shapely.points(lons, lats)
+        nearest_indices = self.tree.nearest(points)
+        return [int(idx) if idx is not None else 0 for idx in nearest_indices]
 
     def infer_load_side_batch(self, lons: list[float], lats: list[float]) -> list[str]:
         """
@@ -136,12 +162,12 @@ class StreetSpatialIndex:
             is_left = cross > 0
 
             sentido = street.sentido
-            if sentido == "CRECIENTE":
-                results.append("IZQUIERDA" if is_left else "DERECHA")
-            elif sentido == "DECRECIENTE":
+            if sentido == "DECRECIENTE":
                 results.append("DERECHA" if is_left else "IZQUIERDA")
             else:
-                results.append("BILATERAL")
+                # Para calles CRECIENTES, DOBLE mano o sin sentido especificado,
+                # is_left separa inequívocamente los contenedores de un lado y otro del eje de la calle.
+                results.append("IZQUIERDA" if is_left else "DERECHA")
 
         return results
 
@@ -202,6 +228,19 @@ def _spatial_cluster(
     return clusters
 
 
+def _is_bilateral_container_type(ctype: ContainerType | None) -> bool:
+    if not ctype:
+        return False
+    name = (ctype.name or "").upper()
+    desc = (ctype.description or "").upper()
+    return (
+        "BILATERAL" in name
+        or "SOTERRADO" in name
+        or "BILATERAL" in desc
+        or "SOTERRADO" in desc
+    )
+
+
 async def cluster_and_create_sites(
     db: AsyncSession,
     calles_path: Path | str | None = None,
@@ -249,34 +288,44 @@ async def cluster_and_create_sites(
         key = (w_id, ct_id)
         groups_by_type.setdefault(key, []).append(c)
 
-    all_cluster_items: list[tuple[int | None, list[Container]]] = []
+    all_cluster_items: list[tuple[int | None, str, list[Container]]] = []
 
     for (w_id, ct_id), c_list in groups_by_type.items():
-        # Agrupamiento puramente espacial: contenedores a menos de distance_threshold_m
-        # se agrupan en el mismo sitio independientemente de variaciones menores en el número de puerta
-        for sub_cluster in _spatial_cluster(
-            c_list, distance_threshold_m=distance_threshold_m
-        ):
-            all_cluster_items.append((w_id, sub_cluster))
+        first_c = c_list[0]
+        is_bilateral = _is_bilateral_container_type(first_c.container_type)
+
+        c_lons = [c.longitude for c in c_list]
+        c_lats = [c.latitude for c in c_list]
+        seg_indices = street_index.get_street_segment_indices_batch(c_lons, c_lats)
+        sides = street_index.infer_load_side_batch(c_lons, c_lats)
+
+        cuadra_subgroups: dict[tuple[int, str], list[Container]] = {}
+        for c, seg_idx, side in zip(c_list, seg_indices, sides):
+            is_ave = street_index.is_avenida_segment(seg_idx)
+            # Contenedores bilaterales en calles comunes: no importa el lado de la acera (BILATERAL)
+            # En avenidas (por doble flujo o bulevar) o para carga lateral: se separan por acera (IZQUIERDA/DERECHA)
+            final_side = "BILATERAL" if (is_bilateral and not is_ave) else side
+            cuadra_subgroups.setdefault((seg_idx, final_side), []).append(c)
+
+        for (seg_idx, side), sub_cluster in cuadra_subgroups.items():
+            all_cluster_items.append((w_id, side, sub_cluster))
 
     if not all_cluster_items:
         return 0
 
     print(
-        f" -> {len(all_cluster_items)} sitios identificados. Infiriendo lados de carga vehicular..."
+        f" -> {len(all_cluster_items)} sitios identificados por cuadra, lado de acera y tipo de contenedor."
     )
 
-    # 3. Inferencia de lado de carga en lote
+    # 3. Cálculo de centroides para cada Sitio
     cluster_lons = [
         float(np.mean([c.longitude for c in cluster]))
-        for _, cluster in all_cluster_items
+        for _, _, cluster in all_cluster_items
     ]
     cluster_lats = [
         float(np.mean([c.latitude for c in cluster]))
-        for _, cluster in all_cluster_items
+        for _, _, cluster in all_cluster_items
     ]
-
-    load_sides = street_index.infer_load_side_batch(cluster_lons, cluster_lats)
 
     # 4. Limpieza de sitios previos si clear_existing es True
     if clear_existing:
@@ -289,7 +338,7 @@ async def cluster_and_create_sites(
 
     print(" -> Creando entidades Site en la base de datos...")
     sites_to_create: list[Site] = []
-    for i, (w_id, cluster) in enumerate(all_cluster_items):
+    for i, (w_id, load_side, cluster) in enumerate(all_cluster_items):
         avg_lon = cluster_lons[i]
         avg_lat = cluster_lats[i]
         first = cluster[0]
@@ -304,7 +353,7 @@ async def cluster_and_create_sites(
             latitude=avg_lat,
             longitude=avg_lon,
             geom=WKTElement(f"POINT({avg_lon} {avg_lat})", srid=4326),
-            load_side_category=load_sides[i],
+            load_side_category=load_side,
             waste_type_id=w_id,
         )
         sites_to_create.append(site)
@@ -319,7 +368,7 @@ async def cluster_and_create_sites(
     # 5. Actualización masiva de containers.site_id usando Core table update
     print(" -> Vinculando contenedores a sus respectivos sitios...")
     container_updates = []
-    for site, (_, cluster) in zip(sites_to_create, all_cluster_items):
+    for site, (_, _, cluster) in zip(sites_to_create, all_cluster_items):
         for c in cluster:
             c.site_id = site.id
             c.site_name = site.name
