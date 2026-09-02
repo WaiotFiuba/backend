@@ -25,6 +25,7 @@ class ContainersMapOutputSchema(BaseModel):
     id: int
     site_id: str
     site_name: str | None = None
+    address: str | None = None
     device_imei: str | None = None
     latitude: float
     longitude: float

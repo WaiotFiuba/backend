@@ -12,6 +12,7 @@ class BackendContainerRecord:
     id: int
     site_id: str | int | None = None
     site_name: str | None = None
+    address: str | None = None
     latitude: float = 0.0
     longitude: float = 0.0
     current_level: int = 0
@@ -78,6 +79,7 @@ def topology_from_backend_records(
                 latitude=record.latitude,
                 longitude=record.longitude,
                 demand_base=calculated_demand,
+                address=record.address,
             )
 
         containers.append(
@@ -145,6 +147,7 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
         id=int(container_id),
         site_id=str(site_id),
         site_name=str(item["site_name"]) if item.get("site_name") else None,
+        address=str(item["address"]) if item.get("address") else None,
         latitude=float(item["latitude"]),
         longitude=float(item["longitude"]),
         current_level=int(item.get("current_level", 0)),

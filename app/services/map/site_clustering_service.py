@@ -162,11 +162,12 @@ class StreetSpatialIndex:
             is_left = cross > 0
 
             sentido = street.sentido
-            if sentido == "DECRECIENTE":
+            if sentido == "DOBLE":
+                results.append("BILATERAL")
+            elif sentido == "DECRECIENTE":
                 results.append("DERECHA" if is_left else "IZQUIERDA")
             else:
-                # Para calles CRECIENTES, DOBLE mano o sin sentido especificado,
-                # is_left separa inequívocamente los contenedores de un lado y otro del eje de la calle.
+                # Para calles CRECIENTES o sin sentido especificado
                 results.append("IZQUIERDA" if is_left else "DERECHA")
 
         return results
@@ -224,6 +225,71 @@ def _spatial_cluster(
                             visited.add(other.id)
 
         clusters.append(current_cluster)
+
+    return clusters
+
+
+def _split_by_distance(
+    containers: list[Container], max_distance_m: float = 100.0
+) -> list[list[Container]]:
+    """
+    Divide una lista de contenedores en sub-grupos si la distancia física entre ellos
+    supera max_distance_m (100 metros) o si pertenecen a cuadras/alturas numéricas diferentes
+    (diferencia >= 100 números de calle), garantizando que una calle larga (ej. del 1600 al 2600)
+    se divida en múltiples sitios individuales por cuadra.
+    """
+    if len(containers) <= 1:
+        return [containers]
+
+    from app.digital_twin.synthetic_data.generators.street_pairing import (
+        parse_street_address,
+    )
+
+    # Extraer números de calle si están disponibles
+    numbers = []
+    for c in containers:
+        parsed = parse_street_address(c.address) if c.address else None
+        numbers.append(parsed[1] if parsed else None)
+
+    threshold_sq = max_distance_m * max_distance_m
+    n = len(containers)
+    visited = [False] * n
+    clusters: list[list[Container]] = []
+
+    for i in range(n):
+        if visited[i]:
+            continue
+        cluster: list[Container] = []
+        queue = [i]
+        visited[i] = True
+
+        while queue:
+            curr = queue.pop(0)
+            c_curr = containers[curr]
+            cluster.append(c_curr)
+
+            for j in range(n):
+                if not visited[j]:
+                    c_other = containers[j]
+                    dy_m = (c_curr.latitude - c_other.latitude) * 111000.0
+                    dx_m = (c_curr.longitude - c_other.longitude) * 91400.0
+                    dist_sq = dx_m * dx_m + dy_m * dy_m
+
+                    # Verificar distancia espacial (<= 100m)
+                    is_near_spatial = dist_sq <= threshold_sq
+
+                    # Verificar diferencia numérica de altura si ambos tienen número (misma cuadra: diff < 100)
+                    num_curr = numbers[curr]
+                    num_other = numbers[j]
+                    is_near_number = True
+                    if num_curr is not None and num_other is not None:
+                        is_near_number = abs(num_curr - num_other) < 100
+
+                    if is_near_spatial and is_near_number:
+                        visited[j] = True
+                        queue.append(j)
+
+        clusters.append(cluster)
 
     return clusters
 
@@ -308,7 +374,9 @@ async def cluster_and_create_sites(
             cuadra_subgroups.setdefault((seg_idx, final_side), []).append(c)
 
         for (seg_idx, side), sub_cluster in cuadra_subgroups.items():
-            all_cluster_items.append((w_id, side, sub_cluster))
+            # Si entre contenedores hay más de 100m de distancia, se dividen en sitios diferentes
+            for split_cluster in _split_by_distance(sub_cluster, max_distance_m=100.0):
+                all_cluster_items.append((w_id, side, split_cluster))
 
     if not all_cluster_items:
         return 0

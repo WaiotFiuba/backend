@@ -65,6 +65,34 @@ class TestStreetSpatialIndex(unittest.TestCase):
         )
         self.assertEqual(idx_doble.infer_load_side(-58.39, -34.55), "BILATERAL")
 
+    def test_split_by_distance_separates_far_containers(self):
+        from app.services.map.site_clustering_service import _split_by_distance
+
+        # Contenedores 1 y 2 a 10 metros de distancia
+        c1 = Container(id=1, latitude=-34.6000, longitude=-58.3800)
+        c2 = Container(id=2, latitude=-34.6001, longitude=-58.3800)  # ~11 metros
+        # Contenedor 3 a 500 metros de distancia
+        c3 = Container(id=3, latitude=-34.6050, longitude=-58.3800)  # ~550 metros
+
+        clusters = _split_by_distance([c1, c2, c3], max_distance_m=100.0)
+        self.assertEqual(len(clusters), 2)
+        self.assertEqual([c.id for c in clusters[0]], [1, 2])
+        self.assertEqual([c.id for c in clusters[1]], [3])
+
+    def test_split_by_distance_separates_by_address_block_numbers(self):
+        from app.services.map.site_clustering_service import _split_by_distance
+
+        # Calle Corrientes al 1600 (cuadra 1600-1700)
+        c1 = Container(id=1, latitude=-34.6000, longitude=-58.3800, address="CORRIENTES 1620")
+        c2 = Container(id=2, latitude=-34.6001, longitude=-58.3801, address="CORRIENTES 1650")
+        # Calle Corrientes al 2600 (otra cuadra a varias cuadras)
+        c3 = Container(id=3, latitude=-34.6002, longitude=-58.3802, address="CORRIENTES 2640")
+
+        clusters = _split_by_distance([c1, c2, c3], max_distance_m=100.0)
+        self.assertEqual(len(clusters), 2)
+        self.assertEqual([c.id for c in clusters[0]], [1, 2])
+        self.assertEqual([c.id for c in clusters[1]], [3])
+
 
 class TestSiteServices(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

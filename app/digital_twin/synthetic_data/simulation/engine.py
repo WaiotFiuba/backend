@@ -25,6 +25,11 @@ from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.digital_twin.synthetic_data.topology import SimulationTopology
 
 
+from app.digital_twin.synthetic_data.generators.street_pairing import (
+    build_opposing_sites_map,
+)
+
+
 @dataclass(frozen=True)
 class SimulationResult:
     sites: list[Site]
@@ -44,6 +49,7 @@ class SimulationState:
     batteries: dict[str, float]
     reading_offsets: dict[str, int]
     stuck_distances: dict[str, float]
+    opposing_site_by_site_id: dict[str, str]
 
 
 class SyntheticDataSimulator:
@@ -64,6 +70,7 @@ class SyntheticDataSimulator:
         self.rng = random.Random(self.config.seed)
         self.np_rng = np.random.default_rng(self.config.seed)
         topology = self.topology or generate_synthetic_topology(self.config, self.rng)
+        opposing_sites = build_opposing_sites_map(topology.sites)
         self.state = SimulationState(
             topology=topology,
             site_by_id={site.id: site for site in topology.sites},
@@ -82,6 +89,7 @@ class SyntheticDataSimulator:
                 for device in topology.devices
             },
             stuck_distances={},
+            opposing_site_by_site_id=opposing_sites,
         )
         return self.state
 
@@ -153,7 +161,11 @@ class SyntheticDataSimulator:
             heights = []
             reading_offsets = []
 
-            for container in containers:
+            from collections import defaultdict
+            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = defaultdict(list)
+            containers_by_site: dict[str, list[int]] = defaultdict(list)
+
+            for idx, container in enumerate(containers):
                 site = state.site_by_id[container.site_id]
                 device = state.device_by_container_id[container.id]
                 site_list.append(site)
@@ -165,12 +177,17 @@ class SyntheticDataSimulator:
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
 
+                containers_by_site_and_waste[(container.site_id, container.waste_type)].append(idx)
+                containers_by_site[container.site_id].append(idx)
+
             state._cached_sites = site_list
             state._cached_devices = device_list
             state._cached_demand_bases = np.array(demand_bases, dtype=np.float64)
             state._cached_waste_factors = np.array(waste_factors, dtype=np.float64)
             state._cached_heights = np.array(heights, dtype=np.float64)
             state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
+            state._cached_containers_by_site_and_waste = containers_by_site_and_waste
+            state._cached_containers_by_site = containers_by_site
             state._cached_arrays = True
 
         measurements: list[Measurement] = []
@@ -183,7 +200,7 @@ class SyntheticDataSimulator:
             [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
         )
 
-        # 1. Calculate filling increments
+        # 1. Calculate filling increments and spillover to opposing sites
         h_factor = _hour_factor(timestamp.hour)
         wd_factor = _weekday_factor(timestamp.weekday())
 
@@ -217,7 +234,41 @@ class SyntheticDataSimulator:
             * noises
         )
         increments = np.round(increments, 4)
-        levels = np.minimum(100.0, levels + increments)
+
+        # Traspaso de exceso a sitios de enfrente si un contenedor/sitio está al 100%
+        initial_levels_tick = levels.copy()
+        tentative_levels = initial_levels_tick + increments
+
+        from collections import defaultdict
+        opposing_spillovers: dict[int, float] = defaultdict(float)
+
+        for i in range(N):
+            container = containers[i]
+            site_id = container.site_id
+            opposing_site_id = state.opposing_site_by_site_id.get(site_id)
+
+            if opposing_site_id:
+                if initial_levels_tick[i] >= 100.0:
+                    excess = increments[i]
+                elif tentative_levels[i] > 100.0:
+                    excess = tentative_levels[i] - 100.0
+                else:
+                    excess = 0.0
+
+                if excess > 0.0:
+                    targets = state._cached_containers_by_site_and_waste.get(
+                        (opposing_site_id, container.waste_type)
+                    ) or state._cached_containers_by_site.get(opposing_site_id, [])
+
+                    if targets:
+                        share = excess / len(targets)
+                        for target_idx in targets:
+                            opposing_spillovers[target_idx] += share
+
+        for target_idx, added_level in opposing_spillovers.items():
+            tentative_levels[target_idx] += added_level
+
+        levels = np.minimum(100.0, tentative_levels)
 
         # 2. Collections
         is_collection_hour = timestamp.hour in self.config.collection_hours

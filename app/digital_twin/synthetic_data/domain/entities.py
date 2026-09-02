@@ -12,6 +12,7 @@ class Site:
     latitude: float
     longitude: float
     demand_base: float
+    address: str | None = None
 
     def to_record(self) -> dict[str, object]:
         return asdict(self)
