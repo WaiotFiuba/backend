@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 from app.digital_twin.synthetic_data.domain.entities import (
     Alarm,
@@ -60,9 +63,55 @@ class SyntheticDataSimulator:
         self.rng = random.Random(config.seed)
         import numpy as np
 
-        self.np_rng = np.random.default_rng(config.seed)
         self.topology = topology
         self.state: SimulationState | None = None
+        self.kinematics_continuous_mode: bool = False
+        self.pending_collection_events: list[dict] = []
+
+    def step_trucks_continuous(
+        self, current_time: datetime, dt_seconds: float
+    ) -> list[dict]:
+        """Avanza los camiones de forma continua minuto a minuto entre ticks de telemetría."""
+        if getattr(self, "truck_fleet", None) is None or self.state is None:
+            return []
+
+        containers = self.state.topology.containers
+        N = len(containers)
+        from collections import defaultdict
+
+        containers_by_site_dict = defaultdict(list)
+        for i in range(N):
+            c = containers[i]
+            item = {
+                "id": c.id,
+                "index": i,
+                "current_level": float(self.state.levels.get(c.id, 0.0)),
+                "waste_type": c.waste_type,
+            }
+            containers_by_site_dict[c.site_id].append(item)
+            containers_by_site_dict[str(c.site_id)].append(item)
+            containers_by_site_dict[c.id].append(item)
+            containers_by_site_dict[str(c.id)].append(item)
+            if isinstance(c.site_id, str):
+                raw = c.site_id.split("|")[-1]
+                containers_by_site_dict[raw].append(item)
+                containers_by_site_dict[f"contenedores_negros|{raw}"].append(item)
+                containers_by_site_dict[f"SITE-{raw}"].append(item)
+
+        events = self.truck_fleet.step(
+            simulated_time=current_time,
+            dt_seconds=dt_seconds,
+            speedup=1.0,
+            containers_by_site=containers_by_site_dict,
+        )
+
+        for ev in events:
+            c_id = ev["container_id"]
+            self.state.levels[c_id] = ev["level_after"]
+            self.pending_collection_events.append(ev)
+
+        self.truck_fleet.get_trucks_snapshot()
+        return events
 
     def initialize(self) -> SimulationState:
         import numpy as np
@@ -91,6 +140,40 @@ class SyntheticDataSimulator:
             stuck_distances={},
             opposing_site_by_site_id=opposing_sites,
         )
+
+        # Inicializar simulador de flota de camiones
+        try:
+            from app.services.simulation.truck_route_service import (
+                assign_sites_to_routes,
+                load_routes_from_csv,
+            )
+            from app.digital_twin.synthetic_data.simulation.truck_engine import (
+                TruckFleetSimulator,
+            )
+
+            routes = load_routes_from_csv()
+            sites_raw = [
+                {
+                    "id": s.id,
+                    "address": s.address,
+                    "name": s.name,
+                    "latitude": s.latitude,
+                    "longitude": s.longitude,
+                }
+                for s in topology.sites
+            ]
+            assign_sites_to_routes(sites_raw, routes)
+            sites_dict = {s.id: (s.latitude, s.longitude) for s in topology.sites}
+            self.truck_fleet = TruckFleetSimulator(
+                routes=routes,
+                sites_dict=sites_dict,
+                collection_hours=self.config.collection_hours,
+                collection_threshold_pct=60.0,
+            )
+        except Exception as e:
+            logger.warning("No se pudo inicializar la flota de camiones: %s", e)
+            self.truck_fleet = None
+
         return self.state
 
     def run(
@@ -195,10 +278,17 @@ class SyntheticDataSimulator:
         alarms: list[Alarm] = []
 
         # Get current state as arrays
-        levels = np.array([state.levels[c.id] for c in containers], dtype=np.float64)
+        levels = np.array(
+            [
+                state.levels.get(c.id, state.levels.get(str(c.id), state.levels.get(int(c.id) if str(c.id).isdigit() else c.id, 0.0)))
+                for c in containers
+            ],
+            dtype=np.float64,
+        )
         batteries = np.array(
             [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
         )
+
 
         # 1. Calculate filling increments and spillover to opposing sites
         h_factor = _hour_factor(timestamp.hour)
@@ -270,56 +360,128 @@ class SyntheticDataSimulator:
 
         levels = np.minimum(100.0, tentative_levels)
 
-        # 2. Collections
-        is_collection_hour = timestamp.hour in self.config.collection_hours
-        if is_collection_hour:
-            omitted_roll = self.np_rng.random(size=N)
-            not_omitted = omitted_roll >= self.config.omitted_collection_probability
-
-            threshold = 62.0 if timestamp.weekday() < 5 else 55.0
-            above_threshold = levels >= threshold
-
-            collect_roll = self.np_rng.random(size=N)
-            will_collect = collect_roll < self.config.collection_probability
-
-            collected = not_omitted & above_threshold & will_collect
-        else:
-            collected = np.zeros(N, dtype=bool)
-
+        # 2. Collections (Simulación Física con Flota de Camiones)
         level_before_collection = levels.copy()
+        collected = np.zeros(N, dtype=bool)
 
-        # Collection results
-        partial_roll = self.np_rng.random(size=N)
-        is_partial = partial_roll < self.config.partial_collection_probability
+        if getattr(self, "truck_fleet", None) is not None:
+            if getattr(self, "kinematics_continuous_mode", False):
+                # En modo continuo en tiempo real, drenar las recolecciones ocurridas minuto a minuto
+                truck_events = list(self.pending_collection_events)
+                self.pending_collection_events.clear()
+            else:
+                containers_by_site_dict = defaultdict(list)
+                for i in range(N):
+                    c = containers[i]
+                    item = {
+                        "id": c.id,
+                        "index": i,
+                        "current_level": float(levels[i]),
+                        "waste_type": c.waste_type,
+                    }
+                    # Registrar todos los alias posibles (ID contenedor, ID sitio, serie_id)
+                    keys_to_index = {
+                        c.id,
+                        str(c.id),
+                        c.site_id,
+                        str(c.site_id),
+                    }
+                    if getattr(c, "serie_id", None):
+                        keys_to_index.add(c.serie_id)
+                        keys_to_index.add(str(c.serie_id).split("|")[-1])
 
-        reduction = self.np_rng.uniform(25.0, 55.0, size=N)
-        total_val = self.np_rng.uniform(0.0, 8.0, size=N)
+                    c_id_raw = str(c.id).split("|")[-1]
+                    keys_to_index.add(c_id_raw)
+                    keys_to_index.add(f"contenedores_negros|{c_id_raw}")
+                    keys_to_index.add(f"SITE-{c_id_raw}")
 
-        partial_level = np.maximum(0.0, levels - reduction)
-        new_levels_if_collected = np.where(is_partial, partial_level, total_val)
-        new_levels_if_collected = np.round(new_levels_if_collected, 2)
+                    site_id_raw = str(c.site_id).split("|")[-1]
+                    keys_to_index.add(site_id_raw)
+                    keys_to_index.add(f"contenedores_negros|{site_id_raw}")
+                    keys_to_index.add(f"SITE-{site_id_raw}")
 
-        levels = np.where(collected, new_levels_if_collected, levels)
-        collection_detected = (level_before_collection - levels) >= 20.0
-
-        # Construct collection events
-        collected_indices = np.where(collected)[0]
-        for idx in collected_indices:
-            container = containers[idx]
-            reading_timestamp = timestamp + timedelta(
-                minutes=int(state._cached_reading_offsets[idx])
-            )
-            kind = "partial" if is_partial[idx] else "total"
-            collection_events.append(
-                CollectionEvent(
-                    timestamp=reading_timestamp,
-                    container_id=container.id,
-                    kind=kind,
-                    level_before_pct=float(np.round(level_before_collection[idx], 2)),
-                    level_after_pct=float(levels[idx]),
-                    detected_by_sensor=bool(collection_detected[idx]),
+                    for k in keys_to_index:
+                        if k is not None:
+                            containers_by_site_dict[k].append(item)
+                truck_events = self.truck_fleet.step(
+                    simulated_time=timestamp,
+                    dt_seconds=self.config.frequency_minutes * 60.0,
+                    speedup=1.0,
+                    containers_by_site=containers_by_site_dict,
                 )
-            )
+            self.truck_fleet.get_trucks_snapshot()
+
+            for ev in truck_events:
+                c_id = ev["container_id"]
+                for i in range(N):
+                    if containers[i].id == c_id or str(containers[i].id) == str(c_id):
+                        levels[i] = ev["level_after"]
+                        state.levels[containers[i].id] = ev["level_after"]
+                        state.levels[str(containers[i].id)] = ev["level_after"]
+                        collected[i] = True
+                        reading_timestamp = timestamp + timedelta(
+                            minutes=int(state._cached_reading_offsets[i])
+                        )
+                        collection_events.append(
+                            CollectionEvent(
+                                timestamp=reading_timestamp,
+                                container_id=str(containers[i].id),
+                                kind="total",
+                                level_before_pct=float(np.round(ev["level_before"], 2)),
+                                level_after_pct=float(np.round(ev["level_after"], 2)),
+                                detected_by_sensor=True,
+                            )
+                        )
+                        break
+
+
+        else:
+            is_collection_hour = timestamp.hour in self.config.collection_hours
+            if is_collection_hour:
+                omitted_roll = self.np_rng.random(size=N)
+                not_omitted = omitted_roll >= self.config.omitted_collection_probability
+
+                threshold = 62.0 if timestamp.weekday() < 5 else 55.0
+                above_threshold = levels >= threshold
+
+                collect_roll = self.np_rng.random(size=N)
+                will_collect = collect_roll < self.config.collection_probability
+
+                collected = not_omitted & above_threshold & will_collect
+            else:
+                collected = np.zeros(N, dtype=bool)
+
+            partial_roll = self.np_rng.random(size=N)
+            is_partial = partial_roll < self.config.partial_collection_probability
+
+            reduction = self.np_rng.uniform(25.0, 55.0, size=N)
+            total_val = self.np_rng.uniform(0.0, 8.0, size=N)
+
+            partial_level = np.maximum(0.0, levels - reduction)
+            new_levels_if_collected = np.where(is_partial, partial_level, total_val)
+            new_levels_if_collected = np.round(new_levels_if_collected, 2)
+
+            levels = np.where(collected, new_levels_if_collected, levels)
+
+            collected_indices = np.where(collected)[0]
+            for idx in collected_indices:
+                container = containers[idx]
+                reading_timestamp = timestamp + timedelta(
+                    minutes=int(state._cached_reading_offsets[idx])
+                )
+                kind = "partial" if is_partial[idx] else "total"
+                collection_events.append(
+                    CollectionEvent(
+                        timestamp=reading_timestamp,
+                        container_id=container.id,
+                        kind=kind,
+                        level_before_pct=float(np.round(level_before_collection[idx], 2)),
+                        level_after_pct=float(levels[idx]),
+                        detected_by_sensor=bool((level_before_collection[idx] - levels[idx]) >= 20.0),
+                    )
+                )
+
+        collection_detected = (level_before_collection - levels) >= 20.0
 
         # 3. Anomalies
         anomaly_rolls = self.np_rng.random(size=N)

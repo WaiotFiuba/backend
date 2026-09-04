@@ -12,6 +12,7 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.site_clustering_service import (
@@ -139,6 +140,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             )
 
         from app.models.map.container_type import container_type_waste_types
+        from app.models.map.simulation import SimulationSession
 
         tables = [
             WasteType.__table__,
@@ -147,6 +149,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             Container.__table__,
             Site.__table__,
             DataLevel.__table__,
+            SimulationSession.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -339,9 +342,19 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(no_changes.sites), 0)
             self.assertEqual(no_changes.latest_cursor, 10)
 
+            active_sim = SimulationSession(
+                id=1,
+                status="running",
+                scenario={"start": "2026-01-01T00:00:00Z"},
+                simulated_time=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+                total_periods=100,
+                created_by=1,
+            )
+            session.add(active_sim)
             session.add_all(
                 [
                     DataLevel(
+                        id=1,
                         reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
                         container_id=1,
                         container_current_level=20,
@@ -353,6 +366,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                         reported_high_consumption_voltage=False,
                     ),
                     DataLevel(
+                        id=2,
                         reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
                         container_id=2,
                         container_current_level=80,
@@ -364,6 +378,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                         reported_high_consumption_voltage=False,
                     ),
                     DataLevel(
+                        id=3,
                         reading_date=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
                         container_id=1,
                         container_current_level=40,

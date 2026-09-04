@@ -26,6 +26,7 @@ class Container:
     waste_type: str
     height_cm: float
     volume_m3: float | None = None
+    serie_id: str | None = None
 
     def to_record(self) -> dict[str, object]:
         return asdict(self)

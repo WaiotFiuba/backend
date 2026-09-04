@@ -67,6 +67,7 @@ class SimulationProgressUpdate(BaseModel):
     collections_generated: int = 0
     alarms_generated: int = 0
     status: str | None = None
+    trucks: list[dict] | None = None
 
 
 class SimulationFinish(BaseModel):

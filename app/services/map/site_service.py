@@ -390,90 +390,150 @@ async def get_site_changes(
 
 async def get_site_by_id(
     db: AsyncSession,
-    site_id: int,
+    site_id: int | str,
     level_aggregation: Literal["avg", "max"] = "avg",
 ) -> SiteMapOutputSchema:
-    stmt = (
-        select(
-            Site.id,
-            Site.name,
-            Site.description,
-            Site.address,
-            Site.latitude,
-            Site.longitude,
-            Site.load_side_category,
-            Site.waste_type_id,
-            Site.updated_at,
-            WasteType.name.label("waste_type_name"),
-            WasteType.color.label("waste_type_color"),
-            _level_expr(level_aggregation).label("current_level"),
-            func.count(Container.id).label("container_count"),
-            func.max(Container.last_reading).label("last_reading"),
-            func.max(Container.last_pickup).label("last_pickup"),
-            func.coalesce(func.bool_or(Container.available), True).label("available"),
+    # Si site_id es un string con prefijo tipo 'contenedores_negros|27097', extraer el ID raw
+    raw_id_str = str(site_id).split("|")[-1].strip()
+    try:
+        numeric_site_id = int(raw_id_str)
+    except ValueError:
+        numeric_site_id = None
+
+    if numeric_site_id is not None:
+        stmt = (
+            select(
+                Site.id,
+                Site.name,
+                Site.description,
+                Site.address,
+                Site.latitude,
+                Site.longitude,
+                Site.load_side_category,
+                Site.waste_type_id,
+                Site.updated_at,
+                WasteType.name.label("waste_type_name"),
+                WasteType.color.label("waste_type_color"),
+                _level_expr(level_aggregation).label("current_level"),
+                func.count(Container.id).label("container_count"),
+                func.max(Container.last_reading).label("last_reading"),
+                func.max(Container.last_pickup).label("last_pickup"),
+                func.coalesce(func.bool_or(Container.available), True).label("available"),
+            )
+            .outerjoin(Container, Container.site_id == Site.id)
+            .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
+            .where(Site.id == numeric_site_id, Site.deleted_at.is_(None))
+            .group_by(Site.id, WasteType.name, WasteType.color)
         )
-        .outerjoin(Container, Container.site_id == Site.id)
-        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
-        .where(Site.id == site_id, Site.deleted_at.is_(None))
-        .group_by(Site.id, WasteType.name, WasteType.color)
+        result = await db.execute(stmt)
+        row = result.first()
+        if row:
+            c_stmt = (
+                select(
+                    Container.id,
+                    Container.site_id,
+                    Container.serie_id,
+                    Container.current_level,
+                    Container.device_imei,
+                    Container.available,
+                    Container.last_reading,
+                    ContainerType.name.label("container_type"),
+                    ContainerType.height_cm,
+                    ContainerType.volume_m3,
+                )
+                .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
+                .where(Container.site_id == numeric_site_id)
+            )
+            c_result = await db.execute(c_stmt)
+            containers = [
+                SiteContainerSummary(
+                    id=c_row.id,
+                    serie_id=c_row.serie_id,
+                    current_level=c_row.current_level,
+                    device_imei=c_row.device_imei,
+                    available=c_row.available,
+                    container_type=c_row.container_type,
+                    height_cm=c_row.height_cm,
+                    volume_m3=c_row.volume_m3,
+                    last_reading=c_row.last_reading,
+                )
+                for c_row in c_result.all()
+            ]
+
+            return SiteMapOutputSchema(
+                id=row.id,
+                name=row.name,
+                address=row.address,
+                latitude=row.latitude,
+                longitude=row.longitude,
+                current_level=int(row.current_level),
+                available=bool(row.available),
+                load_side_category=row.load_side_category,
+                waste_type_id=row.waste_type_id,
+                waste_type_name=row.waste_type_name,
+                waste_type_color=row.waste_type_color,
+                container_count=int(row.container_count),
+                last_reading=row.last_reading,
+                last_pickup=row.last_pickup,
+                updated_at=row.updated_at,
+                containers=containers,
+            )
+
+    # Fallback: Buscar contenedor individual por ID o serie_id
+    from sqlalchemy.orm import joinedload
+    cond = Container.serie_id == raw_id_str
+    if numeric_site_id is not None:
+        cond = (Container.id == numeric_site_id) | cond
+
+    c_query = (
+        select(Container)
+        .options(
+            joinedload(Container.container_type).selectinload(ContainerType.waste_types)
+        )
+        .where(cond)
+        .limit(1)
     )
-    result = await db.execute(stmt)
-    row = result.first()
-    if not row:
+    c_res = await db.execute(c_query)
+    single_c = c_res.scalar_one_or_none()
+    if not single_c:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
         )
 
-    c_stmt = (
-        select(
-            Container.id,
-            Container.site_id,
-            Container.serie_id,
-            Container.current_level,
-            Container.device_imei,
-            Container.available,
-            Container.last_reading,
-            ContainerType.name.label("container_type"),
-            ContainerType.height_cm,
-            ContainerType.volume_m3,
-        )
-        .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
-        .where(Container.site_id == site_id)
+    ctype = single_c.container_type
+    wtype = ctype.waste_types[0] if ctype and ctype.waste_types else None
+
+    summary = SiteContainerSummary(
+        id=single_c.id,
+        serie_id=single_c.serie_id,
+        current_level=single_c.current_level,
+        device_imei=single_c.device_imei,
+        available=single_c.available,
+        container_type=ctype.name if ctype else None,
+        height_cm=ctype.height_cm if ctype else None,
+        volume_m3=ctype.volume_m3 if ctype else None,
+        last_reading=single_c.last_reading,
     )
-    c_result = await db.execute(c_stmt)
-    containers = [
-        SiteContainerSummary(
-            id=c_row.id,
-            serie_id=c_row.serie_id,
-            current_level=c_row.current_level,
-            device_imei=c_row.device_imei,
-            available=c_row.available,
-            container_type=c_row.container_type,
-            height_cm=c_row.height_cm,
-            volume_m3=c_row.volume_m3,
-            last_reading=c_row.last_reading,
-        )
-        for c_row in c_result.all()
-    ]
 
     return SiteMapOutputSchema(
-        id=row.id,
-        name=row.name,
-        address=row.address,
-        latitude=row.latitude,
-        longitude=row.longitude,
-        current_level=int(row.current_level),
-        available=bool(row.available),
-        load_side_category=row.load_side_category,
-        waste_type_id=row.waste_type_id,
-        waste_type_name=row.waste_type_name,
-        waste_type_color=row.waste_type_color,
-        container_count=int(row.container_count),
-        last_reading=row.last_reading,
-        last_pickup=row.last_pickup,
-        updated_at=row.updated_at,
-        containers=containers,
+        id=single_c.id,
+        name=single_c.site_name or single_c.description or f"Sitio #{single_c.id}",
+        address=single_c.address,
+        latitude=single_c.latitude,
+        longitude=single_c.longitude,
+        current_level=int(single_c.current_level),
+        available=bool(single_c.available),
+        load_side_category="Lateral",
+        waste_type_id=wtype.id if wtype else None,
+        waste_type_name=wtype.name if wtype else "RSU Fracción Húmeda",
+        waste_type_color=wtype.color if wtype else "#4B5563",
+        container_count=1,
+        last_reading=single_c.last_reading,
+        last_pickup=single_c.last_pickup,
+        updated_at=single_c.updated_at,
+        containers=[summary],
     )
+
 
 
 async def get_site_level_history(

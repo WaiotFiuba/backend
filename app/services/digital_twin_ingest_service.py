@@ -119,21 +119,33 @@ async def ensure_cache(db: AsyncSession):
 
 
 async def reset_database_container_levels(db: AsyncSession) -> None:
-    """Reinicia los niveles de los contenedores a 0 en la base de datos y en caché."""
+    """Reinicia los niveles de los contenedores en memoria y en la base de datos de forma segura."""
     global _cache_loaded
-    await db.execute(
-        update(Container)
-        .values(
-            current_level=0,
-            last_reading=None,
-            change_version=func.nextval("container_change_version_seq"),
-        )
-    )
-    await db.commit()
+    from sqlalchemy import text
+
+    # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
         meta.current_level = 0
     _cache_loaded = False
-    logger.info("Niveles de contenedores reiniciados a 0 en base de datos.")
+
+    # 2. Intentar resetear en la base de datos sin bloquear ni provocar deadlocks
+    try:
+        await db.execute(
+            update(Container)
+            .values(
+                current_level=0,
+                last_reading=None,
+                change_version=func.nextval("container_change_version_seq"),
+            )
+        )
+        await db.commit()
+        logger.info("Niveles de contenedores reiniciados a 0 en base de datos.")
+    except Exception as e:
+        await db.rollback()
+        logger.warning(
+            "Aviso: El reset SQL de contenedores fue omitido por concurrencia (%s); la nueva telemetria sobreescribira los niveles inmediatamente.",
+            e,
+        )
 
 
 async def ingest_telemetry_batch(
@@ -152,6 +164,11 @@ async def ingest_telemetry_batch(
     data_level_inserts = []
     container_updates = []
     update_tuples = []
+    _cache_by_serie: dict[str, ContainerCacheMeta] = {}
+    for meta in _cache_by_id.values():
+        if meta.serie_id:
+            _cache_by_serie[str(meta.serie_id).strip()] = meta
+            _cache_by_serie[str(meta.serie_id).split("|")[-1].strip()] = meta
 
     for m in measurements:
         if isinstance(m, dict):
@@ -188,14 +205,19 @@ async def ingest_telemetry_batch(
             is_pickup = bool(flags.is_collection_detected)
             anomaly = flags.anomaly
 
+        raw_str = str(container_id_raw).split("|")[-1].strip() if container_id_raw is not None else ""
         try:
-            cid = int(container_id_raw) if container_id_raw else None
+            cid = int(raw_str) if raw_str.isdigit() else None
         except ValueError:
             cid = None
 
         meta = None
         if cid is not None and cid in _cache_by_id:
             meta = _cache_by_id[cid]
+        elif raw_str and raw_str in _cache_by_serie:
+            meta = _cache_by_serie[raw_str]
+        elif str(container_id_raw) in _cache_by_serie:
+            meta = _cache_by_serie[str(container_id_raw)]
         elif device_id in _cache_by_imei:
             meta = _cache_by_imei[device_id]
 

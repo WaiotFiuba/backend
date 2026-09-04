@@ -71,10 +71,13 @@ class DensityProcessor:
         if custom_path and Path(custom_path).exists():
             return Path(custom_path)
 
-        app_dir = Path(__file__).resolve().parents[2]  # app/
-        csv_file = app_dir / "datos" / "radios_caba_filtrado.csv"
-
-        return csv_file if csv_file.exists() else None
+        candidates = [
+            Path(__file__).resolve().parents[3] / "datos" / "radios_caba_filtrado.csv",
+            Path(__file__).resolve().parents[2] / "datos" / "radios_caba_filtrado.csv",
+            Path("/app/datos/radios_caba_filtrado.csv"),
+            Path("datos/radios_caba_filtrado.csv"),
+        ]
+        return next((p for p in candidates if p.exists()), None)
 
     def _load_dataset(self, csv_path: str | Path | None) -> None:
         resolved = self._resolve_csv_path(csv_path)

@@ -10,11 +10,15 @@ from typing import Any
 import yaml
 
 
+def get_default_start_time() -> datetime:
+    return datetime.now().replace(hour=6, minute=0, second=0, microsecond=0)
+
+
 @dataclass(frozen=True)
 class ScenarioConfig:
     name: str = "semana_normal"
     seed: int = 42
-    start: datetime = datetime(2026, 5, 2, 6, 0, 0)
+    start: datetime = field(default_factory=get_default_start_time)
     end: datetime | None = None
     periods: int = 7 * 24
     frequency_minutes: int = 60
@@ -22,7 +26,7 @@ class ScenarioConfig:
     synthetic_containers_per_site: int = 2
     container_limit: int | None = None
     reading_jitter_minutes: int = 10
-    collection_hours: tuple[int, ...] = (6,)
+    collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6)
     collection_probability: float = 0.85
     partial_collection_probability: float = 0.12
     omitted_collection_probability: float = 0.03
@@ -76,10 +80,10 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
         normalized["end"] = datetime.fromisoformat(normalized["end"])
     if normalized.get("end") is not None:
         normalized["periods"] = _periods_between(
-            start=normalized.get("start", ScenarioConfig.start),
+            start=normalized.get("start", get_default_start_time()),
             end=normalized["end"],
             frequency_minutes=normalized.get(
-                "frequency_minutes", ScenarioConfig.frequency_minutes
+                "frequency_minutes", 60
             ),
         )
     if "collection_hours" in normalized:
