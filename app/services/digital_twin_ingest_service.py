@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 import time
 
-from sqlalchemy import func, select, insert, update, text
+from sqlalchemy import func, select, insert, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -122,8 +122,7 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
     """Reinicia los niveles de los contenedores a 0 en la base de datos y en caché."""
     global _cache_loaded
     await db.execute(
-        update(Container)
-        .values(
+        update(Container).values(
             current_level=0,
             last_reading=None,
             change_version=func.nextval("container_change_version_seq"),
@@ -326,14 +325,12 @@ async def ingest_telemetry_batch(
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
         if hasattr(asyncpg_conn, "copy_records_to_table"):
-            t_c0 = time.perf_counter()
             if data_level_tuples:
                 await asyncpg_conn.copy_records_to_table(
                     "data_level",
                     records=data_level_tuples,
                     columns=DATA_LEVEL_COLS,
                 )
-            t_c1 = time.perf_counter()
             if update_tuples:
                 await asyncpg_conn.execute(
                     """
@@ -363,8 +360,11 @@ async def ingest_telemetry_batch(
                     WHERE c.id = v.id;
                     """
                 )
-            t_c2 = time.perf_counter()
             await db.commit()
+
+            # Actualizar niveles virtuales de what-if si hay un plan activo
+            await _update_whatif_levels(db, update_tuples)
+
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found
             )
@@ -412,6 +412,33 @@ async def ingest_telemetry_batch(
         flush=True,
     )
 
+    # Actualizar niveles virtuales de what-if si hay un plan activo
+    await _update_whatif_levels(db, update_tuples)
+
     return TelemetryIngestResult(
         accepted=len(measurements), updated=updated, not_found=not_found
     )
+
+
+async def _update_whatif_levels(
+    db: AsyncSession,
+    update_tuples: list[tuple],
+) -> None:
+    """
+    Si hay un plan what-if activo, actualiza los niveles virtuales de los
+    contenedores usando el mapping optimizado.
+    """
+    from app.services.map.optimization_whatif_service import (
+        is_whatif_active,
+        update_virtual_levels_batch,
+    )
+
+    if not is_whatif_active() or not update_tuples:
+        return
+
+    try:
+        # update_tuples: (container_id, level, reading_date, is_pickup)
+        virtual_updates = [(t[0], t[1]) for t in update_tuples]
+        await update_virtual_levels_batch(db, virtual_updates)
+    except Exception:
+        logger.warning("Error actualizando niveles virtuales what-if.", exc_info=True)
