@@ -16,6 +16,7 @@ from app.models.map.container import Container  # noqa: F401
 from app.models.map.container_type import ContainerType  # noqa: F401
 from app.models.map.data_level import DataLevel  # noqa: F401
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic  # noqa: F401
+from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan  # noqa: F401
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride  # noqa: F401
 from app.models.map.waste_type import WasteType  # noqa: F401
 
