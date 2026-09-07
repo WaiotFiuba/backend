@@ -8,7 +8,9 @@ from pathlib import Path
 logger = logging.getLogger("waiot.collection_schedule")
 
 CANDIDATE_PATHS = [
-    Path(__file__).resolve().parent.parent.parent.parent / "datos" / "collection_schedule.json",
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "datos"
+    / "collection_schedule.json",
     Path("/app/datos/collection_schedule.json"),
     Path("datos/collection_schedule.json"),
 ]
@@ -17,16 +19,22 @@ CANDIDATE_PATHS = [
 _CACHED_SCHEDULE: dict | None = None
 
 
-
 def generate_all_schedules() -> dict:
     import math
-    from app.digital_twin.synthetic_data.simulation.truck_depots import get_depot_for_zone
+    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+        get_depot_for_zone,
+    )
     from app.services.simulation.truck_route_service import (
         assign_sites_to_routes,
         load_routes_from_csv,
     )
 
-    json_path = Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json"
+    json_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "db"
+        / "datos"
+        / "contenedores_negros.json"
+    )
     all_sites = []
     if json_path.exists():
         with open(json_path, mode="r", encoding="utf-8", errors="ignore") as f:
@@ -78,7 +86,11 @@ def generate_all_schedules() -> dict:
     for us in unassigned_sites:
         u_lat, u_lon = us["lat"], us["lon"]
         # Caso especial para Barrio Rodrigo Bueno
-        if -34.624 <= u_lat <= -34.615 and -58.362 <= u_lon <= -58.350 and "RODRIGO_BUENO" in routes:
+        if (
+            -34.624 <= u_lat <= -34.615
+            and -58.362 <= u_lon <= -58.350
+            and "RODRIGO_BUENO" in routes
+        ):
             best_r = "RODRIGO_BUENO"
         else:
             best_r = None
@@ -105,14 +117,21 @@ def generate_all_schedules() -> dict:
         if stops:
             unvisited = list(stops)
             depot = get_depot_for_zone(r.zone)
-            curr = min(unvisited, key=lambda s: math.hypot(s["lat"] - depot.latitude, s["lon"] - depot.longitude))
+            curr = min(
+                unvisited,
+                key=lambda s: math.hypot(
+                    s["lat"] - depot.latitude, s["lon"] - depot.longitude
+                ),
+            )
             unvisited.remove(curr)
             sorted_stops = [curr]
             while unvisited:
                 curr = sorted_stops[-1]
                 nxt = min(
                     unvisited,
-                    key=lambda s: math.hypot(s["lat"] - curr["lat"], s["lon"] - curr["lon"]),
+                    key=lambda s: math.hypot(
+                        s["lat"] - curr["lat"], s["lon"] - curr["lon"]
+                    ),
                 )
                 unvisited.remove(nxt)
                 sorted_stops.append(nxt)
@@ -154,7 +173,6 @@ def generate_all_schedules() -> dict:
     return schedules
 
 
-
 def save_collection_schedule() -> None:
     schedules = generate_all_schedules()
     saved = False
@@ -168,7 +186,9 @@ def save_collection_schedule() -> None:
         except Exception:
             continue
     if not saved:
-        logger.warning("No se pudo guardar el cronograma en ninguna de las rutas candidatas.")
+        logger.warning(
+            "No se pudo guardar el cronograma en ninguna de las rutas candidatas."
+        )
 
 
 def load_collection_schedule() -> dict:

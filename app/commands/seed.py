@@ -18,7 +18,10 @@ async def main():
     try:
         await seed_map_data(recluster=recluster)
         print("Siembra de datos finalizada exitosamente.")
-        from app.services.simulation.collection_schedule_service import save_collection_schedule
+        from app.services.simulation.collection_schedule_service import (
+            save_collection_schedule,
+        )
+
         print("Generando cronograma de recolección para todas las rutas...")
         save_collection_schedule()
         print("Cronograma generado y guardado exitosamente.")

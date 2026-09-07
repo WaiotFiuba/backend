@@ -3,11 +3,8 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Callable
-
-logger = logging.getLogger(__name__)
 
 from app.digital_twin.synthetic_data.domain.entities import (
     Alarm,
@@ -20,6 +17,9 @@ from app.digital_twin.synthetic_data.domain.entities import (
 from app.digital_twin.synthetic_data.generators.anomalies import (
     alarm_from_measurement,
 )
+from app.digital_twin.synthetic_data.generators.street_pairing import (
+    build_opposing_sites_map,
+)
 from app.digital_twin.synthetic_data.generators.topology import (
     generate_synthetic_topology,
 )
@@ -27,10 +27,7 @@ from app.digital_twin.synthetic_data.simulation.clock import iter_timestamps
 from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.digital_twin.synthetic_data.topology import SimulationTopology
 
-
-from app.digital_twin.synthetic_data.generators.street_pairing import (
-    build_opposing_sites_map,
-)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -61,8 +58,6 @@ class SyntheticDataSimulator:
     ):
         self.config = config
         self.rng = random.Random(config.seed)
-        import numpy as np
-
         self.topology = topology
         self.state: SimulationState | None = None
 
@@ -206,7 +201,10 @@ class SyntheticDataSimulator:
             reading_offsets = []
 
             from collections import defaultdict
-            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = defaultdict(list)
+
+            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = (
+                defaultdict(list)
+            )
             containers_by_site: dict[str, list[int]] = defaultdict(list)
 
             for idx, container in enumerate(containers):
@@ -221,7 +219,9 @@ class SyntheticDataSimulator:
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
 
-                containers_by_site_and_waste[(container.site_id, container.waste_type)].append(idx)
+                containers_by_site_and_waste[
+                    (container.site_id, container.waste_type)
+                ].append(idx)
                 containers_by_site[container.site_id].append(idx)
 
             state._cached_sites = site_list
@@ -241,7 +241,15 @@ class SyntheticDataSimulator:
         # Get current state as arrays
         levels = np.array(
             [
-                state.levels.get(c.id, state.levels.get(str(c.id), state.levels.get(int(c.id) if str(c.id).isdigit() else c.id, 0.0)))
+                state.levels.get(
+                    c.id,
+                    state.levels.get(
+                        str(c.id),
+                        state.levels.get(
+                            int(c.id) if str(c.id).isdigit() else c.id, 0.0
+                        ),
+                    ),
+                )
                 for c in containers
             ],
             dtype=np.float64,
@@ -249,7 +257,6 @@ class SyntheticDataSimulator:
         batteries = np.array(
             [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
         )
-
 
         # 1. Calculate filling increments and spillover to opposing sites
         h_factor = _hour_factor(timestamp.hour)
@@ -291,6 +298,7 @@ class SyntheticDataSimulator:
         tentative_levels = initial_levels_tick + increments
 
         from collections import defaultdict
+
         opposing_spillovers: dict[int, float] = defaultdict(float)
 
         for i in range(N):
@@ -390,7 +398,6 @@ class SyntheticDataSimulator:
                         )
                         break
 
-
         else:
             is_collection_hour = timestamp.hour in self.config.collection_hours
             if is_collection_hour:
@@ -431,9 +438,13 @@ class SyntheticDataSimulator:
                         timestamp=reading_timestamp,
                         container_id=container.id,
                         kind=kind,
-                        level_before_pct=float(np.round(level_before_collection[idx], 2)),
+                        level_before_pct=float(
+                            np.round(level_before_collection[idx], 2)
+                        ),
                         level_after_pct=float(levels[idx]),
-                        detected_by_sensor=bool((level_before_collection[idx] - levels[idx]) >= 20.0),
+                        detected_by_sensor=bool(
+                            (level_before_collection[idx] - levels[idx]) >= 20.0
+                        ),
                     )
                 )
 

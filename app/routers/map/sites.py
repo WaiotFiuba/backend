@@ -117,4 +117,3 @@ async def get_single_site(
         site_id=site_id,
         level_aggregation=level_aggregation,
     )
-

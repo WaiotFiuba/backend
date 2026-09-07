@@ -418,7 +418,9 @@ async def get_site_by_id(
                 func.count(Container.id).label("container_count"),
                 func.max(Container.last_reading).label("last_reading"),
                 func.max(Container.last_pickup).label("last_pickup"),
-                func.coalesce(func.bool_or(Container.available), True).label("available"),
+                func.coalesce(func.bool_or(Container.available), True).label(
+                    "available"
+                ),
             )
             .outerjoin(Container, Container.site_id == Site.id)
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
@@ -441,7 +443,9 @@ async def get_site_by_id(
                     ContainerType.height_cm,
                     ContainerType.volume_m3,
                 )
-                .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
+                .outerjoin(
+                    ContainerType, Container.container_type_id == ContainerType.id
+                )
                 .where(Container.site_id == numeric_site_id)
             )
             c_result = await db.execute(c_stmt)
@@ -481,6 +485,7 @@ async def get_site_by_id(
 
     # Fallback: Buscar contenedor individual por ID o serie_id
     from sqlalchemy.orm import joinedload
+
     cond = Container.serie_id == raw_id_str
     if numeric_site_id is not None:
         cond = (Container.id == numeric_site_id) | cond
@@ -535,7 +540,6 @@ async def get_site_by_id(
     )
 
 
-
 async def get_site_level_history(
     db: AsyncSession,
     site_id: int,
@@ -567,7 +571,9 @@ async def get_site_level_history(
         select(
             DataLevel.reading_date.label("timestamp"),
             func.coalesce(
-                func.round(cast(func.avg(DataLevel.container_current_level), Numeric), 2),
+                func.round(
+                    cast(func.avg(DataLevel.container_current_level), Numeric), 2
+                ),
                 0,
             ).label("avg_level"),
             func.coalesce(func.max(DataLevel.container_current_level), 0).label(

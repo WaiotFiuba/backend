@@ -14,9 +14,7 @@ from pathlib import Path
 # Agregar backend al path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.digital_twin.synthetic_data.generators.street_pairing import parse_street_address
 from app.services.simulation.truck_route_service import (
-    TruckRoute,
     assign_sites_to_routes,
     load_routes_from_csv,
 )
@@ -96,11 +94,20 @@ def build_schedule_for_stops(
 
 def generate_all_schedules() -> dict:
     """Genera el itinerario completo de recolección para TODAS las rutas de CABA."""
-    from app.digital_twin.synthetic_data.simulation.truck_depots import get_depot_for_zone
+    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+        get_depot_for_zone,
+    )
 
     candidates = [
-        Path(__file__).resolve().parent.parent / "db" / "datos" / "contenedores_negros.json",
-        Path(__file__).resolve().parent.parent.parent / "backend" / "db" / "datos" / "contenedores_negros.json",
+        Path(__file__).resolve().parent.parent
+        / "db"
+        / "datos"
+        / "contenedores_negros.json",
+        Path(__file__).resolve().parent.parent.parent
+        / "backend"
+        / "db"
+        / "datos"
+        / "contenedores_negros.json",
         Path("/app/db/datos/contenedores_negros.json"),
         Path("db/datos/contenedores_negros.json"),
     ]
@@ -156,7 +163,11 @@ def generate_all_schedules() -> dict:
     for us in unassigned_sites:
         u_lat, u_lon = us["lat"], us["lon"]
         # Caso especial para Barrio Rodrigo Bueno
-        if -34.624 <= u_lat <= -34.615 and -58.362 <= u_lon <= -58.350 and "RODRIGO_BUENO" in routes:
+        if (
+            -34.624 <= u_lat <= -34.615
+            and -58.362 <= u_lon <= -58.350
+            and "RODRIGO_BUENO" in routes
+        ):
             best_r = "RODRIGO_BUENO"
         else:
             best_r = None
@@ -184,14 +195,21 @@ def generate_all_schedules() -> dict:
             unvisited = list(stops)
             depot = get_depot_for_zone(r.zone)
             # Iniciar Nearest-Neighbor desde el depósito o primer punto
-            curr = min(unvisited, key=lambda s: math.hypot(s["lat"] - depot.latitude, s["lon"] - depot.longitude))
+            curr = min(
+                unvisited,
+                key=lambda s: math.hypot(
+                    s["lat"] - depot.latitude, s["lon"] - depot.longitude
+                ),
+            )
             unvisited.remove(curr)
             sorted_stops = [curr]
             while unvisited:
                 curr = sorted_stops[-1]
                 nxt = min(
                     unvisited,
-                    key=lambda s: math.hypot(s["lat"] - curr["lat"], s["lon"] - curr["lon"]),
+                    key=lambda s: math.hypot(
+                        s["lat"] - curr["lat"], s["lon"] - curr["lon"]
+                    ),
                 )
                 unvisited.remove(nxt)
                 sorted_stops.append(nxt)
@@ -231,7 +249,6 @@ def generate_all_schedules() -> dict:
     return schedules
 
 
-
 def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     schedules = generate_all_schedules()
@@ -242,10 +259,10 @@ def main():
 
     total_sites_covered = sum(s["total_stops"] for s in schedules.values())
     print(f"Total de rutas cubiertas: {len(schedules)}")
-    print(f"Total de sitios de contenedores asignados a recorridos: {total_sites_covered}")
+    print(
+        f"Total de sitios de contenedores asignados a recorridos: {total_sites_covered}"
+    )
 
 
 if __name__ == "__main__":
     main()
-
-

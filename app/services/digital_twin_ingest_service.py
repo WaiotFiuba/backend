@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 import time
 
-from sqlalchemy import func, select, insert, update, text
+from sqlalchemy import func, select, insert, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -121,7 +121,6 @@ async def ensure_cache(db: AsyncSession):
 async def reset_database_container_levels(db: AsyncSession) -> None:
     """Reinicia los niveles de los contenedores en memoria y en la base de datos de forma segura."""
     global _cache_loaded
-    from sqlalchemy import text
 
     # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
@@ -131,8 +130,7 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
     # 2. Intentar resetear en la base de datos sin bloquear ni provocar deadlocks
     try:
         await db.execute(
-            update(Container)
-            .values(
+            update(Container).values(
                 current_level=0,
                 last_reading=None,
                 change_version=func.nextval("container_change_version_seq"),
@@ -205,7 +203,11 @@ async def ingest_telemetry_batch(
             is_pickup = bool(flags.is_collection_detected)
             anomaly = flags.anomaly
 
-        raw_str = str(container_id_raw).split("|")[-1].strip() if container_id_raw is not None else ""
+        raw_str = (
+            str(container_id_raw).split("|")[-1].strip()
+            if container_id_raw is not None
+            else ""
+        )
         try:
             cid = int(raw_str) if raw_str.isdigit() else None
         except ValueError:
@@ -348,14 +350,12 @@ async def ingest_telemetry_batch(
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
         if hasattr(asyncpg_conn, "copy_records_to_table"):
-            t_c0 = time.perf_counter()
             if data_level_tuples:
                 await asyncpg_conn.copy_records_to_table(
                     "data_level",
                     records=data_level_tuples,
                     columns=DATA_LEVEL_COLS,
                 )
-            t_c1 = time.perf_counter()
             if update_tuples:
                 await asyncpg_conn.execute(
                     """
@@ -385,7 +385,6 @@ async def ingest_telemetry_batch(
                     WHERE c.id = v.id;
                     """
                 )
-            t_c2 = time.perf_counter()
             await db.commit()
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found

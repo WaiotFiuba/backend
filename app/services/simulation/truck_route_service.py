@@ -5,7 +5,9 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.digital_twin.synthetic_data.generators.street_pairing import parse_street_address
+from app.digital_twin.synthetic_data.generators.street_pairing import (
+    parse_street_address,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,12 @@ def build_rodrigo_bueno_route() -> TruckRoute:
     import json
     import math
 
-    json_path = Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json"
+    json_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "db"
+        / "datos"
+        / "contenedores_negros.json"
+    )
     rb_containers = []
     if json_path.exists():
         try:
@@ -63,25 +70,47 @@ def build_rodrigo_bueno_route() -> TruckRoute:
                     lon, lat = coords[0], coords[1]
                     # Cuadrilátero geográfico estricto del Barrio Rodrigo Bueno
                     if -34.624 <= lat <= -34.615 and -58.362 <= lon <= -58.350:
-                        rb_containers.append({
-                            "id": str(props.get("Id", "")),
-                            "address": props.get("DireccionNormalizada", ""),
-                            "lat": lat,
-                            "lon": lon,
-                        })
+                        rb_containers.append(
+                            {
+                                "id": str(props.get("Id", "")),
+                                "address": props.get("DireccionNormalizada", ""),
+                                "lat": lat,
+                                "lon": lon,
+                            }
+                        )
         except Exception as e:
             logger.warning("Error leyendo contenedores de Rodrigo Bueno: %s", e)
+
+    if not rb_containers:
+        # Fallback de contenedores del circuito Rodrigo Bueno cuando el archivo JSON no está presente (ej: CI / GitHub Actions)
+        rb_containers = [
+            {
+                "id": f"RB-{i:02d}",
+                "address": f"Av. España / Rodrigo Bueno {i}",
+                "lat": round(-34.6180 + (i % 6) * 0.0008, 6),
+                "lon": round(-58.3580 + (i // 6) * 0.0010, 6),
+            }
+            for i in range(1, 25)
+        ]
 
     # Ordenar por vecino más cercano (Nearest Neighbor) desde el acceso (Av. España / Calabria)
     entrance = (-34.61571, -58.35697)
     unvisited = list(rb_containers)
     sorted_stops = []
     if unvisited:
-        curr = min(unvisited, key=lambda c: math.hypot(c["lat"] - entrance[0], c["lon"] - entrance[1]))
+        curr = min(
+            unvisited,
+            key=lambda c: math.hypot(c["lat"] - entrance[0], c["lon"] - entrance[1]),
+        )
         unvisited.remove(curr)
         sorted_stops.append(curr)
         while unvisited:
-            nxt = min(unvisited, key=lambda c: math.hypot(c["lat"] - curr["lat"], c["lon"] - curr["lon"]))
+            nxt = min(
+                unvisited,
+                key=lambda c: math.hypot(
+                    c["lat"] - curr["lat"], c["lon"] - curr["lon"]
+                ),
+            )
             unvisited.remove(nxt)
             sorted_stops.append(nxt)
             curr = nxt
@@ -99,12 +128,17 @@ def build_rodrigo_bueno_route() -> TruckRoute:
             # Si hay un cambio de manzana (diagonal mayor a 25m), girar en la esquina de la intersección
             if dist > 25.0 and abs(d_lat) > 10.0 and abs(d_lon) > 10.0:
                 corner = (p1[0], p2[1])
+                waypoints.append(corner)
     site_ids = [c["id"] for c in sorted_stops]
 
     total_len_m = 0.0
     for i in range(1, len(waypoints)):
         d_lat = (waypoints[i][0] - waypoints[i - 1][0]) * 111000.0
-        d_lon = (waypoints[i][1] - waypoints[i - 1][1]) * 111000.0 * math.cos(math.radians(waypoints[i][0]))
+        d_lon = (
+            (waypoints[i][1] - waypoints[i - 1][1])
+            * 111000.0
+            * math.cos(math.radians(waypoints[i][0]))
+        )
         total_len_m += math.hypot(d_lat, d_lon)
 
     street_seq = [c["address"] for c in sorted_stops]
@@ -156,7 +190,9 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
 
     if csv_path is None:
         candidates = [
-            Path(__file__).resolve().parent.parent.parent.parent / "datos" / "rutas_recoleccion_residuos_humedos_clean.csv",
+            Path(__file__).resolve().parent.parent.parent.parent
+            / "datos"
+            / "rutas_recoleccion_residuos_humedos_clean.csv",
             Path("/app/datos/rutas_recoleccion_residuos_humedos_clean.csv"),
             Path("datos/rutas_recoleccion_residuos_humedos_clean.csv"),
         ]
@@ -196,16 +232,26 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
             except Exception:
                 zona_int = 3
 
-            service_name = row.get(k_servic, "Recoleccion Domiciliaria") if k_servic else "Recoleccion Domiciliaria"
+            service_name = (
+                row.get(k_servic, "Recoleccion Domiciliaria")
+                if k_servic
+                else "Recoleccion Domiciliaria"
+            )
             street_name = row.get(k_calle, "").strip()
-            
+
             try:
-                alt_start = int(float(row[k_izqini])) if k_izqini and row.get(k_izqini) else 0
+                alt_start = (
+                    int(float(row[k_izqini])) if k_izqini and row.get(k_izqini) else 0
+                )
             except Exception:
                 alt_start = 0
 
             try:
-                alt_end = int(float(row[k_derfin])) if k_derfin and row.get(k_derfin) else alt_start + 100
+                alt_end = (
+                    int(float(row[k_derfin]))
+                    if k_derfin and row.get(k_derfin)
+                    else alt_start + 100
+                )
             except Exception:
                 alt_end = alt_start + 100
 
@@ -249,10 +295,15 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
     """Pre-carga los waypoints geográficos para cada ruta a partir de los contenedores de CABA."""
     import json
     import math
-    from app.digital_twin.synthetic_data.simulation.truck_depots import get_depot_for_zone
+    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+        get_depot_for_zone,
+    )
 
     candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json",
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "db"
+        / "datos"
+        / "contenedores_negros.json",
         Path("/app/db/datos/contenedores_negros.json"),
         Path("db/datos/contenedores_negros.json"),
     ]
@@ -266,12 +317,14 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
                 coords = feat.get("geometry", {}).get("coordinates", [])
                 if len(coords) >= 2:
                     props = feat.get("properties", {})
-                    sites_list.append({
-                        "id": props.get("Id", ""),
-                        "address": props.get("DireccionNormalizada", ""),
-                        "latitude": coords[1],
-                        "longitude": coords[0],
-                    })
+                    sites_list.append(
+                        {
+                            "id": props.get("Id", ""),
+                            "address": props.get("DireccionNormalizada", ""),
+                            "latitude": coords[1],
+                            "longitude": coords[0],
+                        }
+                    )
             if sites_list:
                 assign_sites_to_routes(sites_list, routes)
         except Exception as e:
@@ -284,9 +337,18 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
             idx = int(r.route_id) if r.route_id.isdigit() else hash(r.route_id)
             angle = (idx % 12) * (math.pi / 6.0)
             r.waypoints = [
-                (round(depot.latitude + 0.005 * math.cos(angle), 5), round(depot.longitude + 0.005 * math.sin(angle), 5)),
-                (round(depot.latitude + 0.009 * math.cos(angle + 0.4), 5), round(depot.longitude + 0.009 * math.sin(angle + 0.4), 5)),
-                (round(depot.latitude + 0.006 * math.cos(angle + 0.8), 5), round(depot.longitude + 0.006 * math.sin(angle + 0.8), 5)),
+                (
+                    round(depot.latitude + 0.005 * math.cos(angle), 5),
+                    round(depot.longitude + 0.005 * math.sin(angle), 5),
+                ),
+                (
+                    round(depot.latitude + 0.009 * math.cos(angle + 0.4), 5),
+                    round(depot.longitude + 0.009 * math.sin(angle + 0.4), 5),
+                ),
+                (
+                    round(depot.latitude + 0.006 * math.cos(angle + 0.8), 5),
+                    round(depot.longitude + 0.006 * math.sin(angle + 0.8), 5),
+                ),
                 (depot.latitude, depot.longitude),
             ]
 
@@ -311,7 +373,12 @@ def assign_sites_to_routes(
             parsed = parse_street_address(seg.street_name)
             s_name = parsed[0] if parsed else seg.street_name.strip().upper()
             street_index.setdefault(s_name, []).append(
-                (r_id, min(seg.alt_start, seg.alt_end), max(seg.alt_start, seg.alt_end), idx)
+                (
+                    r_id,
+                    min(seg.alt_start, seg.alt_end),
+                    max(seg.alt_start, seg.alt_end),
+                    idx,
+                )
             )
 
     route_to_sites: dict[str, list[tuple[int, str, float, float]]] = {
@@ -357,7 +424,9 @@ def assign_sites_to_routes(
         items.sort(key=lambda x: x[0])
         site_ids = [item[1] for item in items]
         routes[r_id].site_ids = site_ids
-        routes[r_id].waypoints = [(item[2], item[3]) for item in items if item[2] != 0.0]
+        routes[r_id].waypoints = [
+            (item[2], item[3]) for item in items if item[2] != 0.0
+        ]
         result[r_id] = site_ids
 
     return result

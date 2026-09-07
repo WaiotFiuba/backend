@@ -17,7 +17,9 @@ PROMEDIO_GENERACION_BASURA_PERSONAS_24H: float = 1.5  # kg por persona cada 24 h
 DENSIDAD_BASURA_KG_M3: float = 150.0
 DAILY_WASTE_PER_PERSON_KG: float = PROMEDIO_GENERACION_BASURA_PERSONAS_24H
 WASTE_DENSITY_KG_M3: float = DENSIDAD_BASURA_KG_M3
-DEFAULT_HOURLY_FILL_PCT: float = 1.0 #2.5  # Tasa base por hora (50-60% llenado diario)
+DEFAULT_HOURLY_FILL_PCT: float = (
+    1.0  # 2.5  # Tasa base por hora (50-60% llenado diario)
+)
 
 
 @dataclass(frozen=True)

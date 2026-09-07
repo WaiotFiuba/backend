@@ -83,12 +83,17 @@ async def run_worker() -> None:
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
     first_wait = True
     while True:
-        success = await _mark_interrupted_sessions_failed(settings.simulator_backend_url)
+        success = await _mark_interrupted_sessions_failed(
+            settings.simulator_backend_url
+        )
         if success:
             logger.info("Conectado con éxito a la API. Esperando simulaciones...")
             break
         if first_wait:
-            logger.info("Esperando a que el backend de la API finalice su inicialización en %s...", settings.simulator_backend_url)
+            logger.info(
+                "Esperando a que el backend de la API finalice su inicialización en %s...",
+                settings.simulator_backend_url,
+            )
             first_wait = False
         await asyncio.sleep(settings.simulator_poll_seconds)
 
@@ -171,7 +176,10 @@ async def _run_session(session: dict) -> None:
 
         previous_controls: ControlSnapshot | None = None
         import itertools
-        period_iterator = range(config.periods) if config.end is not None else itertools.count()
+
+        period_iterator = (
+            range(config.periods) if config.end is not None else itertools.count()
+        )
         for period in period_iterator:
             session_state = await _wait_until_runnable(
                 settings.simulator_backend_url, simulation_id
@@ -406,7 +414,6 @@ async def _wait_between_ticks(
 ) -> bool:
     settings = get_settings()
     remaining = delay_seconds
-    sim_clock = current_sim_time
 
     while remaining > 0:
         started = asyncio.get_running_loop().time()

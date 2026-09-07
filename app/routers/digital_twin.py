@@ -184,6 +184,7 @@ async def get_route_details_endpoint(route_id: str) -> dict:
     if not route.total_distance_m and clean_id != "RODRIGO_BUENO":
         try:
             from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
+
             sol = optimize_circuit_route(clean_id)
             route.total_distance_m = sol.total_distance_m
             route.collection_distance_m = sol.collection_distance_m

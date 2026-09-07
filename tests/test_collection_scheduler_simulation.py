@@ -65,11 +65,15 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
         }
 
         # 1. A las 05:15 (intervalo 05:00 - 05:15) no debe recolectar
-        stops_at_515 = get_sites_to_collect(t_515, frequency_minutes=15, route_id=mock_route_id)
+        stops_at_515 = get_sites_to_collect(
+            t_515, frequency_minutes=15, route_id=mock_route_id
+        )
         self.assertEqual(len(stops_at_515), 0)
 
         # 2. A las 05:30 (intervalo 05:15 - 05:30) debe recolectar la parada de las 05:19
-        stops_at_530 = get_sites_to_collect(t_530, frequency_minutes=15, route_id=mock_route_id)
+        stops_at_530 = get_sites_to_collect(
+            t_530, frequency_minutes=15, route_id=mock_route_id
+        )
         self.assertEqual(len(stops_at_530), 1)
         self.assertEqual(stops_at_530[0]["site_id"], "SITE_TEST_519")
 
@@ -112,10 +116,26 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
         simulated_time = datetime(2026, 9, 3, 22, 30, 0)
         containers_by_site = {
             "SITE_MULTI_CONT": [
-                {"id": 101, "current_level": 75.0, "waste_type": "RSU Fracción Húmeda"},  # >= 60% -> Debe vaciarse
-                {"id": 102, "current_level": 60.0, "waste_type": "RSU Fracción Húmeda"},  # == 60% -> Debe vaciarse
-                {"id": 103, "current_level": 59.0, "waste_type": "RSU Fracción Húmeda"},  # < 60%  -> NO debe vaciarse
-                {"id": 104, "current_level": 20.0, "waste_type": "RSU Fracción Húmeda"},  # < 60%  -> NO debe vaciarse
+                {
+                    "id": 101,
+                    "current_level": 75.0,
+                    "waste_type": "RSU Fracción Húmeda",
+                },  # >= 60% -> Debe vaciarse
+                {
+                    "id": 102,
+                    "current_level": 60.0,
+                    "waste_type": "RSU Fracción Húmeda",
+                },  # == 60% -> Debe vaciarse
+                {
+                    "id": 103,
+                    "current_level": 59.0,
+                    "waste_type": "RSU Fracción Húmeda",
+                },  # < 60%  -> NO debe vaciarse
+                {
+                    "id": 104,
+                    "current_level": 20.0,
+                    "waste_type": "RSU Fracción Húmeda",
+                },  # < 60%  -> NO debe vaciarse
             ]
         }
 
@@ -132,7 +152,9 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
         self.assertEqual(collected_ids, {101, 102})
 
         # Verificar niveles finales
-        c_map = {c["id"]: c["current_level"] for c in containers_by_site["SITE_MULTI_CONT"]}
+        c_map = {
+            c["id"]: c["current_level"] for c in containers_by_site["SITE_MULTI_CONT"]
+        }
         self.assertLessEqual(c_map[101], 5.0)
         self.assertLessEqual(c_map[102], 5.0)
         self.assertEqual(c_map[103], 59.0)
@@ -238,7 +260,6 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
         # Mediciones emitidas deben reflejar el nivel vaciado
         m_201 = next(m for m in res.measurements if str(m.container_id) == "201")
         self.assertLessEqual(m_201.fill_level_pct, 5.0)
-
 
 
 if __name__ == "__main__":

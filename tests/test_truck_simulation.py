@@ -11,7 +11,6 @@ from app.digital_twin.synthetic_data.simulation.truck_depots import (
 )
 from app.digital_twin.synthetic_data.simulation.truck_engine import (
     TruckFleetSimulator,
-    TruckState,
     TruckStatus,
 )
 from app.services.simulation.truck_route_service import (
@@ -65,8 +64,18 @@ class TestTruckSimulation(unittest.TestCase):
         }
 
         sites = [
-            {"id": "SITE-1", "address": "SAN LUIS 2650", "latitude": -34.601, "longitude": -58.401},
-            {"id": "SITE-2", "address": "OTRA CALLE 100", "latitude": -34.610, "longitude": -58.410},
+            {
+                "id": "SITE-1",
+                "address": "SAN LUIS 2650",
+                "latitude": -34.601,
+                "longitude": -58.401,
+            },
+            {
+                "id": "SITE-2",
+                "address": "OTRA CALLE 100",
+                "latitude": -34.610,
+                "longitude": -58.410,
+            },
         ]
 
         assignment = assign_sites_to_routes(sites, routes)
@@ -104,13 +113,23 @@ class TestTruckSimulation(unittest.TestCase):
             "SITE-101": [{"id": 1, "current_level": 85.0}],
             "SITE-102": [{"id": 2, "current_level": 40.0}],
         }
-        events = simulator.step(day_time, dt_seconds=300.0, speedup=1.0, containers_by_site=containers_by_site)
+        events = simulator.step(
+            day_time,
+            dt_seconds=300.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
         self.assertEqual(len(events), 0)
         self.assertEqual(truck.status, TruckStatus.AT_DEPOT)
 
         # 2. Night step (22:00 hs) -> dispatches
         night_time = datetime(2026, 9, 2, 22, 0, 0)
-        events = simulator.step(night_time, dt_seconds=300.0, speedup=1.0, containers_by_site=containers_by_site)
+        events = simulator.step(
+            night_time,
+            dt_seconds=300.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
         self.assertEqual(truck.status, TruckStatus.COLLECTING)
 
         # 3. Force truck position at SITE-101 with collecting status
@@ -122,7 +141,12 @@ class TestTruckSimulation(unittest.TestCase):
         containers_by_site["SITE-101"][0]["current_level"] = 85.0
 
         # Run step -> should collect SITE-101 (85% >= 60%) but skip SITE-102 (40% < 60%)
-        events = simulator.step(night_time, dt_seconds=60.0, speedup=1.0, containers_by_site=containers_by_site)
+        events = simulator.step(
+            night_time,
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["container_id"], 1)
         self.assertLess(containers_by_site["SITE-101"][0]["current_level"], 10.0)
@@ -134,8 +158,15 @@ class TestTruckSimulation(unittest.TestCase):
 
     def test_scheduled_collection_matching_site_aliases(self):
         from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-        from app.digital_twin.synthetic_data.topology import SimulationTopology, Container, Device, Site
-        from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
+        from app.digital_twin.synthetic_data.topology import (
+            SimulationTopology,
+            Container,
+            Device,
+            Site,
+        )
+        from app.digital_twin.synthetic_data.simulation.engine import (
+            SyntheticDataSimulator,
+        )
 
         site = Site(
             id="158",
@@ -165,7 +196,10 @@ class TestTruckSimulation(unittest.TestCase):
         sim.initialize()
         sim.state.levels[328] = 100.0
 
-        from app.services.simulation.collection_schedule_service import load_collection_schedule
+        from app.services.simulation.collection_schedule_service import (
+            load_collection_schedule,
+        )
+
         schedules = load_collection_schedule()
         schedules["RODRIGO_BUENO"] = {
             "route_id": "RODRIGO_BUENO",
@@ -183,6 +217,3 @@ class TestTruckSimulation(unittest.TestCase):
         tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
         self.assertEqual(len(tick.collections), 1)
         self.assertLess(sim.state.levels[328], 10.0)
-
-
-

@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import logging
-import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
 from app.digital_twin.synthetic_data.simulation.truck_depots import (
-    DEPOTS_BY_ZONE,
-    Depot,
     get_depot_for_zone,
-    get_nearest_transfer_station,
 )
 from app.services.simulation.truck_route_service import TruckRoute
 
@@ -19,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class TruckStatus:
-    AT_DEPOT = "AT_DEPOT"      # En espera en terminal/depósito
+    AT_DEPOT = "AT_DEPOT"  # En espera en terminal/depósito
     COLLECTING = "COLLECTING"  # En recorrido de recolección activo
 
 
@@ -38,6 +34,7 @@ class TruckState:
     depot_id: str = "DEPOT-Z3"
     speed_kmh: float = 30.0
     unloading_ticks_remaining: int = 0
+
 
 class TruckFleetSimulator:
     def __init__(
@@ -81,7 +78,9 @@ class TruckFleetSimulator:
                 depot_id=depot.id,
                 speed_kmh=24.0 + random.uniform(-2.0, 4.0),
             )
-        logger.info("Inicializada flota de %d camiones en sus terminales.", len(self.trucks))
+        logger.info(
+            "Inicializada flota de %d camiones en sus terminales.", len(self.trucks)
+        )
 
     def step(
         self,
@@ -98,7 +97,9 @@ class TruckFleetSimulator:
         """
         is_collection_time = simulated_time.hour in self.collection_hours
         collection_events: list[dict] = []
-        from app.services.simulation.collection_schedule_service import get_sites_to_collect
+        from app.services.simulation.collection_schedule_service import (
+            get_sites_to_collect,
+        )
 
         for truck_id, truck in self.trucks.items():
             route = self.routes.get(truck.route_id)
@@ -114,12 +115,23 @@ class TruckFleetSimulator:
 
             if not scheduled_stops:
                 # Si la ruta es sintética/mock no existente en el cronograma estático
-                from app.services.simulation.collection_schedule_service import load_collection_schedule
+                from app.services.simulation.collection_schedule_service import (
+                    load_collection_schedule,
+                )
+
                 sched = load_collection_schedule()
-                if route.site_ids and is_collection_time and truck.route_id not in sched:
+                if (
+                    route.site_ids
+                    and is_collection_time
+                    and truck.route_id not in sched
+                ):
                     scheduled_stops = [{"site_id": s} for s in route.site_ids]
                 else:
-                    truck.status = TruckStatus.AT_DEPOT if not is_collection_time else TruckStatus.COLLECTING
+                    truck.status = (
+                        TruckStatus.AT_DEPOT
+                        if not is_collection_time
+                        else TruckStatus.COLLECTING
+                    )
                     continue
 
             truck.status = TruckStatus.COLLECTING
@@ -144,7 +156,10 @@ class TruckFleetSimulator:
                     # FILTRO EXCLUSIVO: Solo recolectar contenedores de Fracción Húmeda
                     w_type = str(c.get("waste_type") or "").lower()
                     c_type = str(c.get("container_type") or "").lower()
-                    if any(x in w_type or x in c_type for x in ("seca", "recicl", "verde", "vidrio")):
+                    if any(
+                        x in w_type or x in c_type
+                        for x in ("seca", "recicl", "verde", "vidrio")
+                    ):
                         continue
 
                     c_level = float(c.get("current_level", 0.0))
@@ -169,9 +184,7 @@ class TruckFleetSimulator:
                         }
                         collection_events.append(event)
                         if on_container_collected:
-                            on_container_collected(
-                                str(c.get("id")), c_level, new_level
-                            )
+                            on_container_collected(str(c.get("id")), c_level, new_level)
 
         return collection_events
 
@@ -179,7 +192,9 @@ class TruckFleetSimulator:
         """Retorna el estado de todos los camiones activos para la API y el Frontend."""
         result = []
         for truck in self.trucks.values():
-            load_pct = round((truck.current_load_kg / max(1.0, truck.capacity_kg)) * 100.0, 1)
+            load_pct = round(
+                (truck.current_load_kg / max(1.0, truck.capacity_kg)) * 100.0, 1
+            )
             result.append(
                 {
                     "id": truck.id,
@@ -216,6 +231,7 @@ def get_latest_truck_snapshot() -> list[dict]:
 
     if _DEMO_FLEET_SIMULATOR is None:
         from app.services.simulation.truck_route_service import load_routes_from_csv
+
         routes = load_routes_from_csv()
         sites_dict = {}
         if "RODRIGO_BUENO" in routes and routes["RODRIGO_BUENO"].waypoints:
@@ -224,7 +240,9 @@ def get_latest_truck_snapshot() -> list[dict]:
                 for i, s_id in enumerate(routes["RODRIGO_BUENO"].site_ids)
                 if i < len(routes["RODRIGO_BUENO"].waypoints)
             }
-        _DEMO_FLEET_SIMULATOR = TruckFleetSimulator(routes=routes, sites_dict=sites_dict)
+        _DEMO_FLEET_SIMULATOR = TruckFleetSimulator(
+            routes=routes, sites_dict=sites_dict
+        )
 
     # El camión permanece estacionado en la base (AT_DEPOT) hasta que el usuario inicie la simulación desde el frontend
     return _DEMO_FLEET_SIMULATOR.get_trucks_snapshot()

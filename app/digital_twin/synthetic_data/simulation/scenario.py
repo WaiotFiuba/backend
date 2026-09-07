@@ -82,9 +82,7 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
         normalized["periods"] = _periods_between(
             start=normalized.get("start", get_default_start_time()),
             end=normalized["end"],
-            frequency_minutes=normalized.get(
-                "frequency_minutes", 60
-            ),
+            frequency_minutes=normalized.get("frequency_minutes", 60),
         )
     if "collection_hours" in normalized:
         normalized["collection_hours"] = tuple(normalized["collection_hours"])

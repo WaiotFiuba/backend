@@ -84,10 +84,16 @@ class TestStreetSpatialIndex(unittest.TestCase):
         from app.services.map.site_clustering_service import _split_by_distance
 
         # Calle Corrientes al 1600 (cuadra 1600-1700)
-        c1 = Container(id=1, latitude=-34.6000, longitude=-58.3800, address="CORRIENTES 1620")
-        c2 = Container(id=2, latitude=-34.6001, longitude=-58.3801, address="CORRIENTES 1650")
+        c1 = Container(
+            id=1, latitude=-34.6000, longitude=-58.3800, address="CORRIENTES 1620"
+        )
+        c2 = Container(
+            id=2, latitude=-34.6001, longitude=-58.3801, address="CORRIENTES 1650"
+        )
         # Calle Corrientes al 2600 (otra cuadra a varias cuadras)
-        c3 = Container(id=3, latitude=-34.6002, longitude=-58.3802, address="CORRIENTES 2640")
+        c3 = Container(
+            id=3, latitude=-34.6002, longitude=-58.3802, address="CORRIENTES 2640"
+        )
 
         clusters = _split_by_distance([c1, c2, c3], max_distance_m=100.0)
         self.assertEqual(len(clusters), 2)
