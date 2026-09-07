@@ -158,7 +158,6 @@ async def _run_session(session: dict) -> None:
         )
         simulator = SyntheticDataSimulator(config, topology=topology)
         simulator.initialize()
-        simulator.kinematics_continuous_mode = False
 
         # Marcar la sesión como running en el backend tras completar la carga e inicialización
         await _update_progress(
@@ -415,22 +414,6 @@ async def _wait_between_ticks(
         await asyncio.sleep(step_interval)
         elapsed = asyncio.get_running_loop().time() - started
         remaining = max(0.0, remaining - elapsed)
-
-        # Cinemática continua de camiones segundo a segundo (sin teletransportación)
-        if simulator is not None and getattr(simulator, "truck_fleet", None) and sim_clock:
-            sim_dt_seconds = elapsed * speedup
-            sim_clock = sim_clock + timedelta(seconds=sim_dt_seconds)
-            step_fn = getattr(simulator, "step_trucks_continuous", None)
-            if step_fn:
-                step_fn(sim_clock, sim_dt_seconds)
-            trucks_snapshot = simulator.truck_fleet.get_trucks_snapshot()
-            await _update_progress(
-                backend_url,
-                simulation_id,
-                {
-                    "trucks": trucks_snapshot,
-                },
-            )
 
         session = await _fetch_active_session(backend_url)
         if session is None or session.get("id") != simulation_id:

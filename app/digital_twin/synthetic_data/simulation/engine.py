@@ -65,53 +65,6 @@ class SyntheticDataSimulator:
 
         self.topology = topology
         self.state: SimulationState | None = None
-        self.kinematics_continuous_mode: bool = False
-        self.pending_collection_events: list[dict] = []
-
-    def step_trucks_continuous(
-        self, current_time: datetime, dt_seconds: float
-    ) -> list[dict]:
-        """Avanza los camiones de forma continua minuto a minuto entre ticks de telemetría."""
-        if getattr(self, "truck_fleet", None) is None or self.state is None:
-            return []
-
-        containers = self.state.topology.containers
-        N = len(containers)
-        from collections import defaultdict
-
-        containers_by_site_dict = defaultdict(list)
-        for i in range(N):
-            c = containers[i]
-            item = {
-                "id": c.id,
-                "index": i,
-                "current_level": float(self.state.levels.get(c.id, 0.0)),
-                "waste_type": c.waste_type,
-            }
-            containers_by_site_dict[c.site_id].append(item)
-            containers_by_site_dict[str(c.site_id)].append(item)
-            containers_by_site_dict[c.id].append(item)
-            containers_by_site_dict[str(c.id)].append(item)
-            if isinstance(c.site_id, str):
-                raw = c.site_id.split("|")[-1]
-                containers_by_site_dict[raw].append(item)
-                containers_by_site_dict[f"contenedores_negros|{raw}"].append(item)
-                containers_by_site_dict[f"SITE-{raw}"].append(item)
-
-        events = self.truck_fleet.step(
-            simulated_time=current_time,
-            dt_seconds=dt_seconds,
-            speedup=1.0,
-            containers_by_site=containers_by_site_dict,
-        )
-
-        for ev in events:
-            c_id = ev["container_id"]
-            self.state.levels[c_id] = ev["level_after"]
-            self.pending_collection_events.append(ev)
-
-        self.truck_fleet.get_trucks_snapshot()
-        return events
 
     def initialize(self) -> SimulationState:
         import numpy as np
@@ -141,7 +94,6 @@ class SyntheticDataSimulator:
             opposing_site_by_site_id=opposing_sites,
         )
 
-        # Inicializar simulador de flota de camiones
         try:
             from app.services.simulation.truck_route_service import (
                 assign_sites_to_routes,
@@ -151,7 +103,16 @@ class SyntheticDataSimulator:
                 TruckFleetSimulator,
             )
 
+            # Carga las definiciones de circuitos/rutas de recolección de camiones desde el archivo CSV
+            # Retorna un diccionario {route_id: TruckRoute} con metadatos de zona, paradas y coordenadas
             routes = load_routes_from_csv()
+
+            # Normaliza la lista de sitios de la topología actual
+            # necesario para el algoritmo de asignación geográfica por calle y altura:
+            # - 'id': Identificador único del sitio/contenedor
+            # - 'address': Dirección normalizada (calle y altura) para vincular con los circuitos de la ruta
+            # - 'name': Nombre de referencia del sitio
+            # - 'latitude' / 'longitude': Coordenadas GPS para asignación espacial por cercanía y distancias
             sites_raw = [
                 {
                     "id": s.id,
@@ -360,55 +321,50 @@ class SyntheticDataSimulator:
 
         levels = np.minimum(100.0, tentative_levels)
 
-        # 2. Collections (Simulación Física con Flota de Camiones)
+        # 2. Collections (Simulación con Flota de Camiones)
         level_before_collection = levels.copy()
         collected = np.zeros(N, dtype=bool)
 
         if getattr(self, "truck_fleet", None) is not None:
-            if getattr(self, "kinematics_continuous_mode", False):
-                # En modo continuo en tiempo real, drenar las recolecciones ocurridas minuto a minuto
-                truck_events = list(self.pending_collection_events)
-                self.pending_collection_events.clear()
-            else:
-                containers_by_site_dict = defaultdict(list)
-                for i in range(N):
-                    c = containers[i]
-                    item = {
-                        "id": c.id,
-                        "index": i,
-                        "current_level": float(levels[i]),
-                        "waste_type": c.waste_type,
-                    }
-                    # Registrar todos los alias posibles (ID contenedor, ID sitio, serie_id)
-                    keys_to_index = {
-                        c.id,
-                        str(c.id),
-                        c.site_id,
-                        str(c.site_id),
-                    }
-                    if getattr(c, "serie_id", None):
-                        keys_to_index.add(c.serie_id)
-                        keys_to_index.add(str(c.serie_id).split("|")[-1])
+            containers_by_site_dict = defaultdict(list)
+            for i in range(N):
+                c = containers[i]
+                item = {
+                    "id": c.id,
+                    "index": i,
+                    "current_level": float(levels[i]),
+                    "waste_type": c.waste_type,
+                }
+                # Registrar todos los alias posibles (ID contenedor, ID sitio, serie_id)
+                keys_to_index = {
+                    c.id,
+                    str(c.id),
+                    c.site_id,
+                    str(c.site_id),
+                }
+                if getattr(c, "serie_id", None):
+                    keys_to_index.add(c.serie_id)
+                    keys_to_index.add(str(c.serie_id).split("|")[-1])
 
-                    c_id_raw = str(c.id).split("|")[-1]
-                    keys_to_index.add(c_id_raw)
-                    keys_to_index.add(f"contenedores_negros|{c_id_raw}")
-                    keys_to_index.add(f"SITE-{c_id_raw}")
+                c_id_raw = str(c.id).split("|")[-1]
+                keys_to_index.add(c_id_raw)
+                keys_to_index.add(f"contenedores_negros|{c_id_raw}")
+                keys_to_index.add(f"SITE-{c_id_raw}")
 
-                    site_id_raw = str(c.site_id).split("|")[-1]
-                    keys_to_index.add(site_id_raw)
-                    keys_to_index.add(f"contenedores_negros|{site_id_raw}")
-                    keys_to_index.add(f"SITE-{site_id_raw}")
+                site_id_raw = str(c.site_id).split("|")[-1]
+                keys_to_index.add(site_id_raw)
+                keys_to_index.add(f"contenedores_negros|{site_id_raw}")
+                keys_to_index.add(f"SITE-{site_id_raw}")
 
-                    for k in keys_to_index:
-                        if k is not None:
-                            containers_by_site_dict[k].append(item)
-                truck_events = self.truck_fleet.step(
-                    simulated_time=timestamp,
-                    dt_seconds=self.config.frequency_minutes * 60.0,
-                    speedup=1.0,
-                    containers_by_site=containers_by_site_dict,
-                )
+                for k in keys_to_index:
+                    if k is not None:
+                        containers_by_site_dict[k].append(item)
+            truck_events = self.truck_fleet.step(
+                simulated_time=timestamp,
+                dt_seconds=self.config.frequency_minutes * 60.0,
+                speedup=1.0,
+                containers_by_site=containers_by_site_dict,
+            )
             self.truck_fleet.get_trucks_snapshot()
 
             for ev in truck_events:

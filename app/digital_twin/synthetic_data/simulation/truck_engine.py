@@ -19,13 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class TruckStatus:
-    AT_DEPOT = "AT_DEPOT"  # En espera en terminal (día)
-    TRANSIT_TO_ROUTE = "TRANSIT_TO_ROUTE"  # Viajando al primer punto del circuito
-    COLLECTING = "COLLECTING"  # Recolectando contenedores en el circuito
-    TRANSIT_TO_TRANSFER = "TRANSIT_TO_TRANSFER"  # Viajando a planta de transferencia
-    UNLOADING = "UNLOADING"  # Descargando tolva en planta
-    RETURNING_TO_DEPOT = "RETURNING_TO_DEPOT"  # Regresando a base operativa
-    COMPLETED = "COMPLETED"  # Recorrido finalizado y lleno (desaparece)
+    AT_DEPOT = "AT_DEPOT"      # En espera en terminal/depósito
+    COLLECTING = "COLLECTING"  # En recorrido de recolección activo
 
 
 @dataclass
@@ -184,8 +179,6 @@ class TruckFleetSimulator:
         """Retorna el estado de todos los camiones activos para la API y el Frontend."""
         result = []
         for truck in self.trucks.values():
-            if truck.status == TruckStatus.COMPLETED:
-                continue
             load_pct = round((truck.current_load_kg / max(1.0, truck.capacity_kg)) * 100.0, 1)
             result.append(
                 {

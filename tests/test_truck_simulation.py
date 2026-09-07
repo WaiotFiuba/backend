@@ -111,7 +111,7 @@ class TestTruckSimulation(unittest.TestCase):
         # 2. Night step (22:00 hs) -> dispatches
         night_time = datetime(2026, 9, 2, 22, 0, 0)
         events = simulator.step(night_time, dt_seconds=300.0, speedup=1.0, containers_by_site=containers_by_site)
-        self.assertIn(truck.status, (TruckStatus.TRANSIT_TO_ROUTE, TruckStatus.COLLECTING))
+        self.assertEqual(truck.status, TruckStatus.COLLECTING)
 
         # 3. Force truck position at SITE-101 with collecting status
         truck.status = TruckStatus.COLLECTING

@@ -1,8 +1,3 @@
-"""
-Servicio para consultar el cronograma de recolección pre-calculado (collection_schedule.json).
-Permite al backend determinar de forma instantánea qué sitios deben vaciarse en un intervalo de simulación.
-"""
-
 from __future__ import annotations
 
 import json
@@ -24,7 +19,6 @@ _CACHED_SCHEDULE: dict | None = None
 
 
 def generate_all_schedules() -> dict:
-    """Genera el itinerario completo de recolección para TODAS las rutas de CABA."""
     import math
     from app.digital_twin.synthetic_data.simulation.truck_depots import get_depot_for_zone
     from app.services.simulation.truck_route_service import (
@@ -32,15 +26,9 @@ def generate_all_schedules() -> dict:
         load_routes_from_csv,
     )
 
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json",
-        Path(__file__).resolve().parent.parent.parent / "db" / "datos" / "contenedores_negros.json",
-        Path("/app/db/datos/contenedores_negros.json"),
-        Path("db/datos/contenedores_negros.json"),
-    ]
-    json_path = next((p for p in candidates if p.exists()), None)
+    json_path = Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json"
     all_sites = []
-    if json_path:
+    if json_path.exists():
         with open(json_path, mode="r", encoding="utf-8", errors="ignore") as f:
             data = json.load(f)
         for feat in data.get("features", []):
@@ -117,7 +105,6 @@ def generate_all_schedules() -> dict:
         if stops:
             unvisited = list(stops)
             depot = get_depot_for_zone(r.zone)
-            # Iniciar Nearest-Neighbor desde el depósito o primer punto
             curr = min(unvisited, key=lambda s: math.hypot(s["lat"] - depot.latitude, s["lon"] - depot.longitude))
             unvisited.remove(curr)
             sorted_stops = [curr]
@@ -132,6 +119,7 @@ def generate_all_schedules() -> dict:
             stops = sorted_stops
 
         total_stops = len(stops)
+
         # Turno de 21:00 a 06:00 (540 minutos)
         step_minutes = 530.0 / float(max(1, total_stops))
         scheduled_stops = []
@@ -168,7 +156,6 @@ def generate_all_schedules() -> dict:
 
 
 def save_collection_schedule() -> None:
-    """Genera y guarda el cronograma en el directorio de datos."""
     schedules = generate_all_schedules()
     saved = False
     for cand in CANDIDATE_PATHS:
@@ -192,7 +179,6 @@ def load_collection_schedule() -> dict:
 
     schedule_path = next((p for p in CANDIDATE_PATHS if p.exists()), None)
     if not schedule_path:
-        # Autogenerar si no existe
         _CACHED_SCHEDULE = generate_all_schedules()
         save_collection_schedule()
         return _CACHED_SCHEDULE
