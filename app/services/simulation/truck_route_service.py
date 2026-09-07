@@ -165,11 +165,13 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
         return _CACHED_ROUTES
 
     if csv_path is None:
+        base_datos = Path(__file__).resolve().parent.parent.parent.parent / "datos"
         candidates = [
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "datos"
-            / "rutas_recoleccion_residuos_humedos_clean.csv",
+            base_datos / "rutas_recoleccion_residuos_humedos.csv",
+            base_datos / "rutas_recoleccion_residuos_humedos_clean.csv",
+            Path("/app/datos/rutas_recoleccion_residuos_humedos.csv"),
             Path("/app/datos/rutas_recoleccion_residuos_humedos_clean.csv"),
+            Path("datos/rutas_recoleccion_residuos_humedos.csv"),
             Path("datos/rutas_recoleccion_residuos_humedos_clean.csv"),
         ]
         csv_path = next((p for p in candidates if p.exists()), candidates[0])

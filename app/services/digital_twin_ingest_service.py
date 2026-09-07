@@ -127,21 +127,21 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
         meta.current_level = 0
     _cache_loaded = False
 
-    # 2. Intentar resetear en la base de datos sin bloquear ni provocar deadlocks
+    # 2. Resetear en la base de datos los niveles de los contenedores a 0
     try:
         await db.execute(
             update(Container).values(
                 current_level=0,
                 last_reading=None,
+                last_pickup=None,
                 change_version=func.nextval("container_change_version_seq"),
             )
         )
-        await db.commit()
-        logger.info("Niveles de contenedores reiniciados a 0 en base de datos.")
+        await db.flush()
+        logger.info("Niveles de contenedores reiniciados a 0.")
     except Exception as e:
-        await db.rollback()
         logger.warning(
-            "Aviso: El reset SQL de contenedores fue omitido por concurrencia (%s); la nueva telemetria sobreescribira los niveles inmediatamente.",
+            "Aviso: El reset SQL de contenedores tuvo un problema (%s).",
             e,
         )
 

@@ -86,7 +86,11 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
         )
     if "collection_hours" in normalized:
         normalized["collection_hours"] = tuple(normalized["collection_hours"])
-    return ScenarioConfig(**normalized)
+    import dataclasses
+
+    valid_fields = {f.name for f in dataclasses.fields(ScenarioConfig)}
+    filtered = {k: v for k, v in normalized.items() if k in valid_fields}
+    return ScenarioConfig(**filtered)
 
 
 def _periods_between(start: datetime, end: datetime, frequency_minutes: int) -> int:
