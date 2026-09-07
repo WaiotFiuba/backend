@@ -50,15 +50,9 @@ def build_rodrigo_bueno_route() -> TruckRoute:
     import json
     import math
 
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent / "db" / "datos" / "contenedores_negros.json",
-        Path(__file__).resolve().parent.parent.parent.parent / "backend" / "db" / "datos" / "contenedores_negros.json",
-        Path("/app/db/datos/contenedores_negros.json"),
-        Path("db/datos/contenedores_negros.json"),
-    ]
-    json_path = next((p for p in candidates if p.exists()), None)
+    json_path = Path(__file__).resolve().parent.parent.parent.parent / "db" / "datos" / "contenedores_negros.json"
     rb_containers = []
-    if json_path:
+    if json_path.exists():
         try:
             with open(json_path, mode="r", encoding="utf-8", errors="ignore") as f:
                 data = json.load(f)
