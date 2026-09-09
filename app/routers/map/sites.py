@@ -13,6 +13,9 @@ from app.schemas.map.site import (
     SiteMapOutputSchema,
     SiteMapSnapshot,
 )
+from app.schemas.map.site_projection import SiteProjectionResponse
+from app.services.map.site_projection_models import DEFAULT_MODEL_KEY
+from app.services.map.site_projection_service import project_site_level
 from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
@@ -99,6 +102,43 @@ async def get_single_site_history(
 ) -> SiteLevelHistory:
     numeric_id = int(site_id.split("|")[-1]) if site_id.split("|")[-1].isdigit() else 1
     return await get_site_level_history(db=db, site_id=numeric_id, limit=limit)
+
+
+@router.get(
+    "/{site_id}/projection",
+    response_model=SiteProjectionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Proyectar nivel de llenado de un sitio",
+    description=(
+        "Calcula una proyeccion on-demand para un sitio usando el modelo indicado. "
+        "La v1 usa baseline_operational sobre historico agregado por sitio y "
+        "features genericas si existen."
+    ),
+)
+async def get_single_site_projection(
+    site_id: str,
+    db: MapDbDep,
+    model_key: Annotated[str, Query(description="Modelo de proyeccion a usar.")] = (
+        DEFAULT_MODEL_KEY
+    ),
+    horizon_hours: Annotated[int, Query(ge=1, le=168)] = 24,
+    interval_minutes: Annotated[int, Query(ge=15, le=1440)] = 60,
+    critical_level: Annotated[int, Query(ge=1, le=100)] = 80,
+    level_aggregation: Annotated[Literal["avg", "max"], Query()] = "avg",
+    lookback_days: Annotated[int, Query(ge=1, le=365)] = 14,
+    stop_at_full: Annotated[bool, Query()] = True,
+) -> SiteProjectionResponse:
+    return await project_site_level(
+        db=db,
+        site_id=site_id,
+        model_key=model_key,
+        horizon_hours=horizon_hours,
+        interval_minutes=interval_minutes,
+        critical_level=critical_level,
+        level_aggregation=level_aggregation,
+        lookback_days=lookback_days,
+        stop_at_full=stop_at_full,
+    )
 
 
 @router.get(
