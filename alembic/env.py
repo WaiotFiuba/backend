@@ -1,23 +1,34 @@
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-import sys
-from pathlib import Path
-
 from app.core.config import get_settings
 from app.core.map_database import MapBase
 from app.models.map.container import Container  # noqa: F401
 from app.models.map.container_type import ContainerType  # noqa: F401
 from app.models.map.data_level import DataLevel  # noqa: F401
-from app.models.map.neighborhood_demographic import NeighborhoodDemographic  # noqa: F401
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan  # noqa: F401
-from app.models.map.simulation import SimulationSession, SimulationZoneOverride  # noqa: F401
+from app.models.map.neighborhood_demographic import (
+    NeighborhoodDemographic,  # noqa: F401
+)
+from app.models.map.optimization import (  # noqa: F401
+    OptimizationWhatIfLevel,
+    RedistributionPlan,
+)
+from app.models.map.simulation import (  # noqa: F401
+    SimulationSession,
+    SimulationZoneOverride,
+)
+from app.models.map.site import Site  # noqa: F401
+from app.models.map.site_projection import (  # noqa: F401
+    SiteProjectionPoint,
+    SiteProjectionRun,
+)
 from app.models.map.waste_type import WasteType  # noqa: F401
 
 # this is the Alembic Config object, which provides

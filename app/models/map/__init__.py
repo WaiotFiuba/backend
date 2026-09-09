@@ -11,21 +11,24 @@ from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.models.map.site import Site
+from app.models.map.site_projection import SiteProjectionPoint, SiteProjectionRun
 from app.models.map.waste_type import WasteType
 
 __all__ = [
     "Barrio",
     "CabaContainerSpatialMetadata",
+    "Comuna",
     "Container",
     "ContainerType",
     "DataLevel",
-    "Comuna",
-    "NeighborhoodDemographic",
     "Manzana",
+    "NeighborhoodDemographic",
     "OptimizationWhatIfLevel",
     "RedistributionPlan",
-    "Site",
     "SimulationSession",
     "SimulationZoneOverride",
+    "Site",
+    "SiteProjectionPoint",
+    "SiteProjectionRun",
     "WasteType",
 ]
