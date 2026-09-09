@@ -9,10 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
 from app.models.map.site import Site
-from app.models.map.site_projection import SiteFeature
+from app.models.map.site_projection import (
+    SiteFeature,
+    SiteProjectionRun,
+)
+from app.models.map.site_projection import (
+    SiteProjectionPoint as SiteProjectionPointModel,
+)
 from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
+    SiteProjectionRunRequest,
+    SiteProjectionRunResponse,
 )
 from app.services.map.site_projection_history_service import get_site_level_series
 from app.services.map.site_projection_models import (
@@ -116,6 +124,141 @@ async def project_site_level(
     )
 
 
+async def create_site_projection_run(
+    db: AsyncSession,
+    request: SiteProjectionRunRequest,
+) -> SiteProjectionRunResponse:
+    if not request.site_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="site_ids es requerido en v1 para evitar corridas masivas accidentales.",
+        )
+
+    unique_site_ids = sorted(set(request.site_ids))
+    projections: list[SiteProjectionResponse] = []
+    for site_id in unique_site_ids:
+        projections.append(
+            await project_site_level(
+                db=db,
+                site_id=site_id,
+                model_key=request.model_key,
+                horizon_hours=request.horizon_hours,
+                interval_minutes=request.interval_minutes,
+                critical_level=request.critical_level,
+                level_aggregation=request.level_aggregation,
+                lookback_days=request.lookback_days,
+                stop_at_full=request.stop_at_full,
+            )
+        )
+
+    generated_at = projections[0].generated_at if projections else datetime.now(UTC)
+    completed_at = datetime.now(UTC)
+    run = SiteProjectionRun(
+        model_key=request.model_key,
+        status="completed",
+        config=request.model_dump(),
+        horizon_hours=request.horizon_hours,
+        interval_minutes=request.interval_minutes,
+        critical_level=request.critical_level,
+        level_aggregation=request.level_aggregation,
+        lookback_days=request.lookback_days,
+        stop_at_full=request.stop_at_full,
+        site_count=len(projections),
+        summary=_build_run_summary(projections),
+        completed_at=completed_at,
+    )
+    db.add(run)
+    await db.flush()
+
+    db.add_all(
+        SiteProjectionPointModel(
+            run_id=run.id,
+            site_id=projection.site_id,
+            timestamp=point.timestamp,
+            predicted_level=point.predicted_level,
+            reaches_critical=point.reaches_critical,
+            reaches_full=point.reaches_full,
+            confidence=point.confidence,
+            metadata_json={
+                "lower_bound": point.lower_bound,
+                "upper_bound": point.upper_bound,
+                "reason": point.reason,
+                "generated_at": projection.generated_at.isoformat(),
+                "current_level": projection.current_level,
+            },
+        )
+        for projection in projections
+        for point in projection.points
+    )
+    await db.commit()
+    await db.refresh(run)
+
+    return SiteProjectionRunResponse(
+        id=run.id,
+        model_key=run.model_key,
+        status=run.status,
+        generated_at=generated_at,
+        completed_at=run.completed_at,
+        horizon_hours=run.horizon_hours,
+        interval_minutes=run.interval_minutes,
+        critical_level=run.critical_level,
+        level_aggregation=run.level_aggregation,
+        lookback_days=run.lookback_days or request.lookback_days,
+        stop_at_full=run.stop_at_full,
+        site_count=run.site_count,
+        summary=run.summary,
+        sites=projections,
+    )
+
+
+async def get_site_projection_run(
+    db: AsyncSession,
+    run_id: int,
+) -> SiteProjectionRunResponse:
+    run = await db.get(SiteProjectionRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Corrida de proyeccion no encontrada.",
+        )
+
+    result = await db.execute(
+        select(SiteProjectionPointModel)
+        .where(SiteProjectionPointModel.run_id == run_id)
+        .order_by(SiteProjectionPointModel.site_id, SiteProjectionPointModel.timestamp)
+    )
+    points_by_site: dict[int, list[SiteProjectionPointModel]] = {}
+    for point in result.scalars().all():
+        points_by_site.setdefault(point.site_id, []).append(point)
+
+    sites = [
+        _projection_from_persisted_points(
+            site_id=site_id,
+            run=run,
+            points=points,
+        )
+        for site_id, points in points_by_site.items()
+    ]
+    generated_at = _generated_at_from_run(run, sites)
+
+    return SiteProjectionRunResponse(
+        id=run.id,
+        model_key=run.model_key,
+        status=run.status,
+        generated_at=generated_at,
+        completed_at=run.completed_at,
+        horizon_hours=run.horizon_hours,
+        interval_minutes=run.interval_minutes,
+        critical_level=run.critical_level,
+        level_aggregation=run.level_aggregation,
+        lookback_days=run.lookback_days or 0,
+        stop_at_full=run.stop_at_full,
+        site_count=run.site_count,
+        summary=run.summary,
+        sites=sites,
+    )
+
+
 def _parse_site_id(site_id: int | str) -> int:
     raw_id = str(site_id).split("|")[-1].strip()
     try:
@@ -153,6 +296,89 @@ async def _get_current_site_level(
             detail="Sitio no encontrado.",
         )
     return float(value)
+
+
+def _build_run_summary(projections: list[SiteProjectionResponse]) -> dict:
+    sites_reaching_critical = sum(
+        1 for projection in projections if projection.critical_at is not None
+    )
+    sites_reaching_full = sum(
+        1 for projection in projections if projection.full_at is not None
+    )
+    return {
+        "site_count": len(projections),
+        "sites_reaching_critical": sites_reaching_critical,
+        "sites_reaching_full": sites_reaching_full,
+        "avg_confidence": round(
+            sum(projection.confidence for projection in projections) / len(projections),
+            4,
+        )
+        if projections
+        else 0,
+    }
+
+
+def _projection_from_persisted_points(
+    site_id: int,
+    run: SiteProjectionRun,
+    points: list[SiteProjectionPointModel],
+) -> SiteProjectionResponse:
+    response_points = [
+        SiteProjectionPoint(
+            timestamp=point.timestamp,
+            predicted_level=point.predicted_level,
+            lower_bound=(point.metadata_json or {}).get("lower_bound"),
+            upper_bound=(point.metadata_json or {}).get("upper_bound"),
+            reaches_critical=point.reaches_critical,
+            reaches_full=point.reaches_full,
+            confidence=point.confidence or 0.0,
+            reason=(point.metadata_json or {}).get("reason"),
+        )
+        for point in points
+    ]
+    first_metadata = points[0].metadata_json or {} if points else {}
+    generated_at = _parse_datetime_metadata(first_metadata.get("generated_at"))
+    generated_at = generated_at or run.created_at
+    critical_at = _first_timestamp_at_or_above(response_points, run.critical_level)
+    full_at = _first_timestamp_at_or_above(response_points, 100)
+
+    return SiteProjectionResponse(
+        site_id=site_id,
+        model_key=run.model_key,
+        generated_at=generated_at,
+        current_level=float(first_metadata.get("current_level", 0)),
+        horizon_hours=run.horizon_hours,
+        interval_minutes=run.interval_minutes,
+        critical_level=run.critical_level,
+        level_aggregation=run.level_aggregation,
+        lookback_days=run.lookback_days or 0,
+        stop_at_full=run.stop_at_full,
+        confidence=response_points[0].confidence if response_points else 0,
+        reason=response_points[0].reason if response_points else None,
+        critical_at=critical_at,
+        time_to_critical_hours=_hours_between(generated_at, critical_at),
+        full_at=full_at,
+        time_to_full_hours=_hours_between(generated_at, full_at),
+        points=response_points,
+    )
+
+
+def _generated_at_from_run(
+    run: SiteProjectionRun,
+    sites: list[SiteProjectionResponse],
+) -> datetime:
+    if sites:
+        return sites[0].generated_at
+    return _as_utc(run.created_at)
+
+
+def _parse_datetime_metadata(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return _as_utc(datetime.fromisoformat(value))
+    except ValueError:
+        return None
 
 
 async def _get_site_features(

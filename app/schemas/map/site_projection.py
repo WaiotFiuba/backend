@@ -26,6 +26,20 @@ class SiteProjectionModelsResponse(BaseModel):
     models: list[SiteProjectionModel]
 
 
+class SiteProjectionRunRequest(BaseModel):
+    site_ids: list[int] | None = Field(
+        default=None,
+        description="Sitios a proyectar. En v1 es requerido para evitar corridas masivas accidentales.",
+    )
+    model_key: str = "baseline_operational"
+    horizon_hours: int = Field(default=24, ge=1, le=168)
+    interval_minutes: int = Field(default=60, ge=15, le=1440)
+    critical_level: int = Field(default=80, ge=1, le=100)
+    level_aggregation: Literal["avg", "max"] = "avg"
+    lookback_days: int = Field(default=14, ge=1, le=365)
+    stop_at_full: bool = True
+
+
 class SiteProjectionPoint(BaseModel):
     timestamp: datetime
     predicted_level: float
@@ -55,3 +69,20 @@ class SiteProjectionResponse(BaseModel):
     full_at: datetime | None = None
     time_to_full_hours: float | None = None
     points: list[SiteProjectionPoint] = Field(default_factory=list)
+
+
+class SiteProjectionRunResponse(BaseModel):
+    id: int
+    model_key: str
+    status: str
+    generated_at: datetime
+    completed_at: datetime | None = None
+    horizon_hours: int
+    interval_minutes: int
+    critical_level: int
+    level_aggregation: Literal["avg", "max"]
+    lookback_days: int
+    stop_at_full: bool
+    site_count: int
+    summary: dict | None = None
+    sites: list[SiteProjectionResponse] = Field(default_factory=list)

@@ -1,17 +1,29 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Path, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.map_database import get_map_db
 from app.schemas.map.site_projection import (
     SiteProjectionModel,
     SiteProjectionModelsResponse,
+    SiteProjectionRunRequest,
+    SiteProjectionRunResponse,
 )
 from app.services.map.site_projection_models import (
     DEFAULT_MODEL_KEY,
     list_projection_models,
 )
+from app.services.map.site_projection_service import (
+    create_site_projection_run,
+    get_site_projection_run,
+)
 
 router = APIRouter(prefix="/site-projections", tags=["site-projections"])
+
+MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 
 
 @router.get(
@@ -33,3 +45,33 @@ async def get_site_projection_models() -> SiteProjectionModelsResponse:
         default_model_key=DEFAULT_MODEL_KEY,
         models=models,
     )
+
+
+@router.post(
+    "",
+    response_model=SiteProjectionRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear corrida de proyeccion para multiples sitios",
+    description=(
+        "Proyecta una lista de sitios, persiste la corrida y guarda todos los "
+        "puntos proyectados para auditoria y consulta posterior."
+    ),
+)
+async def create_site_projection(
+    db: MapDbDep,
+    request: SiteProjectionRunRequest,
+) -> SiteProjectionRunResponse:
+    return await create_site_projection_run(db=db, request=request)
+
+
+@router.get(
+    "/{run_id}",
+    response_model=SiteProjectionRunResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Recuperar una corrida de proyeccion persistida",
+)
+async def get_site_projection(
+    db: MapDbDep,
+    run_id: Annotated[int, Path(ge=1)],
+) -> SiteProjectionRunResponse:
+    return await get_site_projection_run(db=db, run_id=run_id)
