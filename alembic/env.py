@@ -26,6 +26,7 @@ from app.models.map.simulation import (  # noqa: F401
 )
 from app.models.map.site import Site  # noqa: F401
 from app.models.map.site_projection import (  # noqa: F401
+    SiteFeature,
     SiteProjectionPoint,
     SiteProjectionRun,
 )

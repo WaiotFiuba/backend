@@ -114,3 +114,51 @@ class SiteProjectionPoint(MapBase):
 
     run: Mapped[SiteProjectionRun] = relationship(back_populates="points")
     site: Mapped[Site] = relationship()
+
+
+class SiteFeature(MapBase):
+    """Feature generica asociada a un sitio para modelos de proyeccion."""
+
+    __tablename__ = "site_features"
+    __table_args__ = (
+        UniqueConstraint(
+            "site_id",
+            "feature_key",
+            "source",
+            name="uq_site_features_site_key_source",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    site_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    feature_key: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    numeric_value: Mapped[float | None] = mapped_column(
+        DOUBLE_PRECISION, nullable=True
+    )
+    category_value: Mapped[str | None] = mapped_column(String, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String, nullable=False, default="unknown", server_default="unknown"
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    site: Mapped[Site] = relationship()
