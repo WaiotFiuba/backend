@@ -169,6 +169,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
         from app.models.map.container_type import container_type_waste_types
 
         tables = [
+            SimulationSession.__table__,
             Site.__table__,
             DataLevel.__table__,
             Container.__table__,
