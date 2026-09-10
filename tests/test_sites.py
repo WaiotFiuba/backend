@@ -12,6 +12,7 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.site_clustering_service import (
@@ -83,10 +84,16 @@ class TestStreetSpatialIndex(unittest.TestCase):
         from app.services.map.site_clustering_service import _split_by_distance
 
         # Calle Corrientes al 1600 (cuadra 1600-1700)
-        c1 = Container(id=1, latitude=-34.6000, longitude=-58.3800, address="CORRIENTES 1620")
-        c2 = Container(id=2, latitude=-34.6001, longitude=-58.3801, address="CORRIENTES 1650")
+        c1 = Container(
+            id=1, latitude=-34.6000, longitude=-58.3800, address="CORRIENTES 1620"
+        )
+        c2 = Container(
+            id=2, latitude=-34.6001, longitude=-58.3801, address="CORRIENTES 1650"
+        )
         # Calle Corrientes al 2600 (otra cuadra a varias cuadras)
-        c3 = Container(id=3, latitude=-34.6002, longitude=-58.3802, address="CORRIENTES 2640")
+        c3 = Container(
+            id=3, latitude=-34.6002, longitude=-58.3802, address="CORRIENTES 2640"
+        )
 
         clusters = _split_by_distance([c1, c2, c3], max_distance_m=100.0)
         self.assertEqual(len(clusters), 2)
@@ -147,6 +154,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             Container.__table__,
             Site.__table__,
             DataLevel.__table__,
+            SimulationSession.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -160,6 +168,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
         from app.models.map.container_type import container_type_waste_types
 
         tables = [
+            SimulationSession.__table__,
             Site.__table__,
             DataLevel.__table__,
             Container.__table__,
@@ -339,9 +348,20 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(no_changes.sites), 0)
             self.assertEqual(no_changes.latest_cursor, 10)
 
+            session.add(
+                SimulationSession(
+                    id=1,
+                    status="running",
+                    scenario={"start": "2026-01-01T00:00:00+00:00"},
+                    simulated_time=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+                    total_periods=24,
+                    created_by=1,
+                )
+            )
             session.add_all(
                 [
                     DataLevel(
+                        id=1,
                         reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
                         container_id=1,
                         container_current_level=20,
@@ -353,6 +373,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                         reported_high_consumption_voltage=False,
                     ),
                     DataLevel(
+                        id=2,
                         reading_date=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
                         container_id=2,
                         container_current_level=80,
@@ -364,6 +385,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                         reported_high_consumption_voltage=False,
                     ),
                     DataLevel(
+                        id=3,
                         reading_date=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
                         container_id=1,
                         container_current_level=40,
