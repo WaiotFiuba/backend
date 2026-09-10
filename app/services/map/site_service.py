@@ -507,7 +507,9 @@ async def get_site_level_history(
         select(
             DataLevel.reading_date.label("timestamp"),
             func.coalesce(
-                func.round(cast(func.avg(DataLevel.container_current_level), Numeric), 2),
+                func.round(
+                    cast(func.avg(DataLevel.container_current_level), Numeric), 2
+                ),
                 0,
             ).label("avg_level"),
             func.coalesce(func.max(DataLevel.container_current_level), 0).label(

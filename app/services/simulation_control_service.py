@@ -36,7 +36,7 @@ async def create_simulation(
             detail="Ya existe una simulacion activa.",
         )
 
-    #CAMBIO: Cuando el front le da a iniciar simulacion, reinicia las demas en caso de haber alguna corriendo.
+    # CAMBIO: Cuando el front le da a iniciar simulacion, reinicia las demas en caso de haber alguna corriendo.
     await reset_database_container_levels(db)
 
     try:
@@ -252,7 +252,9 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
     result = await db.execute(
         update(SimulationSession)
-        .where(SimulationSession.status.in_(("running", "paused", "stopping", "pending")))
+        .where(
+            SimulationSession.status.in_(("running", "paused", "stopping", "pending"))
+        )
         .values(
             status="failed",
             error_message="El worker se reinicio durante la simulacion.",

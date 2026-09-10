@@ -82,9 +82,13 @@ async def run_worker() -> None:
     settings = get_settings()
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
     while True:
-        success = await _mark_interrupted_sessions_failed(settings.simulator_backend_url)
+        success = await _mark_interrupted_sessions_failed(
+            settings.simulator_backend_url
+        )
         if success:
-            logger.info("Inicializacion del worker completada. Esperando simulaciones...")
+            logger.info(
+                "Inicializacion del worker completada. Esperando simulaciones..."
+            )
             break
         await asyncio.sleep(settings.simulator_poll_seconds)
 

@@ -162,7 +162,10 @@ class SyntheticDataSimulator:
             reading_offsets = []
 
             from collections import defaultdict
-            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = defaultdict(list)
+
+            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = (
+                defaultdict(list)
+            )
             containers_by_site: dict[str, list[int]] = defaultdict(list)
 
             for idx, container in enumerate(containers):
@@ -177,7 +180,9 @@ class SyntheticDataSimulator:
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
 
-                containers_by_site_and_waste[(container.site_id, container.waste_type)].append(idx)
+                containers_by_site_and_waste[
+                    (container.site_id, container.waste_type)
+                ].append(idx)
                 containers_by_site[container.site_id].append(idx)
 
             state._cached_sites = site_list
@@ -240,6 +245,7 @@ class SyntheticDataSimulator:
         tentative_levels = initial_levels_tick + increments
 
         from collections import defaultdict
+
         opposing_spillovers: dict[int, float] = defaultdict(float)
 
         for i in range(N):
