@@ -10,6 +10,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./db:/app/db
+      - ./datos:/app/datos
     command: >
       sh -c "
       if [ \"$${ENABLE_MAP_DB:-}\" = \"true\" ] || getent hosts postgis > /dev/null 2>&1; then
@@ -62,6 +63,8 @@ services:
       SIMULATOR_BACKEND_URL: http://api:8000
     volumes:
       - ./app:/app/app
+      - ./datos:/app/datos
+      - ./db:/app/db
     command: >
       sh -c "
       exec uv run python -m app.digital_twin.synthetic_data.worker

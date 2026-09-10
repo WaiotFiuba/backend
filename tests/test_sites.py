@@ -146,6 +146,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             )
 
         from app.models.map.container_type import container_type_waste_types
+        from app.models.map.simulation import SimulationSession
 
         tables = [
             WasteType.__table__,
@@ -348,16 +349,15 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(no_changes.sites), 0)
             self.assertEqual(no_changes.latest_cursor, 10)
 
-            session.add(
-                SimulationSession(
-                    id=1,
-                    status="running",
-                    scenario={"start": "2026-01-01T00:00:00+00:00"},
-                    simulated_time=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
-                    total_periods=24,
-                    created_by=1,
-                )
+            active_sim = SimulationSession(
+                id=1,
+                status="running",
+                scenario={"start": "2026-01-01T00:00:00Z"},
+                simulated_time=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+                total_periods=100,
+                created_by=1,
             )
+            session.add(active_sim)
             session.add_all(
                 [
                     DataLevel(

@@ -29,14 +29,25 @@ async def create_simulation(
     payload: SimulationCreate,
     user_id: int,
 ) -> SimulationRead:
-    active = await _active_session(db)
-    if active is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe una simulacion activa.",
+    # Si habia una simulacion activa, se detiene
+    active_sessions = (
+        (
+            await db.execute(
+                select(SimulationSession).where(
+                    SimulationSession.status.in_(ACTIVE_STATUSES)
+                )
+            )
         )
+        .scalars()
+        .all()
+    )
+    for s in active_sessions:
+        s.status = "completed"
+        s.finished_at = datetime.now(UTC)
+        s.error_message = "Detenida por inicio de nueva simulacion."
+    if active_sessions:
+        await db.flush()
 
-    # CAMBIO: Cuando el front le da a iniciar simulacion, reinicia las demas en caso de haber alguna corriendo.
     await reset_database_container_levels(db)
 
     try:
@@ -261,7 +272,8 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
             finished_at=datetime.now(UTC),
         )
     )
-    await reset_database_container_levels(db)
+    if result.rowcount > 0:
+        await reset_database_container_levels(db)
     await db.commit()
     return result.rowcount
 

@@ -48,7 +48,7 @@ def _http_get_json(url: str, timeout: float = 10.0) -> dict | None:
         logger.warning("Error HTTP GET %s: %s", url, e)
         return None
     except (URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
-        logger.warning("Error conexion HTTP GET %s: %s", url, e)
+        logger.debug("Esperando conexion HTTP GET %s: %s", url, e)
         return None
 
 
@@ -74,22 +74,27 @@ def _http_post_json(
         logger.warning("Error HTTP %s %s: %s", method, url, e)
         return None
     except (URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
-        logger.warning("Error conexion HTTP %s %s: %s", method, url, e)
+        logger.debug("Esperando conexion HTTP %s %s: %s", method, url, e)
         return None
 
 
 async def run_worker() -> None:
     settings = get_settings()
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
+    first_wait = True
     while True:
         success = await _mark_interrupted_sessions_failed(
             settings.simulator_backend_url
         )
         if success:
-            logger.info(
-                "Inicializacion del worker completada. Esperando simulaciones..."
-            )
+            logger.info("Conectado con éxito a la API. Esperando simulaciones...")
             break
+        if first_wait:
+            logger.info(
+                "Esperando a que el backend de la API finalice su inicialización en %s...",
+                settings.simulator_backend_url,
+            )
+            first_wait = False
         await asyncio.sleep(settings.simulator_poll_seconds)
 
     while True:
@@ -170,7 +175,12 @@ async def _run_session(session: dict) -> None:
         pending_deliveries: list[asyncio.Task] = []
 
         previous_controls: ControlSnapshot | None = None
-        for period in range(config.periods):
+        import itertools
+
+        period_iterator = (
+            range(config.periods) if config.end is not None else itertools.count()
+        )
+        for period in period_iterator:
             session_state = await _wait_until_runnable(
                 settings.simulator_backend_url, simulation_id
             )
@@ -225,6 +235,7 @@ async def _run_session(session: dict) -> None:
             )
 
             # Enviar mediciones en background sin bloquear el reloj de simulación
+            total_periods_val = config.periods if config.end is not None else 0
             task = asyncio.create_task(
                 _deliver_in_background(
                     delivery_sem,
@@ -232,13 +243,18 @@ async def _run_session(session: dict) -> None:
                     tick.measurements,
                     settings.simulator_backend_url,
                     period + 1,
-                    config.periods,
+                    total_periods_val,
                 )
             )
             pending_deliveries.append(task)
             pending_deliveries = [t for t in pending_deliveries if not t.done()]
 
             # Actualizar progreso en la API
+            trucks_snapshot = (
+                simulator.truck_fleet.get_trucks_snapshot()
+                if getattr(simulator, "truck_fleet", None)
+                else []
+            )
             await _update_progress(
                 settings.simulator_backend_url,
                 simulation_id,
@@ -249,6 +265,7 @@ async def _run_session(session: dict) -> None:
                     "measurements_sent": len(tick.measurements),
                     "collections_generated": len(tick.collections),
                     "alarms_generated": len(tick.alarms),
+                    "trucks": trucks_snapshot,
                 },
             )
 
@@ -257,12 +274,13 @@ async def _run_session(session: dict) -> None:
             target_delay = (config.frequency_minutes * 60.0) / speedup
             remaining_delay = max(0.0, target_delay - tick_elapsed)
 
+            total_periods_str = str(config.periods) if config.end is not None else "∞"
             logger.info(
                 "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
                 "recolecciones=%s alarmas=%s speedup=%sx demanda=%.3f (computo=%.2fs, espera=%.2fs).",
                 simulation_id,
                 period + 1,
-                config.periods,
+                total_periods_str,
                 simulated_time.isoformat(),
                 len(tick.measurements),
                 len(tick.collections),
@@ -277,6 +295,9 @@ async def _run_session(session: dict) -> None:
                 settings.simulator_backend_url,
                 simulation_id,
                 remaining_delay,
+                simulator=simulator,
+                speedup=speedup,
+                current_sim_time=simulated_time,
             ):
                 break
         else:
@@ -384,15 +405,23 @@ def _remaining_tick_delay(
 
 
 async def _wait_between_ticks(
-    backend_url: str, simulation_id: int, delay_seconds: float
+    backend_url: str,
+    simulation_id: int,
+    delay_seconds: float,
+    simulator: object | None = None,
+    speedup: float = 1.0,
+    current_sim_time: datetime | None = None,
 ) -> bool:
     settings = get_settings()
     remaining = delay_seconds
+
     while remaining > 0:
         started = asyncio.get_running_loop().time()
-        await asyncio.sleep(min(settings.simulator_poll_seconds, remaining))
+        step_interval = min(settings.simulator_poll_seconds, remaining)
+        await asyncio.sleep(step_interval)
         elapsed = asyncio.get_running_loop().time() - started
         remaining = max(0.0, remaining - elapsed)
+
         session = await _fetch_active_session(backend_url)
         if session is None or session.get("id") != simulation_id:
             return False

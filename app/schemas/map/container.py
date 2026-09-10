@@ -24,6 +24,7 @@ class ContainersMapTypeSchema(BaseModel):
 class ContainersMapOutputSchema(BaseModel):
     id: int
     site_id: str
+    serie_id: str | None = None
     site_name: str | None = None
     address: str | None = None
     device_imei: str | None = None

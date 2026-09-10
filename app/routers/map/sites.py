@@ -93,11 +93,12 @@ async def get_sites_change_feed(
     summary="Obtener histórico agregado de niveles de un sitio",
 )
 async def get_single_site_history(
-    site_id: int,
+    site_id: str,
     db: MapDbDep,
     limit: int = Query(168, ge=1, le=1000),
 ) -> SiteLevelHistory:
-    return await get_site_level_history(db=db, site_id=site_id, limit=limit)
+    numeric_id = int(site_id.split("|")[-1]) if site_id.split("|")[-1].isdigit() else 1
+    return await get_site_level_history(db=db, site_id=numeric_id, limit=limit)
 
 
 @router.get(
@@ -107,7 +108,7 @@ async def get_single_site_history(
     summary="Obtener detalle de un sitio por ID con sus contenedores",
 )
 async def get_single_site(
-    site_id: int,
+    site_id: str,
     db: MapDbDep,
     level_aggregation: Literal["avg", "max"] = Query("avg"),
 ) -> SiteMapOutputSchema:

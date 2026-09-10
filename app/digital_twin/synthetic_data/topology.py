@@ -23,6 +23,7 @@ class BackendContainerRecord:
     volume_m3: float | None = None
     zone: str | None = None
     demand_base: float = 1.0
+    serie_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ def topology_from_backend_records(
                 waste_type=record.waste_type or record.container_type or "residuos",
                 height_cm=float(record.height_cm or 145),
                 volume_m3=record.volume_m3,
+                serie_id=record.serie_id,
             )
         )
         devices.append(
@@ -158,4 +160,5 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
         volume_m3=volume_m3,
         zone=str(item["zone"]) if item.get("zone") else None,
         demand_base=float(item.get("density_factor", 1.0)),
+        serie_id=str(item["serie_id"]) if item.get("serie_id") else None,
     )

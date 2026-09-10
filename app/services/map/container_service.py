@@ -35,10 +35,17 @@ def _zoom_to_grid_size(zoom: int) -> float | None:
 
 
 def _row_to_container(row) -> ContainersMapOutputSchema:
-    site_id = row["site_id"]
+    raw_site_id = row["site_id"]
+    serie_id = row.get("serie_id")
+    effective_site_id = (
+        str(raw_site_id)
+        if raw_site_id is not None
+        else (f"contenedores_negros|{serie_id}" if serie_id else str(row["id"]))
+    )
     return ContainersMapOutputSchema(
         id=row["id"],
-        site_id=str(site_id) if site_id is not None else str(row["id"]),
+        site_id=effective_site_id,
+        serie_id=serie_id,
         site_name=row["site_name"],
         address=row["address"],
         device_imei=row["device_imei"],
@@ -71,6 +78,7 @@ def _base_select():
         select(
             Container.id,
             Container.site_id,
+            Container.serie_id,
             Container.site_name,
             Container.address,
             Container.device_imei,

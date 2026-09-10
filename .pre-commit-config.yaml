@@ -1,4 +1,4 @@
-exclude: '^alembic/versions/'
+exclude: '^(alembic/versions/|datos/)'
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -7,6 +7,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        args: ['--maxkb=15000']
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.9
     hooks:
