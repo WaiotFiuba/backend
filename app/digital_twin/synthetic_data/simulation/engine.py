@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
+from app.digital_twin.synthetic_data.zone_classifier import get_zone_classifier
+
 from app.digital_twin.synthetic_data.domain.entities import (
     Alarm,
     CollectionEvent,
@@ -259,16 +261,51 @@ class SyntheticDataSimulator:
         )
 
         # 1. Calculate filling increments and spillover to opposing sites
-        h_factor = _hour_factor(timestamp.hour)
-        wd_factor = _weekday_factor(timestamp.weekday())
 
         if zone_multiplier:
+            # Multiplicador externo explícito (override desde el front u otros callers)
             zone_mults = np.array(
                 [zone_multiplier(site.zone) for site in state._cached_sites],
                 dtype=np.float64,
             )
+            # Mantener los factores globales horarios/semanales como fallback
+            h_factor = _hour_factor(timestamp.hour)
+            wd_factor = _weekday_factor(timestamp.weekday())
+            time_factor = h_factor * wd_factor
         else:
-            zone_mults = np.ones(N, dtype=np.float64)
+            # ZoneClassifier: cada sitio recibe su multiplicador diferenciado
+            # según el tipo de zona (barrio) — demand_multiplier × hour_weight × weekday_factor
+            zone_classifier = get_zone_classifier()
+            zone_mults = np.array(
+                [
+                    zone_classifier.get_multiplier(
+                        site.zone, timestamp.hour, timestamp.weekday()
+                    )
+                    for site in state._cached_sites
+                ],
+                dtype=np.float64,
+            )
+            # time_factor ya está embebido en zone_mults (el ZoneClassifier combina todo)
+            time_factor = 1.0
+
+            # ── Calibración global de demanda ──────────────────────────────────
+            # Verifica si el promedio del zone_mults se mantiene dentro del rango
+            # aceptable configurado en zone_profiles.yaml (target ± tolerance_pct).
+            # Si se sale del rango, normaliza el array para llevarlo al target.
+            # Esto garantiza que el volumen global de residuos simulado tienda a
+            # target_zone_mult × 1.5 kg/habitante/día (fuente CEAMSE/INDEC).
+            current_mean = float(zone_mults.mean())
+            target = zone_classifier.calibration_target
+            tol = zone_classifier.calibration_tolerance_pct / 100.0
+            lower = target * (1.0 - tol)
+            upper = target * (1.0 + tol)
+            if current_mean > 0.0 and not (lower <= current_mean <= upper):
+                logger.warning(
+                    "zone_mults media=%.4f fuera del rango [%.4f, %.4f]. "
+                    "Normalizando al target=%.4f.",
+                    current_mean, lower, upper, target,
+                )
+                zone_mults = zone_mults * (target / current_mean)
 
         global_mult = (
             self.config.high_demand_multiplier
@@ -283,8 +320,7 @@ class SyntheticDataSimulator:
         increments = (
             state._cached_demand_bases
             * time_ratio
-            * h_factor
-            * wd_factor
+            * time_factor
             * state._cached_waste_factors
             * global_mult
             * zone_mults
