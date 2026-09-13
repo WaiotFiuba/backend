@@ -3,33 +3,46 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
- 
+
 # Entorno virtual
 .venv/
 venv/
- 
+
 # uv
 .uv/
- 
+
 # Variables de entorno
 .env
 .env.*
 !.env.example
- 
+!.env.production.example
+
+# Datos
+db/datos/*.json
+db/datos/*.csv
+db/datos/*.geojson
+db/datos/*.txt
+db/datos/*.xls
+db/datos/*.xlsx
+
 # Tests
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
- 
+
 # IDEs
 .vscode/
 .idea/
 *.swp
- 
+
 # OS
 .DS_Store
 Thumbs.db
- 
+
 # Logs
 *.log
- 
+
+# Otros
+.agents
+skills-lock.json

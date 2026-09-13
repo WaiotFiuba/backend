@@ -6,6 +6,72 @@ services:
     env_file:
       - .env
     volumes:
-      - ./app:/app/app 
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
- 
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./db:/app/db
+      - ./datos:/app/datos
+    command: >
+      sh -c "
+      if [ \"$${ENABLE_MAP_DB:-}\" = \"true\" ] || getent hosts postgis > /dev/null 2>&1; then
+        export ENABLE_MAP_DB=true;
+        uv run python -m app.commands.wait_for_map_db &&
+        uv run alembic upgrade head &&
+        uv run python -u -m app.commands.seed;
+      else
+        export ENABLE_MAP_DB=false;
+        echo 'Base de mapa deshabilitada. Iniciando API sin PostGIS.';
+      fi &&
+      exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    depends_on:
+      postgis:
+        condition: service_healthy
+        required: false    # no falla si postgis no levanta
+
+  postgis:
+    profiles:
+      - map              # solo levanta si se utiliza docker-compose --profile map up
+    build:
+      context: .
+      dockerfile: db/Dockerfile.postgis
+    image: postgis-ogr2ogr:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./db/datos:/datos
+      - ./db:/app/db
+      - ./db/import_geojson.sh:/docker-entrypoint-initdb.d/20_import_geojson.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  simulator:
+    profiles:
+      - map
+    build: .
+    env_file:
+      - .env
+    environment:
+      SIMULATOR_BACKEND_URL: http://api:8000
+    volumes:
+      - ./app:/app/app
+      - ./datos:/app/datos
+      - ./db:/app/db
+    command: >
+      sh -c "
+      exec uv run python -m app.digital_twin.synthetic_data.worker
+      "
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgis_data:

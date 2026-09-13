@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+.codex
+.agents
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+!.env.production.example
+relationships.real.large.png

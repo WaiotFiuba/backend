@@ -1,0 +1,221 @@
+from typing import Annotated, List
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.map_database import get_map_db
+from app.schemas.map.container import (
+    ContainerChanges,
+    ContainersMapOutputSchema,
+    ContainerCluster,
+    ContainerDetailOutputSchema,
+    ContainerCreateSchema,
+    ContainerStatsOutputSchema,
+    PaginatedContainersOutputSchema,
+    ContainerMapSnapshot,
+)
+from app.services.map.container_service import (
+    get_container_changes,
+    get_container_map_snapshot,
+    get_containers_clustered,
+    get_container_by_id,
+    get_container_stats,
+    get_all_containers_paginated,
+)
+
+router = APIRouter(prefix="/containers", tags=["containers"])
+MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+
+
+@router.get(
+    "/",
+    response_model=PaginatedContainersOutputSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener contenedores con paginación y filtros",
+)
+async def read_all_containers(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: str | None = Query(None),
+    type: str | None = Query(None),
+    only_alerts: bool = Query(False),
+    db: AsyncSession = Depends(get_map_db),
+) -> PaginatedContainersOutputSchema:
+    return await get_all_containers_paginated(
+        db=db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        type=type,
+        only_alerts=only_alerts,
+    )
+
+
+@router.get(
+    "/types",
+    response_model=List[dict],
+    summary="Obtener todos los tipos de contenedores",
+)
+async def read_container_types(
+    db: AsyncSession = Depends(get_map_db),
+):
+    from sqlalchemy import select
+    from app.models.map.container_type import ContainerType
+
+    result = await db.execute(
+        select(ContainerType.id, ContainerType.name).order_by(ContainerType.id)
+    )
+    rows = result.all()
+    return [{"id": row[0], "name": row[1]} for row in rows]
+
+
+@router.get(
+    "/bbox", response_model=list[ContainerCluster] | list[ContainersMapOutputSchema]
+)
+async def get_containers_by_bbox(
+    lat_min: float = Query(...),
+    lat_max: float = Query(...),
+    lng_min: float = Query(...),
+    lng_max: float = Query(...),
+    zoom: int = Query(..., ge=0, le=22),
+    limit: int | None = Query(None, ge=1),
+    offset: int | None = Query(None, ge=0),
+    db: AsyncSession = Depends(get_map_db),
+) -> list[ContainerCluster] | list[ContainersMapOutputSchema]:
+    return await get_containers_clustered(
+        db=db,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        zoom=zoom,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/bbox/snapshot", response_model=ContainerMapSnapshot)
+async def get_containers_snapshot_by_bbox(
+    lat_min: Annotated[float, Query()],
+    lat_max: Annotated[float, Query()],
+    lng_min: Annotated[float, Query()],
+    lng_max: Annotated[float, Query()],
+    zoom: Annotated[int, Query(ge=0, le=22)],
+    db: MapDbDep,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+) -> ContainerMapSnapshot:
+    return await get_container_map_snapshot(
+        db=db,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        zoom=zoom,
+        limit=limit,
+    )
+
+
+@router.get("/changes", response_model=ContainerChanges)
+async def read_container_changes(
+    after: Annotated[int, Query(ge=0)],
+    lat_min: Annotated[float, Query()],
+    lat_max: Annotated[float, Query()],
+    lng_min: Annotated[float, Query()],
+    lng_max: Annotated[float, Query()],
+    db: MapDbDep,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
+) -> ContainerChanges:
+    return await get_container_changes(
+        db=db,
+        after=after,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lng_min=lng_min,
+        lng_max=lng_max,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/stats",
+    response_model=ContainerStatsOutputSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener estadísticas generales de los contenedores",
+)
+async def read_container_stats(
+    db: AsyncSession = Depends(get_map_db),
+) -> ContainerStatsOutputSchema:
+    return await get_container_stats(db)
+
+
+@router.get(
+    "/{container_id}",
+    response_model=ContainerDetailOutputSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener el detalle de un contenedor específico",
+    responses={
+        200: {"description": "Detalle del contenedor encontrado con éxito."},
+        404: {"description": "El contenedor solicitado no existe en el sistema."},
+    },
+)
+async def read_container_detail(
+    container_id: int,
+    db: AsyncSession = Depends(get_map_db),
+) -> ContainerDetailOutputSchema:
+    return await get_container_by_id(db, container_id)
+
+
+@router.post(
+    "/generate",
+    status_code=status.HTTP_201_CREATED,
+    summary="Generar o resembrar contenedores de mapa",
+)
+async def generate_containers(
+    force: bool = Query(
+        False, description="Borrar datos existentes antes de re-sembrar"
+    ),
+    db: AsyncSession = Depends(get_map_db),
+):
+    # Borra la BDD actual, decomentar si se usa una bdd local. COMENTAR SI SE ESTA APUNTANDO A PRODUCCION
+    # if force:
+    #     from sqlalchemy import delete
+    #     from app.models.map.data_level import DataLevel
+    #     from app.models.map.container import Container
+    #     await db.execute(delete(DataLevel))
+    #     await db.execute(delete(Container))
+    #     await db.commit()
+
+    from app.core.map_migrations import seed_map_data
+
+    await seed_map_data()
+    return {"message": "Contenedores generados exitosamente"}
+
+
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un nuevo contenedor",
+)
+async def create_container(
+    payload: ContainerCreateSchema,
+):
+    print(
+        f"\n[DEBUG] Contenedor recibido en backend-api (no guardado en BD): {payload.model_dump()}\n"
+    )
+    return {"message": "Contenedor recibido (no guardado en base de datos)"}
+
+
+@router.delete(
+    "/{container_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Eliminar un contenedor",
+)
+async def delete_container(
+    container_id: int,
+):
+    print(
+        f"\n[DEBUG] Petición de eliminación de contenedor en backend-api (no borrado en BD) para ID: {container_id}\n"
+    )
+    return {
+        "message": f"Contenedor {container_id} recibido para eliminación (no guardado en BD)"
+    }

@@ -1,0 +1,57 @@
+# Nombre descriptivo del escenario. Solo se usa para trazabilidad.
+name: semana_normal
+
+# Seed utilizada para aleatoriedad.
+seed: 42
+
+# Fecha/hora inicial de la simulacion.
+start: "2026-01-05T00:00:00"
+
+# Fecha/hora final de la simulacion. Si se define, se calcula automaticamente
+# cuantos periodos entran entre start y end.
+end: "2026-01-12T00:00:00"
+
+# Cantidad de pasos temporales a simular. Se ignora si end esta definido.
+periods: 168
+
+# Separacion base entre lecturas de un mismo sensor.
+frequency_minutes: 60
+
+# Maximo de contenedores reales a traer desde el backend cuando se usa --from-backend.
+container_limit: 100
+
+# Variacion por dispositivo alrededor de la hora base de lectura.
+# Ejemplo: 10 permite lecturas entre HH:50 y HH:10.
+reading_jitter_minutes: 10
+
+# Horas del dia en las que puede ocurrir una recoleccion (Noche 21-05 y Refuerzo 11-16).
+collection_hours: [21, 22, 23, 0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 16]
+
+# Probabilidad de recolectar si el contenedor supera el umbral interno.
+collection_probability: 0.85
+
+# Probabilidad de que una recoleccion sea parcial en vez de total.
+partial_collection_probability: 0.12
+
+# Probabilidad de omitir una recoleccion programada.
+omitted_collection_probability: 0.03
+
+# Multiplicador general de demanda. Valores > 1 llenan mas rapido.
+high_demand_multiplier: 1.0
+
+# Multiplicador extra para forzar escenarios de desborde. En semana normal queda 1.
+overflow_stress_multiplier: 1.0
+
+# Genera api_payloads.jsonl aunque no se pase --api-payloads por CLI.
+api_payloads: false
+
+# Factor relativo de llenado por tipo de residuo.
+waste_type_factors:
+  reciclables: 0.75
+  residuos_humedos: 1.0
+  vidrio: 0.55
+
+# Solo se usa si se corre sin --from-backend. En modo backend, la topologia
+# sale del endpoint /map/containers/.
+synthetic_site_count: 3
+synthetic_containers_per_site: 2

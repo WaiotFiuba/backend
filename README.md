@@ -1,62 +1,154 @@
 # WaiotFiuba Backend
- 
+
 Gemelo digital de contenedores - Ciudad de Buenos Aires.
- 
+
 ## Requisitos
- 
+
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
+- Docker y docker-compose (para ejecución con contenedores)
+
+## Hosting
+
+La guia de despliegue continuo y hosting esta en
+[`docs/HOSTING.md`](docs/HOSTING.md). La opcion sin costo fijo recomendada usa
+Vercel para frontend, Render Free para la API, Supabase Postgres con PostGIS y
+el simulador corriendo localmente cuando haga falta.
+
 ## Sin Docker
- 
+
 ### Instalación
- 
+
 ```bash
 uv sync
 ```
- 
-### Correr el servidor
- 
+
+### Ejecutar el servidor
+
 ```bash
 uv run uvicorn app.main:app --reload
 ```
- 
-La API queda disponible en `http://localhost:8000`.  
+
+La API queda disponible en `http://localhost:8000`.
 La documentación interactiva en `http://localhost:8000/docs`.
- 
+
+### Tests
+
+```bash
+uv run --with pytest pytest
+```
+
+### Validación local
+
+```bash
+uv run --with pre-commit pre-commit run --all-files
+```
+
+### Linter rápido
+
+```bash
+uv run --with ruff ruff check .
+```
+
+### Generador de datos sintéticos
+
+El módulo permite generar archivos CSV/Parquet, inyectar históricos, reproducir
+streaming y ejecutar una simulación incremental controlable desde la API. También
+adapta la demanda según población, densidad y barrio.
+
+La documentación completa está en
+[`app/digital_twin/synthetic_data/README.md`](app/digital_twin/synthetic_data/README.md).
+
+### Sincronización incremental del mapa
+
+El frontend puede cargar un snapshot del viewport junto con un cursor y luego consultar
+solamente los contenedores modificados:
+
+```text
+GET /map/containers/bbox/snapshot
+GET /map/containers/changes?after={cursor}
+```
+
+El endpoint de cambios devuelve una sola vez el estado más reciente de cada contenedor
+modificado, no todas sus mediciones intermedias. Cada actualización de telemetría
+asigna una `change_version` global al contenedor; por eso el cursor no necesita una
+tabla histórica que crezca indefinidamente.
+
 ### Variables de entorno
- 
+
 ```bash
 cp .env.example .env
 # editá .env con tus valores
 ```
- 
-### Tests
- 
-```bash
-uv run pytest
-```
- 
----
- 
+
 ## Con Docker
- 
+
 ### Requisitos
- 
+
 - Docker
 - docker-compose
-### Correr
- 
+
+### Levantar toda la app sin PostGIS
+
 ```bash
 docker-compose up --build
 ```
- 
+
 La API queda disponible en `http://localhost:8000`.
- 
-### Variables de entorno
- 
+En este modo la base de mapa queda deshabilitada y los endpoints `/map/*` requieren
+levantar PostGIS.
+
+Para levantar la API junto con PostGIS y el mapa:
+
+```bash
+docker compose --profile map up --build
+```
+
+### Qué hace Docker Compose
+
+- construye la imagen `api` desde el backend
+- monta los datos en `./db/datos` y expone `postgis` en el puerto `5432`
+- levanta una base PostGIS llamada `waiot_map`
+- importa automáticamente los archivos GeoJSON (`barrios`, `calles`, `comunas`, `manzanas`, `parcelas`) desde `db/datos` a la base de datos al inicializar por primera vez el contenedor.
+- corre el seed con los datos del contenedor si se activa el perfil y los datos no estan ya insertados
+
+`ENABLE_MAP_DB` controla si la API inicializa la base de mapa al arrancar. En Docker,
+el comando de la API lo activa automáticamente cuando el servicio `postgis` está
+disponible; sin el perfil `map`, queda desactivado. El esquema de mapa se administra
+con Alembic; `AUTO_CREATE_MAP_DB` queda desactivado para evitar que `create_all()`
+compita con las migraciones durante autoreload.
+
+### Inicialización e Importación de Datos GeoJSON
+
+La carga inicial de archivos GeoJSON se realiza automáticamente cuando el contenedor de PostGIS se inicializa desde cero (volumen de base de datos vacío).
+
+Si necesitas reiniciar la base de datos completa y recargar todos los datos GeoJSON:
+
+```bash
+docker-compose --profile map down -v
+docker-compose --profile map up --build
+```
+
+#### Importación Manual sin Borrar la Base de Datos
+
+Si has modificado o agregado archivos GeoJSON en `db/datos` y quieres cargarlos o sobreescribirlos sin destruir los datos existentes en la base de datos, podés ejecutar el script de importación directamente dentro del contenedor:
+
+```bash
+# Importar solo archivos nuevos (las tablas existentes se omiten)
+docker-compose exec postgis bash /docker-entrypoint-initdb.d/20_import_geojson.sh
+
+# Forzar la sobreescritura de todas las tablas GeoJSON
+docker-compose exec postgis bash /docker-entrypoint-initdb.d/20_import_geojson.sh --force
+```
+
+### Variables de Entorno
+
 ```bash
 cp .env.example .env
 # editá .env con tus valores
 ```
- 
 El compose levanta el `.env` automáticamente.
+
+## Notas
+
+- El primer arranque puede tardar un poco mientras se inicializa la base y se cargan los datos.

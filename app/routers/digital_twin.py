@@ -1,0 +1,282 @@
+from __future__ import annotations
+
+import logging
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.map_database import get_map_db
+from app.core.deps import get_current_user
+from app.models.user import User
+from app.schemas.digital_twin import (
+    SimulationControlsUpdate,
+    SimulationCreate,
+    SimulationFinish,
+    SimulationProgressUpdate,
+    SimulationRead,
+    TelemetryIngestPayload,
+    TelemetryIngestResult,
+    ZoneDemandRead,
+)
+from app.services.digital_twin_ingest_service import ingest_telemetry_batch
+from app.services.simulation_control_service import (
+    create_simulation,
+    fail_interrupted_sessions,
+    finish_simulation_session,
+    get_active_simulation,
+    list_zone_demand,
+    set_active_simulation_status,
+    update_active_simulation_controls,
+    update_simulation_progress,
+)
+
+router = APIRouter(prefix="/digital-twin", tags=["digital-twin"])
+logger = logging.getLogger(__name__)
+
+MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+@router.post("/telemetry", response_model=TelemetryIngestResult)
+async def ingest_telemetry(
+    payload: TelemetryIngestPayload,
+    db: MapDbDep,
+) -> TelemetryIngestResult:
+    result = await ingest_telemetry_batch(db, [payload])
+    _log_telemetry_ingest("individual", result)
+    return result
+
+
+@router.post("/telemetry/batch", response_model=TelemetryIngestResult)
+async def ingest_telemetry_batch_endpoint(
+    request: Request,
+    db: MapDbDep,
+) -> TelemetryIngestResult:
+    import time
+
+    t0 = time.perf_counter()
+    body = await request.json()
+    raw_measurements = body.get("measurements", []) if isinstance(body, dict) else []
+    result = await ingest_telemetry_batch(db, raw_measurements)
+    print(
+        f"[PERF API ENDPOINT] /telemetry/batch completado en {time.perf_counter() - t0:.3f}s para {len(raw_measurements)} mediciones",
+        flush=True,
+    )
+    _log_telemetry_ingest("batch", result)
+    return result
+
+
+@router.post("/simulations", response_model=SimulationRead)
+async def start_simulation(
+    payload: SimulationCreate,
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await create_simulation(db, payload, current_user.id)
+
+
+@router.get("/simulations/active", response_model=SimulationRead)
+async def read_active_simulation(
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await get_active_simulation(db)
+
+
+@router.post("/simulations/active/pause", response_model=SimulationRead)
+async def pause_active_simulation(
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await set_active_simulation_status(db, "pause")
+
+
+@router.post("/simulations/active/resume", response_model=SimulationRead)
+async def resume_active_simulation(
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await set_active_simulation_status(db, "resume")
+
+
+@router.post("/simulations/active/stop", response_model=SimulationRead)
+async def stop_active_simulation(
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await set_active_simulation_status(db, "stop")
+
+
+@router.patch("/simulations/active/controls", response_model=SimulationRead)
+async def update_active_controls(
+    payload: SimulationControlsUpdate,
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> SimulationRead:
+    return await update_active_simulation_controls(db, payload)
+
+
+@router.get("/demand/zones", response_model=list[ZoneDemandRead])
+async def read_zone_demand(
+    db: MapDbDep,
+    _current_user: CurrentUserDep,
+) -> list[ZoneDemandRead]:
+    return await list_zone_demand(db)
+
+
+@router.get("/depots")
+async def get_depots_endpoint() -> dict:
+    """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
+    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+        DEPOTS_BY_ZONE,
+        TRANSFER_STATIONS,
+    )
+
+    return {
+        "bases": [
+            {
+                "id": d.id,
+                "name": d.name,
+                "zone": d.zone,
+                "latitude": d.latitude,
+                "longitude": d.longitude,
+                "type": d.type,
+            }
+            for d in DEPOTS_BY_ZONE.values()
+        ],
+        "transfer_stations": [
+            {
+                "id": d.id,
+                "name": d.name,
+                "zone": d.zone,
+                "latitude": d.latitude,
+                "longitude": d.longitude,
+                "type": d.type,
+            }
+            for d in TRANSFER_STATIONS
+        ],
+    }
+
+
+@router.get("/trucks/active")
+async def get_active_trucks_endpoint() -> list[dict]:
+    """Retorna el estado de la flota de camiones recolectores en tiempo real."""
+    from app.digital_twin.synthetic_data.simulation.truck_engine import (
+        get_latest_truck_snapshot,
+    )
+
+    return get_latest_truck_snapshot()
+
+
+@router.get("/routes/{route_id}")
+async def get_route_details_endpoint(route_id: str) -> dict:
+    """Retorna los tramos y waypoints de un circuito de recolección."""
+    from fastapi import HTTPException
+    from app.services.simulation.truck_route_service import load_routes_from_csv
+
+    routes = load_routes_from_csv()
+    clean_id = route_id.split(".")[0].strip()
+    route = routes.get(clean_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Circuito no encontrado")
+
+    if not route.total_distance_m and clean_id != "RODRIGO_BUENO":
+        try:
+            from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
+
+            sol = optimize_circuit_route(clean_id)
+            route.total_distance_m = sol.total_distance_m
+            route.collection_distance_m = sol.collection_distance_m
+            route.deadheading_distance_m = sol.deadheading_distance_m
+            route.repeated_segments_count = sol.repeated_segments_count
+            route.street_sequence = sol.street_sequence
+        except Exception:
+            pass
+
+    return {
+        "route_id": route.route_id,
+        "zone": route.zone,
+        "service_name": route.service_name,
+        "site_ids": route.site_ids,
+        "waypoints": route.waypoints,
+        "segments_count": len(route.segments),
+        "total_distance_m": route.total_distance_m,
+        "collection_distance_m": route.collection_distance_m,
+        "deadheading_distance_m": route.deadheading_distance_m,
+        "repeated_segments_count": route.repeated_segments_count,
+        "street_sequence": route.street_sequence,
+    }
+
+
+# Endpoints utilizados por el Simulator Worker (sin acceso directo a BD)
+@router.get("/worker/active-session", response_model=SimulationRead | None)
+async def read_worker_active_session(
+    db: MapDbDep,
+) -> SimulationRead | None:
+    try:
+        return await get_active_simulation(db)
+    except Exception:
+        return None
+
+
+@router.post("/worker/fail-interrupted")
+async def worker_fail_interrupted(
+    db: MapDbDep,
+) -> dict[str, int]:
+    count = await fail_interrupted_sessions(db)
+    return {"failed_count": count}
+
+
+@router.patch(
+    "/worker/simulations/{simulation_id}/progress", response_model=SimulationRead
+)
+async def worker_update_progress(
+    simulation_id: int,
+    payload: SimulationProgressUpdate,
+    db: MapDbDep,
+) -> SimulationRead:
+    if payload.trucks is not None:
+        from app.digital_twin.synthetic_data.simulation.truck_engine import (
+            set_latest_truck_snapshot,
+        )
+
+        set_latest_truck_snapshot(payload.trucks)
+
+    return await update_simulation_progress(
+        db=db,
+        simulation_id=simulation_id,
+        simulated_time=payload.simulated_time,
+        current_period=payload.current_period,
+        global_demand_current=payload.global_demand_current,
+        measurements_sent=payload.measurements_sent,
+        collections_generated=payload.collections_generated,
+        alarms_generated=payload.alarms_generated,
+        status=payload.status,
+    )
+
+
+@router.post(
+    "/worker/simulations/{simulation_id}/finish", response_model=SimulationRead
+)
+async def worker_finish_simulation(
+    simulation_id: int,
+    payload: SimulationFinish,
+    db: MapDbDep,
+) -> SimulationRead:
+    return await finish_simulation_session(
+        db=db,
+        simulation_id=simulation_id,
+        status=payload.status,
+        error_message=payload.error_message,
+    )
+
+
+def _log_telemetry_ingest(mode: str, result: TelemetryIngestResult) -> None:
+    logger.info(
+        "Telemetria %s recibida: aceptadas=%s actualizadas=%s no_encontradas=%s.",
+        mode,
+        result.accepted,
+        result.updated,
+        result.not_found,
+    )
