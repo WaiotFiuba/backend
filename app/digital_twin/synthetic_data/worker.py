@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
-from app.digital_twin.synthetic_data.domain.entities import Measurement
+from app.digital_twin.synthetic_data.domain.entities import Measurement, SimulationSession
 from app.digital_twin.synthetic_data.loaders.backend_http import (
     load_topology_from_backend_api,
 )
@@ -100,12 +100,13 @@ async def run_worker() -> None:
     while True:
         try:
             active_session = await _fetch_active_session(settings.simulator_backend_url)
+
         except Exception:
             logger.exception("No se pudo consultar la siguiente simulacion activa.")
             await asyncio.sleep(settings.simulator_poll_seconds)
             continue
 
-        if active_session is None or active_session.get("status") not in (
+        if active_session is None or active_session.status not in (
             "pending",
             "running",
             "paused",
@@ -116,9 +117,12 @@ async def run_worker() -> None:
         await _run_session(active_session)
 
 
-async def _fetch_active_session(backend_url: str) -> dict | None:
+async def _fetch_active_session(backend_url: str) -> SimulationSession | None:
     url = urljoin(backend_url.rstrip("/") + "/", "digital-twin/worker/active-session")
-    return await asyncio.to_thread(_http_get_json, url)
+    data = await asyncio.to_thread(_http_get_json, url)
+    if data is None:
+        return None
+    return SimulationSession.model_validate(data)
 
 
 async def _mark_interrupted_sessions_failed(backend_url: str) -> bool:
@@ -149,12 +153,12 @@ async def _update_progress(
     return await asyncio.to_thread(_http_post_json, url, progress, method="PATCH")
 
 
-async def _run_session(session: dict) -> None:
+async def _run_session(session: SimulationSession) -> None:
     settings = get_settings()
-    simulation_id = session["id"]
+    simulation_id = session.id
     logger.info("Iniciando simulacion %s.", simulation_id)
     try:
-        config = scenario_from_mapping(session["scenario"])
+        config = scenario_from_mapping(session.scenario)
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.simulator_backend_url,
@@ -193,18 +197,18 @@ async def _run_session(session: dict) -> None:
             simulated_time = _as_utc(simulated_time)
 
             global_multiplier = effective_multiplier(
-                session_state.get("global_demand_current", 1.0),
-                session_state.get("global_demand_target", 1.0),
+                session_state.global_demand_current,
+                session_state.global_demand_target,
                 simulated_time,
-                _parse_iso(session_state.get("transition_started_at")),
-                _parse_iso(session_state.get("transition_ends_at")),
+                _parse_iso(session_state.started_at),
+                _parse_iso(session_state.finished_at),
             )
 
-            overrides = session_state.get("zone_overrides", [])
+            overrides = session_state.zone_overrides
             controls = ControlSnapshot(
-                speedup=session_state.get("speedup", 60.0),
+                speedup=session_state.speedup,
                 global_current=global_multiplier,
-                global_target=session_state.get("global_demand_target", 1.0),
+                global_target=session_state.global_demand_target,
                 zones=tuple(
                     sorted(
                         (
@@ -324,9 +328,9 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
     paused_logged = False
     while True:
         session = await _fetch_active_session(backend_url)
-        if session is None or session.get("id") != simulation_id:
+        if session is None or session.id != simulation_id:
             return None
-        status = session.get("status")
+        status = session.status
         if status == "stopping":
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
@@ -338,7 +342,7 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
                 await _update_progress(
                     backend_url, simulation_id, {"status": "running"}
                 )
-                session["status"] = "running"
+                session.status = "running"
             if paused_logged:
                 logger.info("Simulacion %s reanudada.", simulation_id)
             return session
@@ -423,9 +427,9 @@ async def _wait_between_ticks(
         remaining = max(0.0, remaining - elapsed)
 
         session = await _fetch_active_session(backend_url)
-        if session is None or session.get("id") != simulation_id:
+        if session is None or session.id != simulation_id:
             return False
-        status = session.get("status")
+        status = session.status
         if status == "stopping":
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
