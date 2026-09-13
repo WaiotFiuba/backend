@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     db_echo: bool = False
     auto_create_db: bool = True
     auto_create_map_db: bool = False
+    cors_allowed_origins: str = "*"
     enable_map_db: bool = False
     simulator_backend_url: str = "http://api:8000"
     simulator_poll_seconds: float = 2.0
@@ -28,6 +29,6 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
