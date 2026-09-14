@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     db_echo: bool = False
+    db_pool_size: int = 5
+    db_max_overflow: int = 0
+    map_db_pool_size: int = 5
+    map_db_max_overflow: int = 0
     auto_create_db: bool = True
     auto_create_map_db: bool = False
     cors_allowed_origins: str = "*"
