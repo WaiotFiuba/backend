@@ -113,3 +113,25 @@ class ZoneDemandRead(BaseModel):
     density_per_km2: float
     density_factor: float
     multiplier_effective: float
+
+
+class SavedConfigurationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    config: dict[str, object] = Field(default_factory=dict)
+
+
+class SavedConfigurationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    config: dict[str, object] | None = None
+
+
+class SavedConfigurationRead(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    description: str | None
+    config: dict[str, object]
+    created_at: datetime
+    updated_at: datetime
