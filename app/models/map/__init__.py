@@ -13,6 +13,8 @@ from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.models.map.site import Site
 from app.models.map.site_projection import (
     SiteFeature,
+    SiteModelEvaluation,
+    SiteModelEvaluationMetric,
     SiteProjectionPoint,
     SiteProjectionRun,
 )
@@ -33,6 +35,8 @@ __all__ = [
     "SimulationZoneOverride",
     "Site",
     "SiteFeature",
+    "SiteModelEvaluation",
+    "SiteModelEvaluationMetric",
     "SiteProjectionPoint",
     "SiteProjectionRun",
     "WasteType",
