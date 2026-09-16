@@ -86,3 +86,49 @@ class SiteProjectionRunResponse(BaseModel):
     site_count: int
     summary: dict | None = None
     sites: list[SiteProjectionResponse] = Field(default_factory=list)
+
+
+class SiteProjectionEvaluationRequest(BaseModel):
+    site_ids: list[int] = Field(
+        description="Sitios a evaluar contra historico observado."
+    )
+    cutoff: datetime = Field(
+        description="Momento historico donde se corta la serie para iniciar el backtesting."
+    )
+    model_key: str = "baseline_operational"
+    horizon_hours: int = Field(default=24, ge=1, le=168)
+    interval_minutes: int = Field(default=60, ge=15, le=1440)
+    critical_level: int = Field(default=80, ge=1, le=100)
+    level_aggregation: Literal["avg", "max"] = "avg"
+    lookback_days: int = Field(default=14, ge=1, le=365)
+    stop_at_full: bool = False
+
+
+class SiteProjectionEvaluationMetricResponse(BaseModel):
+    id: int
+    metric_scope: str
+    metric_key: str
+    metric_value: float | None = None
+    site_id: int | None = None
+    segment_key: str | None = None
+    segment_value: str | None = None
+    sample_count: int | None = None
+    metadata_json: dict | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SiteProjectionEvaluationResponse(BaseModel):
+    id: int
+    model_key: str
+    status: str
+    cutoff: datetime
+    completed_at: datetime | None = None
+    horizon_hours: int
+    interval_minutes: int
+    critical_level: int
+    level_aggregation: Literal["avg", "max"]
+    lookback_days: int
+    site_count: int
+    summary: dict | None = None
+    metrics: list[SiteProjectionEvaluationMetricResponse] = Field(default_factory=list)

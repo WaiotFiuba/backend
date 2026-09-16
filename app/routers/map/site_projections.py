@@ -7,10 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
 from app.schemas.map.site_projection import (
+    SiteProjectionEvaluationRequest,
+    SiteProjectionEvaluationResponse,
     SiteProjectionModel,
     SiteProjectionModelsResponse,
     SiteProjectionRunRequest,
     SiteProjectionRunResponse,
+)
+from app.services.map.site_projection_evaluation_service import (
+    create_site_projection_evaluation,
+    get_site_projection_evaluation,
 )
 from app.services.map.site_projection_models import (
     DEFAULT_MODEL_KEY,
@@ -38,8 +44,7 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 )
 async def get_site_projection_models() -> SiteProjectionModelsResponse:
     models = [
-        SiteProjectionModel.model_validate(model)
-        for model in list_projection_models()
+        SiteProjectionModel.model_validate(model) for model in list_projection_models()
     ]
     return SiteProjectionModelsResponse(
         default_model_key=DEFAULT_MODEL_KEY,
@@ -62,6 +67,40 @@ async def create_site_projection(
     request: SiteProjectionRunRequest,
 ) -> SiteProjectionRunResponse:
     return await create_site_projection_run(db=db, request=request)
+
+
+@router.post(
+    "/evaluations",
+    response_model=SiteProjectionEvaluationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ejecutar backtesting de un modelo de proyeccion",
+    description=(
+        "Corta el historico en un instante pasado, proyecta el horizonte pedido "
+        "y compara contra observaciones reales posteriores. Persiste metricas "
+        "globales y por sitio para auditoria."
+    ),
+)
+async def create_site_projection_evaluation_endpoint(
+    db: MapDbDep,
+    request: SiteProjectionEvaluationRequest,
+) -> SiteProjectionEvaluationResponse:
+    return await create_site_projection_evaluation(db=db, request=request)
+
+
+@router.get(
+    "/evaluations/{evaluation_id}",
+    response_model=SiteProjectionEvaluationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Recuperar una evaluacion de modelo persistida",
+)
+async def get_site_projection_evaluation_endpoint(
+    db: MapDbDep,
+    evaluation_id: Annotated[int, Path(ge=1)],
+) -> SiteProjectionEvaluationResponse:
+    return await get_site_projection_evaluation(
+        db=db,
+        evaluation_id=evaluation_id,
+    )
 
 
 @router.get(
