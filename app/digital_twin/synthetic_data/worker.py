@@ -237,8 +237,8 @@ async def _run_session(session: dict) -> None:
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone, multipliers=zone_multipliers: multipliers.get(
-                    zone, 1.0
+                zone_multiplier=lambda zone, multipliers=zone_multipliers: (
+                    multipliers.get(zone, 1.0)
                 ),
             )
 
@@ -479,9 +479,10 @@ async def _wait_between_ticks(
             )
             await _finish_session(backend_url, simulation_id, "completed")
             return False
-        if status == "paused" and await _wait_until_runnable(
-            backend_url, simulation_id
-        ) is None:
+        if (
+            status == "paused"
+            and await _wait_until_runnable(backend_url, simulation_id) is None
+        ):
             return False
     return True
 
