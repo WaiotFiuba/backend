@@ -17,6 +17,7 @@ down_revision: Union[str, Sequence[str], None] = "9c1f2f1a7b8d"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+
 def upgrade() -> None:
     op.create_table(
         "caba_container_spatial_metadata",
@@ -33,7 +34,9 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["container_id"], ["containers.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["container_id"], ["containers.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["comuna_id"], ["comunas.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["barrio_id"], ["barrios.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["manzana_id"], ["manzanas.id"], ondelete="SET NULL"),

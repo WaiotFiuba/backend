@@ -190,7 +190,9 @@ En el backend local, configurar:
 ```env
 SIMULATOR_BACKEND_URL=https://your-backend.onrender.com
 SIMULATOR_POLL_SECONDS=2
-SIMULATOR_BATCH_SIZE=1000
+SIMULATOR_BATCH_SIZE=500
+SIMULATOR_CONTAINER_LIMIT=2000
+SIMULATOR_CONTROL_MISS_TOLERANCE=5
 ```
 
 Ejecutar:
@@ -202,6 +204,16 @@ uv run python -m app.digital_twin.synthetic_data.worker
 El worker queda esperando simulaciones activas en la API hosteada. Cuando el
 frontend inicia una simulacion, el worker local genera ticks y envia mediciones a
 Render, que las persiste en Supabase.
+
+En el plan gratis no conviene simular todos los contenedores de CABA en cada
+tick. `SIMULATOR_CONTAINER_LIMIT` limita la topologia que carga el worker para
+reducir escrituras y evitar timeouts. Para demo, empezar con `2000`; para una
+prueba mas liviana usar `1000`.
+
+`SIMULATOR_CONTROL_MISS_TOLERANCE` evita reiniciar la misma simulacion por un
+fallo transitorio consultando el estado en la API. Con `5` y
+`SIMULATOR_POLL_SECONDS=2`, tolera aproximadamente 10 segundos de errores antes
+de abandonar la sesion.
 
 ## Checklist antes de mergear `dev` a `main`
 
