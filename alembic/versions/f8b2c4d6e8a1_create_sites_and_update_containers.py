@@ -5,6 +5,7 @@ Revises: e7a1b2c3d4e5
 Create Date: 2026-08-28 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -67,9 +68,13 @@ def upgrade() -> None:
     # 2. Alter containers.site_id: remove unique, drop NOT NULL first, change to BigInteger FK
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        op.execute("ALTER TABLE containers DROP CONSTRAINT IF EXISTS containers_site_id_key")
+        op.execute(
+            "ALTER TABLE containers DROP CONSTRAINT IF EXISTS containers_site_id_key"
+        )
         op.execute("ALTER TABLE containers ALTER COLUMN site_id DROP NOT NULL")
-        op.execute("ALTER TABLE containers ALTER COLUMN site_id TYPE BIGINT USING NULL::bigint")
+        op.execute(
+            "ALTER TABLE containers ALTER COLUMN site_id TYPE BIGINT USING NULL::bigint"
+        )
         op.create_foreign_key(
             "fk_containers_site_id_sites",
             "containers",
@@ -104,8 +109,12 @@ def downgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         op.drop_index("ix_containers_site_id", table_name="containers")
-        op.drop_constraint("fk_containers_site_id_sites", "containers", type_="foreignkey")
-        op.execute("ALTER TABLE containers ALTER COLUMN site_id TYPE VARCHAR USING NULL::varchar")
+        op.drop_constraint(
+            "fk_containers_site_id_sites", "containers", type_="foreignkey"
+        )
+        op.execute(
+            "ALTER TABLE containers ALTER COLUMN site_id TYPE VARCHAR USING NULL::varchar"
+        )
     else:
         with op.batch_alter_table("containers") as batch_op:
             batch_op.drop_index("ix_containers_site_id")

@@ -8,6 +8,13 @@ Gemelo digital de contenedores - Ciudad de Buenos Aires.
 - [uv](https://docs.astral.sh/uv/)
 - Docker y docker-compose (para ejecución con contenedores)
 
+## Hosting
+
+La guia de despliegue continuo y hosting esta en
+[`docs/HOSTING.md`](docs/HOSTING.md). La opcion sin costo fijo recomendada usa
+Vercel para frontend, Render Free para la API, Supabase Postgres con PostGIS y
+el simulador corriendo localmente cuando haga falta.
+
 ## Sin Docker
 
 ### Instalación

@@ -1,0 +1,58 @@
+name: Release production backend
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-backend-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Migrate Supabase and deploy Render
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Validate branch
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Production releases must be run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Run Alembic migrations
+        env:
+          APP_ENV: production
+          ENABLE_MAP_DB: "true"
+          AUTO_CREATE_DB: "false"
+          AUTO_CREATE_MAP_DB: "false"
+          DATABASE_URL: ${{ secrets.PRODUCTION_MAP_DATABASE_URL }}
+          MAP_DATABASE_URL: ${{ secrets.PRODUCTION_MAP_DATABASE_URL }}
+        run: uv run alembic upgrade head
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
+        run: |
+          curl --fail --show-error --silent --request POST "${RENDER_BACKEND_DEPLOY_HOOK_URL}"

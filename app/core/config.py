@@ -10,12 +10,19 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     db_echo: bool = False
+    db_pool_size: int = 5
+    db_max_overflow: int = 0
+    map_db_pool_size: int = 5
+    map_db_max_overflow: int = 0
     auto_create_db: bool = True
     auto_create_map_db: bool = False
+    cors_allowed_origins: str = "*"
     enable_map_db: bool = False
     simulator_backend_url: str = "http://api:8000"
     simulator_poll_seconds: float = 2.0
     simulator_batch_size: int = 30000
+    simulator_container_limit: int | None = None
+    simulator_control_miss_tolerance: int = 5
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
     )
@@ -28,6 +35,6 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

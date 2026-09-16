@@ -8,8 +8,8 @@ from app.core.database import init_db
 from app.core.map_database import init_map_db
 from app.routers.auth import router as auth_router
 from app.routers.digital_twin import router as digital_twin_router
-from app.routers.users import router as users_router
 from app.routers.map import router as map_router
+from app.routers.users import router as users_router
 
 
 @asynccontextmanager
@@ -25,10 +25,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+settings = get_settings()
+cors_allowed_origins = [
+    origin.strip()
+    for origin in settings.cors_allowed_origins.split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=cors_allowed_origins or ["*"],
+    allow_credentials="*" not in cors_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
