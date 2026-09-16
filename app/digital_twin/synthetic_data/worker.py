@@ -178,7 +178,7 @@ async def _run_session(session: dict) -> None:
         import itertools
 
         period_iterator = (
-            range(config.periods) if config.end is not None else itertools.count()
+            range(config.periods) if config.periods > 0 else itertools.count()
         )
         for period in period_iterator:
             session_state = await _wait_until_runnable(
@@ -249,7 +249,7 @@ async def _run_session(session: dict) -> None:
             )
 
             # Enviar mediciones en background sin bloquear el reloj de simulación
-            total_periods_val = config.periods if config.end is not None else 0
+            total_periods_val = config.periods if config.periods > 0 else 0
             task = asyncio.create_task(
                 _deliver_in_background(
                     delivery_sem,
@@ -288,7 +288,7 @@ async def _run_session(session: dict) -> None:
             target_delay = (config.frequency_minutes * 60.0) / speedup
             remaining_delay = max(0.0, target_delay - tick_elapsed)
 
-            total_periods_str = str(config.periods) if config.end is not None else "∞"
+            total_periods_str = str(config.periods) if config.periods > 0 else "∞"
             logger.info(
                 "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
                 "recolecciones=%s alarmas=%s speedup=%sx demanda=%.3f (computo=%.2fs, espera=%.2fs).",

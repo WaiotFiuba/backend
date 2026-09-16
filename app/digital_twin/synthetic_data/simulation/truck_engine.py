@@ -42,11 +42,13 @@ class TruckFleetSimulator:
         routes: dict[str, TruckRoute],
         sites_dict: dict[str, tuple[float, float]],
         collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
+        no_collection_days: tuple[int, ...] = (),
         collection_threshold_pct: float = 60.0,
     ) -> None:
         self.routes = routes
         self.sites_dict = sites_dict  # {site_id: (lat, lon)}
         self.collection_hours = collection_hours
+        self.no_collection_days = set(no_collection_days)
         self.collection_threshold_pct = collection_threshold_pct
         self.trucks: dict[str, TruckState] = {}
         self._init_fleet()
@@ -95,15 +97,19 @@ class TruckFleetSimulator:
         Avanza la recolección discreta por los sitios de cada circuito a lo largo de las horas activas de collection_hours.
         Distribuye dinámicamente todas las paradas de cada ruta a lo largo de las horas de recolección configuradas.
         """
-        sorted_hours = sorted(self.collection_hours)
-        num_hours = len(sorted_hours)
+        ordered_hours = sorted(self.collection_hours, key=lambda h: (h - 18) % 24)
+        num_hours = len(ordered_hours)
 
-        if num_hours == 0 or simulated_time.hour not in self.collection_hours:
+        if (
+            num_hours == 0
+            or simulated_time.hour not in self.collection_hours
+            or simulated_time.weekday() in self.no_collection_days
+        ):
             for truck in self.trucks.values():
                 truck.status = TruckStatus.AT_DEPOT
             return []
 
-        hour_idx = sorted_hours.index(simulated_time.hour)
+        hour_idx = ordered_hours.index(simulated_time.hour)
         collection_events: list[dict] = []
 
         for truck_id, truck in self.trucks.items():
@@ -112,10 +118,14 @@ class TruckFleetSimulator:
                 continue
 
             total_sites = len(route.site_ids)
-            start_idx = int(hour_idx * total_sites / num_hours)
-            end_idx = total_sites if hour_idx == num_hours - 1 else int((hour_idx + 1) * total_sites / num_hours)
+            if total_sites <= num_hours:
+                sites_to_collect = route.site_ids
+                end_idx = total_sites
+            else:
+                start_idx = int(hour_idx * total_sites / num_hours)
+                end_idx = total_sites if hour_idx == num_hours - 1 else int((hour_idx + 1) * total_sites / num_hours)
+                sites_to_collect = route.site_ids[start_idx:end_idx]
 
-            sites_to_collect = route.site_ids[start_idx:end_idx]
             scheduled_stops = [{"site_id": s} for s in sites_to_collect]
 
             truck.status = TruckStatus.COLLECTING
@@ -173,6 +183,7 @@ class TruckFleetSimulator:
                             "truck_id": truck.id,
                             "site_id": site_id,
                             "container_id": c.get("id"),
+                            "container_index": c.get("index"),
                             "level_before": c_level,
                             "level_after": new_level,
                             "collected_kg": emptied_kg,
