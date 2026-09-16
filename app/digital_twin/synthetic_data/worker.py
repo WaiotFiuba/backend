@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import json
 import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
@@ -158,8 +158,14 @@ async def _run_session(session: dict) -> None:
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.simulator_backend_url,
-            "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18&limit=100000",
-            None,
+            "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
+            settings.simulator_container_limit,
+        )
+        logger.info(
+            "Topologia cargada para simulacion %s: contenedores=%s limite=%s.",
+            simulation_id,
+            len(topology.containers),
+            settings.simulator_container_limit or "sin limite",
         )
         simulator = SyntheticDataSimulator(config, topology=topology)
         simulator.initialize()
@@ -231,7 +237,9 @@ async def _run_session(session: dict) -> None:
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone: zone_multipliers.get(zone, 1.0),
+                zone_multiplier=lambda zone, multipliers=zone_multipliers: multipliers.get(
+                    zone, 1.0
+                ),
             )
 
             # Enviar mediciones en background sin bloquear el reloj de simulación
@@ -322,10 +330,30 @@ async def _run_session(session: dict) -> None:
 async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | None:
     settings = get_settings()
     paused_logged = False
+    missed_polls = 0
     while True:
         session = await _fetch_active_session(backend_url)
-        if session is None or session.get("id") != simulation_id:
+        if session is None:
+            missed_polls += 1
+            if missed_polls >= settings.simulator_control_miss_tolerance:
+                logger.warning(
+                    "Simulacion %s: no se pudo confirmar sesion activa tras %s intentos.",
+                    simulation_id,
+                    missed_polls,
+                )
+                return None
+            logger.info(
+                "Simulacion %s: consulta de control sin respuesta, reintentando (%s/%s).",
+                simulation_id,
+                missed_polls,
+                settings.simulator_control_miss_tolerance,
+            )
+            await asyncio.sleep(settings.simulator_poll_seconds)
+            continue
+
+        if session.get("id") != simulation_id:
             return None
+        missed_polls = 0
         status = session.get("status")
         if status == "stopping":
             logger.info(
@@ -414,6 +442,7 @@ async def _wait_between_ticks(
 ) -> bool:
     settings = get_settings()
     remaining = delay_seconds
+    missed_polls = 0
 
     while remaining > 0:
         started = asyncio.get_running_loop().time()
@@ -423,8 +452,26 @@ async def _wait_between_ticks(
         remaining = max(0.0, remaining - elapsed)
 
         session = await _fetch_active_session(backend_url)
-        if session is None or session.get("id") != simulation_id:
+        if session is None:
+            missed_polls += 1
+            if missed_polls >= settings.simulator_control_miss_tolerance:
+                logger.warning(
+                    "Simulacion %s: se perdio confirmacion de control tras %s intentos.",
+                    simulation_id,
+                    missed_polls,
+                )
+                return False
+            logger.info(
+                "Simulacion %s: fallo transitorio consultando control, reintentando (%s/%s).",
+                simulation_id,
+                missed_polls,
+                settings.simulator_control_miss_tolerance,
+            )
+            continue
+
+        if session.get("id") != simulation_id:
             return False
+        missed_polls = 0
         status = session.get("status")
         if status == "stopping":
             logger.info(
@@ -432,9 +479,10 @@ async def _wait_between_ticks(
             )
             await _finish_session(backend_url, simulation_id, "completed")
             return False
-        if status == "paused":
-            if await _wait_until_runnable(backend_url, simulation_id) is None:
-                return False
+        if status == "paused" and await _wait_until_runnable(
+            backend_url, simulation_id
+        ) is None:
+            return False
     return True
 
 
@@ -443,7 +491,7 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value)
-    except Exception:
+    except ValueError:
         return None
 
 
@@ -488,13 +536,13 @@ def _control_targets(
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def main() -> None:

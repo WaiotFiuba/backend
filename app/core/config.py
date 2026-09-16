@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     simulator_backend_url: str = "http://api:8000"
     simulator_poll_seconds: float = 2.0
     simulator_batch_size: int = 30000
+    simulator_container_limit: int | None = None
+    simulator_control_miss_tolerance: int = 5
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
     )
