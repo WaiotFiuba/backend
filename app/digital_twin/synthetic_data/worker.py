@@ -223,15 +223,29 @@ async def _run_session(session: dict) -> None:
 
             tick_started = asyncio.get_running_loop().time()
 
+            import unicodedata
+
+            def _norm_k(s: str | None) -> str:
+                if not s:
+                    return ""
+                n = unicodedata.normalize("NFKD", str(s).strip().casefold())
+                return "".join(c for c in n if not unicodedata.combining(c))
+
             zone_multipliers = {
-                name: current for name, current, _target in controls.zones
+                _norm_k(name): current for name, current, _target in controls.zones
             }
+            zone_multipliers.update({
+                name: current for name, current, _target in controls.zones
+            })
             tick = simulator.run_tick(
                 simulated_time,
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone: zone_multipliers.get(zone, 1.0),
+                zone_multiplier=lambda zone: zone_multipliers.get(
+                    zone,
+                    zone_multipliers.get(_norm_k(zone), 1.0),
+                ),
             )
 
             # Enviar mediciones en background sin bloquear el reloj de simulación

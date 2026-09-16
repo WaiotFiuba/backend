@@ -68,24 +68,40 @@ def load_scenario(path: str | Path | None = None) -> ScenarioConfig:
 def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
     normalized = dict(data)
     if "site_count" in normalized:
-        normalized["synthetic_site_count"] = normalized.pop("site_count")
+        normalized["synthetic_site_count"] = int(normalized.pop("site_count"))
     if "containers_per_site" in normalized:
-        normalized["synthetic_containers_per_site"] = normalized.pop(
-            "containers_per_site"
+        normalized["synthetic_containers_per_site"] = int(
+            normalized.pop("containers_per_site")
         )
     normalized.pop("sensor_fault_probability", None)
-    if "start" in normalized and isinstance(normalized["start"], str):
-        normalized["start"] = datetime.fromisoformat(normalized["start"])
-    if "end" in normalized and isinstance(normalized["end"], str):
-        normalized["end"] = datetime.fromisoformat(normalized["end"])
+
+    if "start" in normalized:
+        if not normalized["start"]:
+            normalized.pop("start")
+        elif isinstance(normalized["start"], str):
+            normalized["start"] = datetime.fromisoformat(normalized["start"])
+
+    if "end" in normalized:
+        if not normalized["end"]:
+            normalized["end"] = None
+        elif isinstance(normalized["end"], str):
+            normalized["end"] = datetime.fromisoformat(normalized["end"])
+
     if normalized.get("end") is not None:
         normalized["periods"] = _periods_between(
             start=normalized.get("start", get_default_start_time()),
             end=normalized["end"],
-            frequency_minutes=normalized.get("frequency_minutes", 60),
+            frequency_minutes=int(normalized.get("frequency_minutes", 60)),
         )
-    if "collection_hours" in normalized:
-        normalized["collection_hours"] = tuple(normalized["collection_hours"])
+    elif "periods" in normalized and normalized["periods"] is not None and normalized["periods"] != "":
+        normalized["periods"] = int(normalized["periods"])
+
+    if "collection_hours" in normalized and normalized["collection_hours"] is not None:
+        normalized["collection_hours"] = tuple(int(h) for h in normalized["collection_hours"])
+
+    if "frequency_minutes" in normalized and normalized["frequency_minutes"] is not None and normalized["frequency_minutes"] != "":
+        normalized["frequency_minutes"] = int(normalized["frequency_minutes"])
+
     import dataclasses
 
     valid_fields = {f.name for f in dataclasses.fields(ScenarioConfig)}

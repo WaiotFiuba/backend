@@ -124,7 +124,7 @@ class SyntheticDataSimulator:
                 routes=routes,
                 sites_dict=sites_dict,
                 collection_hours=self.config.collection_hours,
-                collection_threshold_pct=60.0,
+                collection_threshold_pct=0.0,
             )
         except Exception as e:
             logger.warning("No se pudo inicializar la flota de camiones: %s", e)

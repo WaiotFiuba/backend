@@ -92,49 +92,45 @@ class TruckFleetSimulator:
         max_step_meters: float | None = None,
     ) -> list[dict]:
         """
-        Avanza la recolección discreta por los sitios de cada circuito a lo largo del turno (21:00 a 06:00).
-        La velocidad y cantidad de sitios por tick se adaptan automáticamente a dt_seconds / frequency_minutes.
+        Avanza la recolección discreta por los sitios de cada circuito a lo largo de las horas activas de collection_hours.
+        Distribuye dinámicamente todas las paradas de cada ruta a lo largo de las horas de recolección configuradas.
         """
-        is_collection_time = simulated_time.hour in self.collection_hours
+        sorted_hours = sorted(self.collection_hours)
+        num_hours = len(sorted_hours)
+
+        if num_hours == 0 or simulated_time.hour not in self.collection_hours:
+            for truck in self.trucks.values():
+                truck.status = TruckStatus.AT_DEPOT
+            return []
+
+        hour_idx = sorted_hours.index(simulated_time.hour)
         collection_events: list[dict] = []
-        from app.services.simulation.collection_schedule_service import (
-            get_sites_to_collect,
-        )
 
         for truck_id, truck in self.trucks.items():
             route = self.routes.get(truck.route_id)
-            if not route:
+            if not route or not route.site_ids:
                 continue
 
-            dt_minutes = max(1, int(round((dt_seconds * speedup) / 60.0)))
-            scheduled_stops = get_sites_to_collect(
-                simulated_time=simulated_time,
-                frequency_minutes=dt_minutes,
-                route_id=truck.route_id,
-            )
+            total_sites = len(route.site_ids)
+            start_idx = int(hour_idx * total_sites / num_hours)
+            end_idx = total_sites if hour_idx == num_hours - 1 else int((hour_idx + 1) * total_sites / num_hours)
 
-            if not scheduled_stops:
-                # Si la ruta es sintética/mock no existente en el cronograma estático
-                from app.services.simulation.collection_schedule_service import (
-                    load_collection_schedule,
-                )
-
-                sched = load_collection_schedule()
-                if (
-                    route.site_ids
-                    and is_collection_time
-                    and truck.route_id not in sched
-                ):
-                    scheduled_stops = [{"site_id": s} for s in route.site_ids]
-                else:
-                    truck.status = (
-                        TruckStatus.AT_DEPOT
-                        if not is_collection_time
-                        else TruckStatus.COLLECTING
-                    )
-                    continue
+            sites_to_collect = route.site_ids[start_idx:end_idx]
+            scheduled_stops = [{"site_id": s} for s in sites_to_collect]
 
             truck.status = TruckStatus.COLLECTING
+            truck.current_site_idx = end_idx
+
+            if sites_to_collect:
+                last_site = str(sites_to_collect[-1]).split("|")[-1]
+                if last_site in self.sites_dict:
+                    s_lat, s_lon = self.sites_dict[last_site]
+                    truck.latitude = round(s_lat, 6)
+                    truck.longitude = round(s_lon, 6)
+                elif str(sites_to_collect[-1]) in self.sites_dict:
+                    s_lat, s_lon = self.sites_dict[str(sites_to_collect[-1])]
+                    truck.latitude = round(s_lat, 6)
+                    truck.longitude = round(s_lon, 6)
 
             for stop in scheduled_stops:
                 site_id = stop["site_id"]
