@@ -1,7 +1,4 @@
 from datetime import datetime
-from pathlib import Path
-
-import pytest
 
 from app.digital_twin.synthetic_data.domain.entities import (
     Container,
@@ -13,7 +10,6 @@ from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.digital_twin.synthetic_data.topology import SimulationTopology
 from app.digital_twin.synthetic_data.zone_classifier import (
     DEFAULT_PROFILE,
-    ZoneClassifier,
     get_zone_classifier,
 )
 
@@ -104,12 +100,24 @@ def test_simulation_differentiates_multifamily_vs_singlefamily_over_weekend():
     topology = SimulationTopology(
         sites=[site_multi, site_single],
         containers=[
-            Container("C_MULTI", "SITE_MULTI", "Contenedor Multi", "residuos", 145),
-            Container("C_SINGLE", "SITE_SINGLE", "Contenedor Single", "residuos", 145),
+            Container(
+                id="C_MULTI",
+                site_id="SITE_MULTI",
+                name="Contenedor Multi",
+                waste_type="residuos",
+                height_cm=145,
+            ),
+            Container(
+                id="C_SINGLE",
+                site_id="SITE_SINGLE",
+                name="Contenedor Single",
+                waste_type="residuos",
+                height_cm=145,
+            ),
         ],
         devices=[
-            Device("D_MULTI", "C_MULTI"),
-            Device("D_SINGLE", "C_SINGLE"),
+            Device(id="D_MULTI", container_id="C_MULTI"),
+            Device(id="D_SINGLE", container_id="C_SINGLE"),
         ],
         initial_levels={"C_MULTI": 0.0, "C_SINGLE": 0.0},
     )
@@ -138,4 +146,3 @@ def test_zone_classifier_calibration_loading():
     assert hasattr(classifier, "calibration_tolerance_pct")
     assert 0.8 <= classifier.calibration_target <= 1.2
     assert 0.0 <= classifier.calibration_tolerance_pct <= 50.0
-

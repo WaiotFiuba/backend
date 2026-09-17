@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import pytest
+from shapely.geometry import box
+from shapely.ops import transform as shapely_transform
 
+from app.core.config import get_settings
 from app.digital_twin.synthetic_data.density_processor import (
-    DAILY_WASTE_PER_PERSON_KG,
-    WASTE_DENSITY_KG_M3,
+    CensusRadio,
+    DensityProcessor,
+    _buffer_polygon_meters,
+    _to_metric,
     get_density_processor,
 )
 from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
@@ -17,20 +22,26 @@ from app.digital_twin.synthetic_data.topology import (
 )
 
 
-def test_density_processor_loads_and_finds_radio():
+def test_density_processor_loads_and_connects_radio():
     processor = get_density_processor()
     assert len(processor.radios) > 0, "Debe haber cargado los radios censales de CABA"
 
-    # Coordenadas en Almagro / Balvanera
-    radio = processor.find_radio(latitude=-34.600945, longitude=-58.422690)
-    assert radio is not None
-    assert radio.population > 0
-    assert radio.department_name != ""
-    assert radio.radio_code != ""
+    # Coordenadas en Almagro / Balvanera. La relación es muchos-a-muchos
+    # (buffer de calle), así que en vez de find_radio() (eliminado en el
+    # refactor 99ccca1) se verifica a través de la API pública real.
+    containers = [
+        {"id": "x", "latitude": -34.600945, "longitude": -58.422690, "volume_m3": 3.2}
+    ]
+    demands, _ = processor.process_containers(containers)
+    info = demands["x"]
+    assert info.population > 0
+    assert info.department_name != ""
+    assert info.radio_code != ""
 
 
 def test_process_containers_shares_population_in_same_radio():
     processor = get_density_processor()
+    settings = get_settings()
 
     # 3 contenedores en las mismas coordenadas / mismo radio
     containers = [
@@ -48,14 +59,16 @@ def test_process_containers_shares_population_in_same_radio():
     assert summary.total_containers == 3
     assert set(summary.container_ids) == {101, 102, 103}
 
-    expected_daily_kg_per_cont = (summary.population * DAILY_WASTE_PER_PERSON_KG) / 3.0
+    expected_daily_kg_per_cont = (
+        summary.population * settings.promedio_generacion_basura_personas_24h
+    ) / 3.0
     assert (
         pytest.approx(summary.daily_waste_per_container_kg, rel=1e-3)
         == expected_daily_kg_per_cont
     )
 
     # Comprobar el cálculo de llenado para cada contenedor
-    capacity_kg = 3.2 * WASTE_DENSITY_KG_M3
+    capacity_kg = 3.2 * settings.densidad_basura_kg_m3
     expected_daily_fill_pct = (expected_daily_kg_per_cont / capacity_kg) * 100.0
     expected_hourly_fill_pct = expected_daily_fill_pct / 24.0
 
@@ -135,10 +148,12 @@ def test_simulation_engine_fills_proportionally():
     assert final_measurement.fill_level_pct > 20.0
 
 
-def test_density_processor_point_in_polygon_containment():
+def test_density_processor_dominant_radio_containment():
     """
-    Verifica que las coordenadas de prueba en diferentes comunas de CABA
-    caigan estrictamente DENTRO (intersects) del polígono censal asignado.
+    Verifica que, para coordenadas de prueba en diferentes comunas de CABA,
+    el radio DOMINANTE (el que más kg/día aporta) siga siendo el que
+    geométricamente contiene al contenedor, aunque el contenedor pueda
+    quedar conectado a más de un radio por el buffer de calle.
     """
     from shapely.geometry import Point
 
@@ -147,23 +162,35 @@ def test_density_processor_point_in_polygon_containment():
     # Muestras representativas en distintos puntos de CABA:
     # (lat, lon, comuna esperada)
     sample_locations = [
-        (-34.6186, -58.4438, "Comuna 6"),   # Caballito (Parque Rivadavia / Primera Junta)
+        (
+            -34.6186,
+            -58.4438,
+            "Comuna 6",
+        ),  # Caballito (Parque Rivadavia / Primera Junta)
         (-34.5885, -58.4305, "Comuna 14"),  # Palermo Soho
-        (-34.6345, -58.3631, "Comuna 4"),   # La Boca (Caminito / Brandsen)
+        (-34.6345, -58.3631, "Comuna 4"),  # La Boca (Caminito / Brandsen)
         (-34.5612, -58.4563, "Comuna 13"),  # Belgrano (Cabildo y Juramento)
-        (-34.6712, -58.4682, "Comuna 8"),   # Villa Lugano
-        (-34.5942, -58.3927, "Comuna 2"),   # Recoleta
+        (-34.6712, -58.4682, "Comuna 8"),  # Villa Lugano
+        (-34.5942, -58.3927, "Comuna 2"),  # Recoleta
     ]
 
-    for lat, lon, expected_dept in sample_locations:
-        radio = processor.find_radio(latitude=lat, longitude=lon)
-        assert radio is not None, f"Debe encontrar radio censal para ({lat}, {lon})"
-        assert radio.department_name == expected_dept, (
-            f"Esperado {expected_dept} pero obtuvo {radio.department_name}"
+    containers = [
+        {"id": f"c{i}", "latitude": lat, "longitude": lon, "volume_m3": 3.2}
+        for i, (lat, lon, _) in enumerate(sample_locations)
+    ]
+    demands, _ = processor.process_containers(containers)
+    radio_by_code = {r.radio_code: r for r in processor.radios}
+
+    for i, (lat, lon, expected_dept) in enumerate(sample_locations):
+        info = demands[f"c{i}"]
+        assert info.department_name == expected_dept, (
+            f"Esperado {expected_dept} pero obtuvo {info.department_name} para ({lat}, {lon})"
         )
+        radio_dominante = radio_by_code[info.radio_code]
         point = Point(lon, lat)
-        assert radio.geometry.intersects(point), (
-            f"La coordenada ({lat}, {lon}) DEBE intersectar geométricamente su polígono censal {radio.radio_code}"
+        assert radio_dominante.geometry.intersects(point), (
+            f"La coordenada ({lat}, {lon}) DEBE intersectar geométricamente "
+            f"el polígono real de su radio dominante {radio_dominante.radio_code}"
         )
 
 
@@ -176,8 +203,18 @@ def test_density_processor_volume_difference():
     processor = get_density_processor()
 
     containers = [
-        {"id": "cont_chico", "latitude": -34.6186, "longitude": -58.4438, "volume_m3": 1.1},
-        {"id": "cont_grande", "latitude": -34.6186, "longitude": -58.4438, "volume_m3": 3.2},
+        {
+            "id": "cont_chico",
+            "latitude": -34.6186,
+            "longitude": -58.4438,
+            "volume_m3": 1.1,
+        },
+        {
+            "id": "cont_grande",
+            "latitude": -34.6186,
+            "longitude": -58.4438,
+            "volume_m3": 3.2,
+        },
     ]
 
     demands, _ = processor.process_containers(containers)
@@ -198,22 +235,34 @@ def test_density_processor_volume_difference():
 
 def test_density_processor_minimum_activity_floor():
     """
-    Verifica que en zonas con muy baja población, se respete
-    el piso mínimo de actividad diaria del 40% (1.667% / hora).
+    Verifica que se respete el piso mínimo de actividad diaria
+    (Settings.density_min_daily_fill_pct_floor).
+
+    Nota: la coordenada de Costanera Sur usada acá matchea en la práctica un
+    radio censal con población 650 (~203% de llenado), muy por encima del
+    piso — así que este test no ejercita realmente el clamp del piso (esto ya
+    pasaba antes del refactor muchos-a-muchos, no es algo introducido por ese
+    cambio). Queda documentado así hasta que se elija una coordenada que
+    realmente dispare el piso.
     """
     processor = get_density_processor()
 
     # Coordenada en Reserva Ecológica Costanera Sur (baja población)
     containers = [
-        {"id": "cont_parque", "latitude": -34.6100, "longitude": -58.3520, "volume_m3": 3.2}
+        {
+            "id": "cont_parque",
+            "latitude": -34.6100,
+            "longitude": -58.3520,
+            "volume_m3": 3.2,
+        }
     ]
 
     demands, _ = processor.process_containers(containers)
     info = demands["cont_parque"]
+    floor = get_settings().density_min_daily_fill_pct_floor
 
-    # Debe ser al menos 40% diario (1.6667% por hora)
-    assert info.daily_fill_pct >= 40.0
-    assert info.hourly_fill_pct >= 40.0 / 24.0
+    assert info.daily_fill_pct >= floor
+    assert info.hourly_fill_pct >= floor / 24.0
 
 
 def test_density_processor_outside_caba_fallback():
@@ -226,13 +275,106 @@ def test_density_processor_outside_caba_fallback():
 
     # Coordenada en el Río de la Plata profundo
     containers = [
-        {"id": "cont_rio", "latitude": -34.4500, "longitude": -58.1000, "volume_m3": 3.2}
+        {
+            "id": "cont_rio",
+            "latitude": -34.4500,
+            "longitude": -58.1000,
+            "volume_m3": 3.2,
+        }
     ]
 
     demands, summaries = processor.process_containers(containers)
     info = demands["cont_rio"]
 
     # Al caer lejos, no intersecta CABA
-    assert info.daily_fill_pct >= 40.0
+    assert info.daily_fill_pct >= get_settings().density_min_daily_fill_pct_floor
     assert info.hourly_fill_pct > 0.0
 
+
+def test_process_containers_weights_shared_radios_by_distance():
+    """
+    Regression guard: antes del peso por distancia, un contenedor conectado
+    a 2 radios censales recibía siempre una porción 50/50 (peso plano 1/n),
+    sin importar si estaba pegado a uno de los radios o en el borde
+    compartido. Ahora el peso decae linealmente con la distancia real al
+    polígono de cada radio, así que la posición del contenedor debe cambiar
+    cuánto le toca de cada radio.
+
+    Se arman 2 radios censales sintéticos, cuadrados de 50m de lado,
+    adyacentes (comparten el borde en x=50m), con la misma población, cerca
+    de una coordenada real de CABA para que la reproyección métrica
+    (EPSG:5347) se comporte de forma realista.
+    """
+    lat0, lon0 = -34.6000, -58.4200
+    dlon_50m = 50 / 91000  # ~1 grado de longitud ~91km en esta latitud
+    dlat_50m = 50 / 111000  # ~1 grado de latitud ~111km
+
+    radio_a_geom = box(lon0, lat0, lon0 + dlon_50m, lat0 + dlat_50m)
+    radio_b_geom = box(lon0 + dlon_50m, lat0, lon0 + 2 * dlon_50m, lat0 + dlat_50m)
+
+    processor = DensityProcessor(
+        csv_path="/no/existe/dataset.csv", street_buffer_m=15.0
+    )
+    processor.radios = [
+        CensusRadio(
+            radio_code="A",
+            population=1000,
+            department_name="A",
+            area_km2=0.0025,
+            centroid_lat=lat0,
+            centroid_lon=lon0,
+            geometry=radio_a_geom,
+        ),
+        CensusRadio(
+            radio_code="B",
+            population=1000,
+            department_name="B",
+            area_km2=0.0025,
+            centroid_lat=lat0,
+            centroid_lon=lon0 + 2 * dlon_50m,
+            geometry=radio_b_geom,
+        ),
+    ]
+    processor._geometries = [radio_a_geom, radio_b_geom]
+    processor._buffered_geometries = [
+        _buffer_polygon_meters(g, 15.0) for g in processor._geometries
+    ]
+    processor._metric_geometries = [
+        shapely_transform(lambda x, y: _to_metric.transform(x, y), g)
+        for g in processor._geometries
+    ]
+
+    # cerca_de_A: a 5m del borde compartido (dentro de A, a 5m de B).
+    # en_el_borde: exactamente sobre el borde compartido (a 0m de A y de B).
+    containers = [
+        {
+            "id": "cerca_de_A",
+            "latitude": lat0 + dlat_50m / 2,
+            "longitude": lon0 + dlon_50m * (45 / 50),
+            "volume_m3": 3.2,
+        },
+        {
+            "id": "en_el_borde",
+            "latitude": lat0 + dlat_50m / 2,
+            "longitude": lon0 + dlon_50m,
+            "volume_m3": 3.2,
+        },
+    ]
+
+    demands, _ = processor.process_containers(containers)
+    cerca = demands["cerca_de_A"]
+    borde = demands["en_el_borde"]
+
+    # Ambos quedan conectados a los 2 radios (el buffer no cambió).
+    assert set(cerca.radio_codes) == {"A", "B"}
+    assert set(borde.radio_codes) == {"A", "B"}
+
+    # Bajo el peso plano 1/n anterior, ambos habrían recibido exactamente
+    # la misma demanda total (mismo n=2, misma población en A y B). Ahora
+    # deben diferir de forma no trivial porque están a distinta distancia
+    # del borde compartido.
+    assert cerca.daily_waste_kg != pytest.approx(borde.daily_waste_kg, rel=0.01)
+
+    # El contenedor sobre el borde está tan cerca de B como de A, mientras
+    # que el otro está más lejos de B: debe llevarse relativamente más de B.
+    assert borde.daily_waste_kg > cerca.daily_waste_kg

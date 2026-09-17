@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 class SimulationZoneState(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     neighborhood: str
     multiplier_current: float
     multiplier_target: float
@@ -14,7 +14,7 @@ class SimulationZoneState(BaseModel):
 
 class SimulationSession(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     id: int
     status: Literal["pending", "running", "paused", "stopping", "completed", "failed"]
     scenario: dict[str, object]
@@ -33,12 +33,14 @@ class SimulationSession(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
-    zone_overrides: list[SimulationZoneState]  # Parses nested dictionaries automatically
+    zone_overrides: list[
+        SimulationZoneState
+    ]  # Parses nested dictionaries automatically
 
 
 class ZoneDemand(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     neighborhood: str
     commune: str | None
     population: int
@@ -52,7 +54,7 @@ class ZoneDemand(BaseModel):
 
 class Site(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     id: str
     name: str
     zone: str
@@ -61,10 +63,13 @@ class Site(BaseModel):
     demand_base: float
     address: str | None = None
 
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump()
+
 
 class Container(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     id: str
     site_id: str
     name: str
@@ -73,17 +78,23 @@ class Container(BaseModel):
     volume_m3: float | None = None
     serie_id: str | None = None
 
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump()
+
 
 class Device(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     id: str
     container_id: str
+
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump()
 
 
 class Measurement(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     timestamp: datetime
     site_id: str | None
     container_id: str
@@ -97,10 +108,13 @@ class Measurement(BaseModel):
     is_collection_detected: bool
     anomaly: str | None = None
 
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump(mode="json")
+
 
 class CollectionEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     timestamp: datetime
     container_id: str
     kind: str
@@ -108,11 +122,17 @@ class CollectionEvent(BaseModel):
     level_after_pct: float
     detected_by_sensor: bool
 
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump(mode="json")
+
 
 class Alarm(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     timestamp: datetime
     container_id: str
     alarm_type: str
     severity: str
+
+    def to_record(self) -> dict[str, object]:
+        return self.model_dump(mode="json")

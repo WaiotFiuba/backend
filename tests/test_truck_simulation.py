@@ -177,24 +177,24 @@ class TestTruckSimulation(unittest.TestCase):
             demand_base=1.0,
         )
         cont = Container(
-            id=328,
+            id="328",
             site_id="158",
             name="RSU",
             waste_type="RSU Fracción Húmeda",
             height_cm=145,
             volume_m3=3.2,
         )
-        dev = Device(id="sim-device-328", container_id=328)
+        dev = Device(id="sim-device-328", container_id="328")
         topo = SimulationTopology(
             sites=[site],
             containers=[cont],
             devices=[dev],
-            initial_levels={328: 100.0},
+            initial_levels={"328": 100.0},
         )
         cfg = ScenarioConfig(frequency_minutes=15)
         sim = SyntheticDataSimulator(cfg, topology=topo)
         sim.initialize()
-        sim.state.levels[328] = 100.0
+        sim.state.levels["328"] = 100.0
 
         from app.services.simulation.collection_schedule_service import (
             load_collection_schedule,
@@ -216,4 +216,4 @@ class TestTruckSimulation(unittest.TestCase):
         # Tick a las 05:45 (que incluye parada a las 05:37)
         tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
         self.assertEqual(len(tick.collections), 1)
-        self.assertLess(sim.state.levels[328], 10.0)
+        self.assertLess(sim.state.levels["328"], 10.0)
