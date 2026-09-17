@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import math
+import csv
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
 
 """
 zone_classifier.py
@@ -12,8 +18,12 @@ Toda la modulación horaria, semanal, factores fin de semana y multiplicadores
 base se leen dinámicamente de 'config/zone_profiles.yaml'.
 
 Flujo de resolución:
-  1. El DensityProcessor encuentra el radio censal exacto de cada contenedor (Point-in-Polygon).
-  2. En SimulationTopology, cada sitio recibe `site.zone = demand_info.radio_code`.
+  1. El DensityProcessor conecta cada contenedor con todos los radios censales
+     cuyo polígono (bufferizado +(metros configurable)m para capturar la vereda de enfrente) lo
+     alcanza — relación muchos-a-muchos, ponderada por distancia real. El
+     radio "dominante" es el que más kg/día le aporta a ese contenedor.
+  2. En SimulationTopology, cada sitio recibe `site.zone = demand_info.radio_code`
+     (el radio dominante).
   3. El ZoneClassifier busca el radio censal en 'land_use_by_radio.csv' y obtiene su
      ZoneProfile específico (distinguiendo residencial multifamiliar/edificios,
      unifamiliar/casas, comercial, oficinas, industrial).
@@ -21,25 +31,18 @@ Flujo de resolución:
      utiliza los perfiles de configuración de 'zone_profiles.yaml'.
 """
 
-import csv
-import logging
-from dataclasses import dataclass, field
-from pathlib import Path
-
-import yaml
-
 logger = logging.getLogger(__name__)
 
 COMUNA_BARRIO_FALLBACK: dict[str, str] = {
-    "COMUNA 1":  "SAN NICOLAS",
-    "COMUNA 2":  "RECOLETA",
-    "COMUNA 3":  "BALVANERA",
-    "COMUNA 4":  "LA BOCA",
-    "COMUNA 5":  "ALMAGRO",
-    "COMUNA 6":  "CABALLITO",
-    "COMUNA 7":  "FLORES",
-    "COMUNA 8":  "VILLA SOLDATI",
-    "COMUNA 9":  "LINIERS",
+    "COMUNA 1": "SAN NICOLAS",
+    "COMUNA 2": "RECOLETA",
+    "COMUNA 3": "BALVANERA",
+    "COMUNA 4": "LA BOCA",
+    "COMUNA 5": "ALMAGRO",
+    "COMUNA 6": "CABALLITO",
+    "COMUNA 7": "FLORES",
+    "COMUNA 8": "VILLA SOLDATI",
+    "COMUNA 9": "LINIERS",
     "COMUNA 10": "FLORESTA",
     "COMUNA 11": "VILLA GRAL. MITRE",
     "COMUNA 12": "COGHLAN",
@@ -72,18 +75,20 @@ def _base_hour_factor(hour: int) -> float:
 class ZoneProfile:
     """Perfil de generación de residuos de una zona urbana / radio censal."""
 
-    zone_key: str                     # radio_code o nombre de barrio / zone_type
+    zone_key: str  # radio_code o nombre de barrio / zone_type
     barrio: str
-    zone_type: str                    # residential_multifamily / residential_singlefamily / commercial / office / industrial / mixed
+    zone_type: str  # residential_multifamily / residential_singlefamily / commercial / office / industrial / mixed
     res_multifamily_pct: float
     res_singlefamily_pct: float
     commercial_pct: float
     office_pct: float
     industrial_pct: float
-    demand_multiplier: float          # multiplicador base de demanda (del CSV de usos o YAML)
-    weekend_factor: float             # factor relativo fin-de-semana / hábil (del CSV o YAML)
-    hour_weights: dict[int, float] = field(default_factory=dict)     # del YAML de perfiles
-    weekday_factors: dict[int, float] = field(default_factory=dict)  # del YAML de perfiles
+    demand_multiplier: float  # multiplicador base de demanda (del CSV de usos o YAML)
+    weekend_factor: float  # factor relativo fin-de-semana / hábil (del CSV o YAML)
+    hour_weights: dict[int, float] = field(default_factory=dict)  # del YAML de perfiles
+    weekday_factors: dict[int, float] = field(
+        default_factory=dict
+    )  # del YAML de perfiles
 
     @property
     def residential_pct(self) -> float:
@@ -226,8 +231,12 @@ class ZoneClassifier:
         barrio_csv = self._resolve_path(
             land_use_barrio_csv,
             [
-                Path(__file__).resolve().parents[3] / "datos" / "land_use_by_barrio.csv",
-                Path(__file__).resolve().parents[2] / "datos" / "land_use_by_barrio.csv",
+                Path(__file__).resolve().parents[3]
+                / "datos"
+                / "land_use_by_barrio.csv",
+                Path(__file__).resolve().parents[2]
+                / "datos"
+                / "land_use_by_barrio.csv",
                 Path("/app/datos/land_use_by_barrio.csv"),
                 Path("datos/land_use_by_barrio.csv"),
             ],
@@ -235,7 +244,9 @@ class ZoneClassifier:
         if barrio_csv:
             self._load_land_use_barrio_csv(barrio_csv)
 
-    def _resolve_path(self, custom: str | Path | None, candidates: list[Path]) -> Path | None:
+    def _resolve_path(
+        self, custom: str | Path | None, candidates: list[Path]
+    ) -> Path | None:
         if custom and Path(custom).exists():
             return Path(custom)
         return next((p for p in candidates if p.exists()), None)
@@ -259,7 +270,9 @@ class ZoneClassifier:
         profiles_raw = data.get("profiles", {})
         for zone_type, cfg in profiles_raw.items():
             hw = {int(k): float(v) for k, v in (cfg.get("hour_weights") or {}).items()}
-            wf = {int(k): float(v) for k, v in (cfg.get("weekday_factors") or {}).items()}
+            wf = {
+                int(k): float(v) for k, v in (cfg.get("weekday_factors") or {}).items()
+            }
             base_mult = float(cfg.get("base_demand_multiplier", 1.0))
             weekend_fac = float(cfg.get("weekend_factor", 0.75))
 
@@ -288,8 +301,18 @@ class ZoneClassifier:
                     commercial_pct=float(row.get("commercial_pct", 0)),
                     office_pct=float(row.get("office_pct", 0)),
                     industrial_pct=float(row.get("industrial_pct", 0)),
-                    demand_multiplier=float(row.get("demand_multiplier", self._zone_base_multipliers.get(zone_type, 1.0))),
-                    weekend_factor=float(row.get("weekend_factor", self._zone_weekend_factors.get(zone_type, 0.75))),
+                    demand_multiplier=float(
+                        row.get(
+                            "demand_multiplier",
+                            self._zone_base_multipliers.get(zone_type, 1.0),
+                        )
+                    ),
+                    weekend_factor=float(
+                        row.get(
+                            "weekend_factor",
+                            self._zone_weekend_factors.get(zone_type, 0.75),
+                        )
+                    ),
                     hour_weights=self._zone_hour_weights.get(zone_type, {}),
                     weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
                 )
@@ -313,8 +336,18 @@ class ZoneClassifier:
                     commercial_pct=float(row.get("commercial_pct", 0)),
                     office_pct=float(row.get("office_pct", 0)),
                     industrial_pct=float(row.get("industrial_pct", 0)),
-                    demand_multiplier=float(row.get("demand_multiplier", self._zone_base_multipliers.get(zone_type, 1.0))),
-                    weekend_factor=float(row.get("weekend_factor", self._zone_weekend_factors.get(zone_type, 0.75))),
+                    demand_multiplier=float(
+                        row.get(
+                            "demand_multiplier",
+                            self._zone_base_multipliers.get(zone_type, 1.0),
+                        )
+                    ),
+                    weekend_factor=float(
+                        row.get(
+                            "weekend_factor",
+                            self._zone_weekend_factors.get(zone_type, 0.75),
+                        )
+                    ),
                     hour_weights=self._zone_hour_weights.get(zone_type, {}),
                     weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
                 )
@@ -369,8 +402,12 @@ class ZoneClassifier:
                 zone_key=low_key,
                 barrio=low_key,
                 zone_type=low_key,
-                res_multifamily_pct=100.0 if low_key == "residential_multifamily" else 0.0,
-                res_singlefamily_pct=100.0 if low_key == "residential_singlefamily" else 0.0,
+                res_multifamily_pct=100.0
+                if low_key == "residential_multifamily"
+                else 0.0,
+                res_singlefamily_pct=100.0
+                if low_key == "residential_singlefamily"
+                else 0.0,
                 commercial_pct=100.0 if low_key == "commercial" else 0.0,
                 office_pct=100.0 if low_key == "office" else 0.0,
                 industrial_pct=100.0 if low_key == "industrial" else 0.0,

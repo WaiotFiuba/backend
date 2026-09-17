@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     )
     promedio_generacion_basura_personas_24h: float = 1.5  # kg por persona cada 24 horas
     densidad_basura_kg_m3: float = 150.0  # kg/m3 de residuo suelto
+    density_street_buffer_m: float = (
+        18.0  # buffer en metros para conectar contenedores a radios censales vecinos
+    )
+    density_min_daily_fill_pct_floor: float = (
+        20.0  # piso minimo de llenado diario (%) en zonas de baja poblacion
+    )
+    density_fallback_daily_waste_kg: float = (
+        150.0  # kg/dia de fallback para contenedores sin ningun radio conectado
+    )
 
     class Config:
         env_file = ".env"

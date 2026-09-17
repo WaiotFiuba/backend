@@ -17,12 +17,12 @@ import sys
 import time
 from shapely import wkt
 from shapely.geometry import mapping
+from app.digital_twin.synthetic_data.density_processor import get_density_processor
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.digital_twin.synthetic_data.density_processor import get_density_processor
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
@@ -521,6 +521,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <button class="tab-btn" onclick="switchTab('tab-hotspots')">
                 <span>🔥</span> Hotspots
             </button>
+            <button class="tab-btn" onclick="switchTab('tab-distribucion')">
+                <span>📊</span> Distribución
+            </button>
         </div>
 
         <!-- TAB 1: INSPECTOR DE COMUNA -->
@@ -616,6 +619,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <p style="font-size: 11px; color: var(--text-muted);">Zonas con baja densidad donde opera el piso mínimo del 40% (potenciales donantes de contenedores).</p>
                 </div>
                 <div id="hotspots-low-list"></div>
+            </div>
+        </div>
+
+        <!-- TAB 4: DISTRIBUCIÓN GRANULAR -->
+        <div id="tab-distribucion" class="tab-content">
+            <div class="panel-body">
+                <div style="margin-bottom: 16px;">
+                    <label>Distribución de Tasa Horaria (%/h) — Todos los Contenedores</label>
+                    <p style="font-size: 11px; color: var(--text-muted);">Percentiles y forma de la distribución sobre el total de contenedores reales (no promediado por comuna), más el detalle de los radios censales con menor cobertura de contenedores — la causa real de los valores extremos.</p>
+                </div>
+
+                <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+                    <div class="stat-card">
+                        <div class="stat-label">Mediana (p50)</div>
+                        <div class="stat-val" id="dist-p50">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">p90</div>
+                        <div class="stat-val" id="dist-p90">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">p99</div>
+                        <div class="stat-val" id="dist-p99">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Media</div>
+                        <div class="stat-val" id="dist-mean" style="font-size: 14px;">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Máximo</div>
+                        <div class="stat-val" id="dist-max" style="font-size: 14px; color: var(--color-critical);">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Contenedores</div>
+                        <div class="stat-val" id="dist-n" style="font-size: 14px;">--</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; margin-bottom: 10px;">
+                    <label>Histograma (%/h)</label>
+                </div>
+                <div id="histogram-list" class="comunas-table"></div>
+
+                <div style="margin-top: 24px; margin-bottom: 16px;">
+                    <label style="color: var(--color-critical);">⚠️ Radios con Baja Cobertura (≤3 contenedores conectados)</label>
+                    <p style="font-size: 11px; color: var(--text-muted);">Causa raíz de los valores extremos: muy pocos contenedores absorben toda la generación diaria del radio.</p>
+                </div>
+                <div id="low-coverage-list"></div>
             </div>
         </div>
     </div>
@@ -766,6 +817,72 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <div class="hs-stat">
                             <div class="hs-label">Contenedores</div>
                             <div class="hs-val">${h.count} cont.</div>
+                        </div>
+                    </div>
+                `;
+                lowContainer.appendChild(card);
+            });
+        }
+
+        function populateDistributionTab() {
+            const dist = DATA.distribution;
+
+            document.getElementById('dist-p50').textContent = dist.percentiles.p50.toFixed(2) + ' %/h';
+            document.getElementById('dist-p90').textContent = dist.percentiles.p90.toFixed(2) + ' %/h';
+            document.getElementById('dist-p99').textContent = dist.percentiles.p99.toFixed(2) + ' %/h';
+            document.getElementById('dist-mean').textContent = dist.stats.mean.toFixed(2) + ' %/h';
+            document.getElementById('dist-max').textContent = dist.stats.max.toFixed(2) + ' %/h';
+            document.getElementById('dist-n').textContent = dist.stats.n.toLocaleString();
+
+            const histContainer = document.getElementById('histogram-list');
+            const maxCount = Math.max(...dist.histogram.counts);
+            dist.histogram.labels.forEach((label, i) => {
+                const count = dist.histogram.counts[i];
+                const share = dist.stats.n > 0 ? (100 * count / dist.stats.n) : 0;
+                const barPct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+
+                const row = document.createElement('div');
+                row.className = 'comuna-row';
+                row.style.cursor = 'default';
+                row.innerHTML = `
+                    <div class="comuna-rank" style="width: 56px; font-size: 11px;">${label}</div>
+                    <div class="comuna-info">
+                        <div class="bar-container" style="width: 100%;">
+                            <div class="bar-fill" style="width: ${barPct}%; background: #38bdf8;"></div>
+                        </div>
+                    </div>
+                    <div class="comuna-stat">
+                        <div class="comuna-rate" style="font-size: 12px;">${count.toLocaleString()}</div>
+                        <div class="comuna-sub">${share.toFixed(1)}%</div>
+                    </div>
+                `;
+                histContainer.appendChild(row);
+            });
+
+            const lowContainer = document.getElementById('low-coverage-list');
+            dist.low_coverage_radios.forEach(r => {
+                const card = document.createElement('div');
+                card.className = 'hotspot-card';
+                card.innerHTML = `
+                    <div class="hotspot-header">
+                        <div>
+                            <span class="hotspot-code">Radio ${r.code}</span>
+                            <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">${r.comuna}</span>
+                        </div>
+                        <button class="hotspot-btn" onclick="jumpToHotspot('${r.comuna}', '${r.code}')">Ver en Mapa</button>
+                    </div>
+                    <div class="hotspot-stats">
+                        <div class="hs-stat">
+                            <div class="hs-label">Tasa Horaria</div>
+                            <div class="hs-val" style="color: var(--color-critical);">${r.rate.toFixed(2)} %/h</div>
+                        </div>
+                        <div class="hs-stat">
+                            <div class="hs-label">Población</div>
+                            <div class="hs-val">${r.pop.toLocaleString()} hab.</div>
+                        </div>
+                        <div class="hs-stat">
+                            <div class="hs-label">Contenedores</div>
+                            <div class="hs-val" style="color: var(--highlight);">${r.count} cont.</div>
                         </div>
                     </div>
                 `;
@@ -950,6 +1067,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         populateComunaSelect();
         populateRankingTab();
         populateHotspotsTab();
+        populateDistributionTab();
 
         // Cargar por defecto Comuna 6 (Caballito)
         loadComuna("Comuna 6");
@@ -967,7 +1085,9 @@ def main():
 
     t0 = time.time()
     processor = get_density_processor()
-    print(f"✓ Índice espacial y {len(processor.radios)} radios listos en {time.time()-t0:.2f}s")
+    print(
+        f"✓ Índice espacial y {len(processor.radios)} radios listos en {time.time() - t0:.2f}s"
+    )
 
     # 1. Cargar geometrías GeoJSON de radios agrupados por Comuna
     print("Extrayendo polígonos WKT de radios censales...")
@@ -1004,7 +1124,7 @@ def main():
                     "department_name": dept,
                     "population": pop,
                     "area_km2": area,
-                }
+                },
             }
             radios_by_comuna[dept].append(geo_feat)
             radios_by_code[r_code] = {
@@ -1025,13 +1145,15 @@ def main():
     for f in raw_features:
         coords = f["geometry"]["coordinates"]
         props = f.get("properties", {})
-        all_inputs.append({
-            "id": f["id"],
-            "latitude": coords[1],
-            "longitude": coords[0],
-            "volume_m3": 3.2,
-            "address": props.get("DireccionNormalizada", ""),
-        })
+        all_inputs.append(
+            {
+                "id": f["id"],
+                "latitude": coords[1],
+                "longitude": coords[0],
+                "volume_m3": 3.2,
+                "address": props.get("DireccionNormalizada", ""),
+            }
+        )
 
     demands, summaries = processor.process_containers(all_inputs)
 
@@ -1041,7 +1163,9 @@ def main():
     radio_rates_acc = defaultdict(list)
     for summary in summaries:
         if summary.radio_code in radios_by_code:
-            radios_by_code[summary.radio_code]["container_count"] = summary.total_containers
+            radios_by_code[summary.radio_code]["container_count"] = (
+                summary.total_containers
+            )
         for cid in summary.container_ids:
             d = demands.get(cid)
             if d:
@@ -1099,13 +1223,15 @@ def main():
             "population_total": pop_dept,
         }
 
-        comunas_list.append({
-            "name": dept,
-            "container_count": len(dept_containers),
-            "radio_count": len(dept_features),
-            "avg_hourly": round(avg_h, 3),
-            "population_total": pop_dept,
-        })
+        comunas_list.append(
+            {
+                "name": dept,
+                "container_count": len(dept_containers),
+                "radio_count": len(dept_features),
+                "avg_hourly": round(avg_h, 3),
+                "population_total": pop_dept,
+            }
+        )
 
     # Ordenar comunas_list de mayor a menor tasa media
     comunas_list.sort(key=lambda x: x["avg_hourly"], reverse=True)
@@ -1140,12 +1266,73 @@ def main():
         for r in active_radios[-5:]
     ]
 
+    # 6. Distribución granular de tasa horaria sobre TODOS los contenedores
+    # (no promediada por comuna, para no perder la forma real de la cola) más
+    # el detalle completo de los radios con poca cobertura de contenedores,
+    # que es la causa real de los valores extremos.
+    all_rates = sorted(d.hourly_fill_pct for d in demands.values())
+    n_rates = len(all_rates)
+
+    def _percentile(p: float) -> float:
+        if n_rates == 0:
+            return 0.0
+        idx = min(int(n_rates * p), n_rates - 1)
+        return all_rates[idx]
+
+    bin_edges = [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0, float("inf")]
+    bin_labels = [
+        "<0.5",
+        "0.5-1",
+        "1-1.5",
+        "1.5-2",
+        "2-2.5",
+        "2.5-3",
+        "3-4",
+        "4-5",
+        "5-10",
+        ">10",
+    ]
+    bin_counts = [0] * len(bin_labels)
+    for rate in all_rates:
+        for i in range(len(bin_labels)):
+            if bin_edges[i] <= rate < bin_edges[i + 1]:
+                bin_counts[i] += 1
+                break
+
+    low_coverage_radios = [
+        {
+            "code": r["code"],
+            "comuna": r["department_name"],
+            "pop": r["population"],
+            "count": r["container_count"],
+            "rate": r["avg_hourly_pct"],
+        }
+        for r in sorted(active_radios, key=lambda r: -r["avg_hourly_pct"])
+        if r["container_count"] <= 3
+    ]
+
+    distribution = {
+        "percentiles": {
+            "p50": _percentile(0.50),
+            "p90": _percentile(0.90),
+            "p99": _percentile(0.99),
+        },
+        "stats": {
+            "n": n_rates,
+            "mean": sum(all_rates) / n_rates if n_rates else 0.0,
+            "max": all_rates[-1] if all_rates else 0.0,
+        },
+        "histogram": {"labels": bin_labels, "counts": bin_counts},
+        "low_coverage_radios": low_coverage_radios,
+    }
+
     payload = {
         "comunas_list": comunas_list,
         "comunas_data": comunas_data,
         "radios_by_code": radios_by_code,
         "hotspots_high": hotspots_high,
         "hotspots_low": hotspots_low,
+        "distribution": distribution,
     }
 
     html = HTML_TEMPLATE.replace("__DATA_PAYLOAD__", json.dumps(payload))
@@ -1153,15 +1340,19 @@ def main():
     out_file.write_text(html, encoding="utf-8")
 
     print("=" * 70)
-    print(f" ✨ INSPECTOR VISUAL GENERADO EXITOSAMENTE:")
+    print(" ✨ INSPECTOR VISUAL GENERADO EXITOSAMENTE:")
     print(f"    {out_file.resolve()}")
     print("=" * 70)
     print(" 🏆 Top 3 Comunas por Tasa Media:")
     for idx, c in enumerate(comunas_list[:3]):
-        print(f"   #{idx+1} {c['name']}: {c['avg_hourly']:.3f} %/h ({c['container_count']} contenedores, {c['population_total']:,} hab.)")
+        print(
+            f"   #{idx + 1} {c['name']}: {c['avg_hourly']:.3f} %/h ({c['container_count']} contenedores, {c['population_total']:,} hab.)"
+        )
     print("\n 🔥 Top 3 Hotspots con Mayor Sobredemanda:")
     for h in hotspots_high[:3]:
-        print(f"   • Radio {h['code']} ({h['comuna']}): {h['rate']:.1f} %/h ({h['pop']} hab. / {h['count']} cont.)")
+        print(
+            f"   • Radio {h['code']} ({h['comuna']}): {h['rate']:.1f} %/h ({h['pop']} hab. / {h['count']} cont.)"
+        )
     print("=" * 70)
 
 
