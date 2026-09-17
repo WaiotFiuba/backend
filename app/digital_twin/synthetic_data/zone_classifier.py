@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import csv
 import logging
 from dataclasses import dataclass, field
@@ -52,25 +51,6 @@ COMUNA_BARRIO_FALLBACK: dict[str, str] = {
 }
 
 
-def _base_hour_factor(hour: int) -> float:
-    """
-    Curva base de generación de residuos según hora del día.
-
-    Replica la lógica de filling._hour_factor para mantener coherencia.
-    Se usa como fallback cuando una hora no está definida en hour_weights del perfil YAML.
-
-    Valores representativos:
-      - 0-5hs  → ~0.25 (piso nocturno)
-      - 6-10hs → ~0.65-1.4 (rampa matutina)
-      - 13hs   → ~1.45 (pico mediodía)
-      - 21hs   → ~1.75 (pico nocturno)
-    """
-    lunch_peak = 0.8 * math.exp(-((hour - 13) ** 2) / 18)
-    evening_peak = 1.1 * math.exp(-((hour - 21) ** 2) / 12)
-    night_floor = 0.25 if 0 <= hour <= 5 else 0.65
-    return night_floor + lunch_peak + evening_peak
-
-
 @dataclass
 class ZoneProfile:
     """Perfil de generación de residuos de una zona urbana / radio censal."""
@@ -99,18 +79,28 @@ class ZoneProfile:
         """
         Factor de generación para la hora del día (0-23).
 
-        Si la hora está definida en hour_weights del perfil YAML, se usa ese valor
-        (pensado como override de pico para horas clave de la zona).
-        Para el resto de las horas se usa _base_hour_factor, la misma curva de
-        forma Gaussiana que usa filling.py, que garantiza:
-          - Piso nocturno ~0.25 (0-5hs)
-          - Baseline diurno ~0.65
-          - Picos naturales al mediodía (~1.45) y noche (~1.75)
-        Esto evita que madrugada genere residuos a la misma tasa que el pico.
+        Si la hora está definida en hour_weights, se usa ese valor directo.
+        Si no, se interpola linealmente entre los dos puntos definidos más
+        cercanos DE ESTE MISMO PERFIL (cíclico, dando la vuelta la medianoche)
+        — así la curva de cada zona queda coherente consigo misma en vez de
+        caer a una curva genérica compartida por todos los tipos de zona.
         """
         if hour in self.hour_weights:
             return self.hour_weights[hour]
-        return _base_hour_factor(hour)
+        if not self.hour_weights:
+            return 1.0
+
+        defined_hours = sorted(self.hour_weights)
+        prev_hour = max(
+            (h for h in defined_hours if h < hour), default=defined_hours[-1] - 24
+        )
+        next_hour = min(
+            (h for h in defined_hours if h > hour), default=defined_hours[0] + 24
+        )
+        prev_weight = self.hour_weights[prev_hour % 24]
+        next_weight = self.hour_weights[next_hour % 24]
+        t = (hour - prev_hour) / (next_hour - prev_hour)
+        return prev_weight + (next_weight - prev_weight) * t
 
     def get_weekday_factor(self, weekday: int) -> float:
         """
@@ -169,7 +159,7 @@ DEFAULT_PROFILE = ZoneProfile(
     industrial_pct=5.0,
     demand_multiplier=1.0,
     weekend_factor=0.75,
-    hour_weights={7: 1.3, 8: 1.6, 9: 1.4, 20: 1.5, 21: 1.7, 22: 1.4},
+    hour_weights={3: 0.25, 7: 1.3, 8: 1.6, 9: 1.4, 20: 1.5, 21: 1.7, 22: 1.4},
     weekday_factors={0: 0.85, 5: 0.60, 6: 0.55},
 )
 
@@ -361,6 +351,10 @@ class ZoneClassifier:
         if code in self._radio_profiles:
             return self._radio_profiles[code]
         return DEFAULT_PROFILE
+
+    def has_profile_for_radio(self, radio_code: str) -> bool:
+        """True si el radio tiene perfil propio (land_use_by_radio.csv), no el default."""
+        return str(radio_code).strip() in self._radio_profiles
 
     def get_profile_for_barrio(self, barrio: str) -> ZoneProfile:
         """Retorna el ZoneProfile para un nombre de barrio (o comuna)."""

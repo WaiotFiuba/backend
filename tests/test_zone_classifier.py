@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from app.digital_twin.synthetic_data.domain.entities import (
     Container,
     Device,
@@ -138,6 +140,90 @@ def test_simulation_differentiates_multifamily_vs_singlefamily_over_weekend():
 
     # El contenedor unifamiliar debe haber acumulado significativamente más generación
     assert levels["C_SINGLE"] > levels["C_MULTI"]
+
+
+def _build_multi_single_topology() -> SimulationTopology:
+    site_multi = Site(
+        id="SITE_MULTI",
+        name="Edificios Palermo",
+        zone="residential_multifamily",
+        latitude=-34.58,
+        longitude=-58.42,
+        demand_base=1.0,
+    )
+    site_single = Site(
+        id="SITE_SINGLE",
+        name="Casas Villa Devoto",
+        zone="residential_singlefamily",
+        latitude=-34.60,
+        longitude=-58.51,
+        demand_base=1.0,
+    )
+    return SimulationTopology(
+        sites=[site_multi, site_single],
+        containers=[
+            Container(
+                id="C_MULTI",
+                site_id="SITE_MULTI",
+                name="Contenedor Multi",
+                waste_type="residuos",
+                height_cm=145,
+            ),
+            Container(
+                id="C_SINGLE",
+                site_id="SITE_SINGLE",
+                name="Contenedor Single",
+                waste_type="residuos",
+                height_cm=145,
+            ),
+        ],
+        devices=[
+            Device(id="D_MULTI", container_id="C_MULTI"),
+            Device(id="D_SINGLE", container_id="C_SINGLE"),
+        ],
+        initial_levels={"C_MULTI": 0.0, "C_SINGLE": 0.0},
+    )
+
+
+def test_zone_multiplier_override_composes_over_automatic_zone_classifier():
+    """
+    Regression guard: el override manual por zona (el que manda worker.py desde
+    los zone_overrides del front) debe MULTIPLICAR sobre la base automática de
+    ZoneClassifier, no reemplazarla — una zona sin override sigue diferenciándose
+    por su zone_type/curva horaria, y una zona con override ×2 debe dar
+    exactamente el doble de lo que daría sin override (no un valor absoluto).
+    """
+    tick_time = datetime(2026, 9, 13, 14, 0)  # domingo 14hs, mismo tick que arriba
+
+    baseline_sim = SyntheticDataSimulator(
+        ScenarioConfig(seed=42, periods=1, reading_jitter_minutes=0),
+        topology=_build_multi_single_topology(),
+    )
+    baseline = {
+        m.container_id: m.fill_level_pct
+        for m in baseline_sim.run_tick(tick_time).measurements
+    }
+
+    override_sim = SyntheticDataSimulator(
+        ScenarioConfig(seed=42, periods=1, reading_jitter_minutes=0),
+        topology=_build_multi_single_topology(),
+    )
+    overrides = {"residential_multifamily": 2.0}
+    overridden = {
+        m.container_id: m.fill_level_pct
+        for m in override_sim.run_tick(
+            tick_time, zone_multiplier=lambda zone: overrides.get(zone, 1.0)
+        ).measurements
+    }
+
+    # La zona con override ×2 debe dar el doble de la base automática (composición
+    # multiplicativa, no un valor absoluto que reemplace la base). Tolerancia
+    # relajada porque engine.py redondea los increments a 4 decimales por tick.
+    assert overridden["C_MULTI"] == pytest.approx(baseline["C_MULTI"] * 2.0, rel=1e-3)
+
+    # La zona sin override configurado ('residential_singlefamily' no está en el
+    # dict) debe quedar intacta, no aplastada a un multiplicador plano de 1.0.
+    assert overridden["C_SINGLE"] == pytest.approx(baseline["C_SINGLE"], rel=1e-6)
 
 
 def test_zone_classifier_calibration_loading():

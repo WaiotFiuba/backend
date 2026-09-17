@@ -174,10 +174,6 @@ class SyntheticDataSimulator:
         zone_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         import numpy as np
-        from app.digital_twin.synthetic_data.generators.filling import (
-            _hour_factor,
-            _weekday_factor,
-        )
         from app.digital_twin.synthetic_data.generators.sensors import _daily_wave
 
         state = self.state or self.initialize()
@@ -201,6 +197,7 @@ class SyntheticDataSimulator:
             waste_factors = []
             heights = []
             reading_offsets = []
+            zone_profiles = []
 
             from collections import defaultdict
 
@@ -220,6 +217,7 @@ class SyntheticDataSimulator:
                 )
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
+                zone_profiles.append(get_zone_classifier().get_profile(site.zone))
 
                 containers_by_site_and_waste[
                     (container.site_id, container.waste_type)
@@ -232,6 +230,7 @@ class SyntheticDataSimulator:
             state._cached_waste_factors = np.array(waste_factors, dtype=np.float64)
             state._cached_heights = np.array(heights, dtype=np.float64)
             state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
+            state._cached_zone_profiles = zone_profiles
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
             state._cached_arrays = True
@@ -262,50 +261,45 @@ class SyntheticDataSimulator:
 
         # 1. Calculate filling increments and spillover to opposing sites
 
+        # Base automática: cada sitio usa su ZoneProfile cacheado (zone_type +
+        # curva horaria/semanal propia), evaluado con la hora/día de este tick.
+        zone_classifier = get_zone_classifier()
+        zone_mults = np.array(
+            [
+                profile.effective_multiplier(timestamp.hour, timestamp.weekday())
+                for profile in state._cached_zone_profiles
+            ],
+            dtype=np.float64,
+        )
+
+        # Calibración global: si la media se sale del rango target ± tolerance_pct
+        # (zone_profiles.yaml), renormaliza para que el volumen agregado tienda a
+        # target_zone_mult × 1.5 kg/habitante/día (fuente CEAMSE/INDEC).
+        current_mean = float(zone_mults.mean())
+        target = zone_classifier.calibration_target
+        tol = zone_classifier.calibration_tolerance_pct / 100.0
+        lower = target * (1.0 - tol)
+        upper = target * (1.0 + tol)
+        if current_mean > 0.0 and not (lower <= current_mean <= upper):
+            logger.warning(
+                "zone_mults media=%.4f fuera del rango [%.4f, %.4f]. "
+                "Normalizando al target=%.4f.",
+                current_mean,
+                lower,
+                upper,
+                target,
+            )
+            zone_mults = zone_mults * (target / current_mean)
+
         if zone_multiplier:
-            # Multiplicador externo explícito (override desde el front u otros callers)
-            zone_mults = np.array(
+            # Ajuste manual por zona (override del front): multiplica sobre la
+            # base automática ya calibrada, en vez de reemplazarla — una zona
+            # sin override configurado sigue diferenciándose por zone_type/hora.
+            overrides = np.array(
                 [zone_multiplier(site.zone) for site in state._cached_sites],
                 dtype=np.float64,
             )
-            # Mantener los factores globales horarios/semanales como fallback
-            h_factor = _hour_factor(timestamp.hour)
-            wd_factor = _weekday_factor(timestamp.weekday())
-            time_factor = h_factor * wd_factor
-        else:
-            # ZoneClassifier: cada sitio recibe su multiplicador diferenciado
-            # según el tipo de zona (barrio) — demand_multiplier × hour_weight × weekday_factor
-            zone_classifier = get_zone_classifier()
-            zone_mults = np.array(
-                [
-                    zone_classifier.get_multiplier(
-                        site.zone, timestamp.hour, timestamp.weekday()
-                    )
-                    for site in state._cached_sites
-                ],
-                dtype=np.float64,
-            )
-            # time_factor ya está embebido en zone_mults (el ZoneClassifier combina todo)
-            time_factor = 1.0
-
-            # ── Calibración global de demanda ──────────────────────────────────
-            # Verifica si el promedio del zone_mults se mantiene dentro del rango
-            # aceptable configurado en zone_profiles.yaml (target ± tolerance_pct).
-            # Si se sale del rango, normaliza el array para llevarlo al target.
-            # Esto garantiza que el volumen global de residuos simulado tienda a
-            # target_zone_mult × 1.5 kg/habitante/día (fuente CEAMSE/INDEC).
-            current_mean = float(zone_mults.mean())
-            target = zone_classifier.calibration_target
-            tol = zone_classifier.calibration_tolerance_pct / 100.0
-            lower = target * (1.0 - tol)
-            upper = target * (1.0 + tol)
-            if current_mean > 0.0 and not (lower <= current_mean <= upper):
-                logger.warning(
-                    "zone_mults media=%.4f fuera del rango [%.4f, %.4f]. "
-                    "Normalizando al target=%.4f.",
-                    current_mean, lower, upper, target,
-                )
-                zone_mults = zone_mults * (target / current_mean)
+            zone_mults = zone_mults * overrides
 
         global_mult = (
             self.config.high_demand_multiplier
@@ -320,7 +314,6 @@ class SyntheticDataSimulator:
         increments = (
             state._cached_demand_bases
             * time_ratio
-            * time_factor
             * state._cached_waste_factors
             * global_mult
             * zone_mults

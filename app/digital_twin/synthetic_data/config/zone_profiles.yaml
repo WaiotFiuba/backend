@@ -1,3 +1,12 @@
+# ─── ADVERTENCIA SOBRE EL ORIGEN DE LOS DATOS ─────────────────────────────────
+# El baseline global (1.5 kg/persona/día) y el ajuste de target_zone_mult están
+# citados a CEAMSE/INDEC. Los demand_multiplier por zone_type y las curvas
+# horarias/semanales de 'profiles' NO surgen de un estudio de generación
+# diferencial de residuos por uso de suelo en CABA — son estimaciones de
+# sentido común (razonables, pero no medidas) para darle forma realista a la
+# simulación. Si se usan estos datos para algo más que generar datos
+# sintéticos de prueba, conviene validarlos contra una fuente real primero.
+
 # ─── Calibración Global de Demanda ────────────────────────────────────────────
 # Controla el nivel GLOBAL de generación de residuos en relación al baseline censal
 # (1.5 kg/persona/día, fuente CEAMSE/INDEC).
@@ -13,14 +22,18 @@
 #   Rango razonable: 0.90 – 1.15
 #
 # tolerance_pct: desvío porcentual aceptable antes de que se aplique la normalización.
-#   10 → si el promedio real está entre 0.90 y 1.10 × target, NO se normaliza
-#        (se respeta el YAML tal cual). Solo se normaliza si sale de ese rango.
+#   3 → si el promedio real está entre 0.97 y 1.03 × target, NO se normaliza
+#       (se respeta el YAML tal cual). Solo se normaliza si sale de ese rango.
 #   Esto permite que cambios moderados en demand_multiplier del YAML se vean
 #   reflejados naturalmente, sin forzar siempre a exactamente el target.
+#   (Antes era 10 — con los demand_multiplier reales de CABA el promedio da
+#   ~1.093, +9.3% sobre el censo, más del doble del +5% documentado arriba
+#   como intención, y una tolerancia de ±10% lo dejaba pasar sin corregir.
+#   Con ±3% el mecanismo sí hace lo que dice: corrige de vuelta al target.)
 global_demand_calibration:
   target_zone_mult: 1.05      # ~1.58 kg/hab/día: levemente sobre CEAMSE para incluir
                                # recuperación informal y variación estacional
-  tolerance_pct: 10.0          # ±10% de tolerancia antes de normalizar
+  tolerance_pct: 3.0           # ±3% de tolerancia antes de normalizar
 
 # ─── Umbrales de Clasificación de Zonas (en % de parcelas) ────────────────────
 classification_thresholds:
@@ -63,9 +76,11 @@ profiles:
     base_demand_multiplier: 1.10
     weekend_factor: 0.60
     hour_weights:
+      3:  0.25   # piso nocturno
       7:  1.3    # encargado inicia ronda
       8:  1.6    # pico máximo del encargado bajando residuos
       9:  1.4    # cierre ronda encargado
+      14: 0.5    # mediodía, sin actividad entre rondas del encargado
       19: 1.2    # residentes retornan
       20: 1.5    # cena / descarte
       21: 1.7    # pico nocturno residentes
@@ -83,6 +98,7 @@ profiles:
     base_demand_multiplier: 0.95
     weekend_factor: 0.85
     hour_weights:
+      3:  0.25   # piso nocturno
       8:  1.1
       12: 1.2    # mediodía en casa
       13: 1.2
@@ -100,9 +116,11 @@ profiles:
     base_demand_multiplier: 1.00
     weekend_factor: 0.65
     hour_weights:
+      3:  0.25   # piso nocturno
       7:  1.3
       8:  1.5
       9:  1.3
+      14: 0.5    # mediodía, sin actividad entre rondas
       20: 1.4
       21: 1.6
       22: 1.4
@@ -118,6 +136,7 @@ profiles:
     base_demand_multiplier: 1.40
     weekend_factor: 1.20
     hour_weights:
+      3:  0.25   # piso nocturno
       11: 1.3
       12: 1.6    # almuerzo
       13: 1.8    # pico mediodía comercial
@@ -136,6 +155,7 @@ profiles:
     base_demand_multiplier: 0.85
     weekend_factor: 0.10
     hour_weights:
+      3:  0.25   # piso nocturno
       8:  1.2
       9:  1.3
       12: 1.5    # almuerzo de empleados (deliveries, kioscos)
@@ -155,6 +175,7 @@ profiles:
     base_demand_multiplier: 0.65
     weekend_factor: 0.20
     hour_weights:
+      3:  0.25   # piso nocturno
       7:  1.2
       8:  1.4    # inicio turno mañana
       12: 1.3    # almuerzo
@@ -169,6 +190,7 @@ profiles:
     base_demand_multiplier: 1.00
     weekend_factor: 0.80
     hour_weights:
+      3:  0.25   # piso nocturno
       8:  1.2
       12: 1.4
       13: 1.5
