@@ -36,6 +36,40 @@ _NOISE_TOKENS = {
 }
 
 
+def _strip_dash_prefix(text: str) -> str:
+    """ "Sitio RSU - CALLAO 520" -> "CALLAO 520" (toma la parte tras el guión, si hay)."""
+    cleaned = text.upper()
+    if "-" in cleaned:
+        cleaned = cleaned.split("-", 1)[1].strip()
+    # "°" y "º" se usan indistintamente en los datos reales para lo mismo (ej. "Cabo 2°" / "Cabo 2º")
+    # pasamos a uno solo para que ambos lados de un match usen siempre el mismo.
+    cleaned = cleaned.replace("º", "°")
+    return cleaned
+
+
+def _clean_street_tokens(text_without_number: str) -> str | None:
+    """Quita caracteres especiales y tokens de ruido (AV., CALLE, comas, etc.)."""
+    street_part = re.sub(r"[^\w\s]", " ", text_without_number)
+    tokens = [t for t in street_part.split() if t not in _NOISE_TOKENS and len(t) > 1]
+    if not tokens:
+        return None
+    return " ".join(tokens)
+
+
+def normalize_street_name(text: str | None) -> str | None:
+    """Normaliza un nombre de calle SIN exigir que el texto tenga un número.
+
+    Ejemplos:
+        "Corrientes Av." -> "CORRIENTES"
+        "Mitre, Bartolome" -> "MITRE BARTOLOME"
+    """
+    if not text:
+        return None
+    cleaned = _strip_dash_prefix(text)
+    cleaned = re.sub(r"\b\d{1,5}\b", " ", cleaned)
+    return _clean_street_tokens(cleaned)
+
+
 def parse_street_address(text: str | None) -> tuple[str, int] | None:
     """Extrae el nombre de calle normalizado y la altura catastral (número).
 
@@ -48,11 +82,7 @@ def parse_street_address(text: str | None) -> tuple[str, int] | None:
     if not text:
         return None
 
-    cleaned = text.upper()
-    # Si viene con formato "Sitio ... - Dirección", tomar la parte después del guión si existe
-    if "-" in cleaned:
-        parts = cleaned.split("-", 1)
-        cleaned = parts[1].strip()
+    cleaned = _strip_dash_prefix(text)
 
     # Buscar la altura numérica (número entero de 1 a 5 dígitos)
     # Típicamente está al final de la dirección o precedido/seguido por letras
@@ -68,17 +98,10 @@ def parse_street_address(text: str | None) -> tuple[str, int] | None:
 
     # Extraer el texto de la calle sin el número
     street_part = re.sub(r"\b\d{1,5}\b", " ", cleaned)
-    # Quitar caracteres especiales
-    street_part = re.sub(r"[^\w\s]", " ", street_part)
-
-    # Filtrar tokens de ruido
-    raw_tokens = street_part.split()
-    tokens = [t for t in raw_tokens if t not in _NOISE_TOKENS and len(t) > 1]
-
-    if not tokens:
+    normalized_street = _clean_street_tokens(street_part)
+    if not normalized_street:
         return None
 
-    normalized_street = " ".join(tokens)
     return normalized_street, number
 
 
@@ -144,10 +167,13 @@ def build_opposing_sites_map(
                         best_dist = dist
                         best_odd = odd_site
 
-            if best_odd is not None:
-                # Si ninguno está ya emparejado o el nuevo es más cercano
-                if even_site.id not in opposing_map and best_odd.id not in opposing_map:
-                    opposing_map[even_site.id] = best_odd.id
-                    opposing_map[best_odd.id] = even_site.id
+            # Si ninguno está ya emparejado o el nuevo es más cercano
+            if (
+                best_odd is not None
+                and even_site.id not in opposing_map
+                and best_odd.id not in opposing_map
+            ):
+                opposing_map[even_site.id] = best_odd.id
+                opposing_map[best_odd.id] = even_site.id
 
     return opposing_map
