@@ -132,3 +132,29 @@ class SiteProjectionEvaluationResponse(BaseModel):
     site_count: int
     summary: dict | None = None
     metrics: list[SiteProjectionEvaluationMetricResponse] = Field(default_factory=list)
+
+
+class SiteProjectionEvaluationSiteReport(BaseModel):
+    site_id: int
+    sample_count: int | None = None
+    mae: float | None = None
+    rmse: float | None = None
+    critical_time_error_hours: float | None = None
+    threshold_precision: float | None = None
+    threshold_recall: float | None = None
+
+
+class SiteProjectionEvaluationReportResponse(BaseModel):
+    id: int
+    model_key: str
+    status: str
+    completed_at: datetime | None = None
+    summary: dict | None = None
+    global_metrics: dict[str, float | None] = Field(default_factory=dict)
+    site_metrics: list[SiteProjectionEvaluationSiteReport] = Field(default_factory=list)
+    best_predicted_sites: list[SiteProjectionEvaluationSiteReport] = Field(
+        default_factory=list
+    )
+    worst_predicted_sites: list[SiteProjectionEvaluationSiteReport] = Field(
+        default_factory=list
+    )

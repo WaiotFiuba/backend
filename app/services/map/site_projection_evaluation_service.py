@@ -15,8 +15,10 @@ from app.models.map.site_projection import (
 )
 from app.schemas.map.site_projection import (
     SiteProjectionEvaluationMetricResponse,
+    SiteProjectionEvaluationReportResponse,
     SiteProjectionEvaluationRequest,
     SiteProjectionEvaluationResponse,
+    SiteProjectionEvaluationSiteReport,
 )
 from app.services.map.site_projection_history_service import (
     SiteLevelBucket,
@@ -111,6 +113,8 @@ async def evaluate_site_forecast_backtest(
     ]
 
     current_level = training_history[-1].level if training_history else 0.0
+    # Uso el mismo contrato que usa produccion para proyectar. Asi evaluamos el
+    # modelo real y no una version especial preparada solo para tests/reportes.
     forecast = await forecaster.forecast(
         ForecastRequest(
             site_id=request.site_id,
@@ -374,6 +378,29 @@ async def get_site_projection_evaluation(
     return _evaluation_response(evaluation, metrics, cutoff)
 
 
+async def get_site_projection_evaluation_report(
+    db: AsyncSession,
+    evaluation_id: int,
+) -> SiteProjectionEvaluationReportResponse:
+    evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+    if evaluation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Evaluacion de modelo no encontrada.",
+        )
+
+    result = await db.execute(
+        select(SiteModelEvaluationMetric)
+        .where(SiteModelEvaluationMetric.evaluation_id == evaluation_id)
+        .order_by(
+            SiteModelEvaluationMetric.metric_scope,
+            SiteModelEvaluationMetric.site_id,
+            SiteModelEvaluationMetric.metric_key,
+        )
+    )
+    return _evaluation_report(evaluation, list(result.scalars().all()))
+
+
 def _evaluation_window_days(request: SiteProjectionEvaluationRequest) -> int:
     # get_site_level_series recibe dias enteros. Redondeo el horizonte hacia
     # arriba para no perder observaciones cuando el horizonte no cae justo en 24h.
@@ -568,6 +595,75 @@ def _evaluation_response(
             for metric in metrics
         ],
     )
+
+
+def _evaluation_report(
+    evaluation: SiteModelEvaluation,
+    metrics: list[SiteModelEvaluationMetric],
+) -> SiteProjectionEvaluationReportResponse:
+    # Este reporte es una vista de lectura: no recalcula nada, solo acomoda las
+    # metricas persistidas para comparar rapidamente modelos y detectar outliers.
+    global_metrics = {
+        metric.metric_key: metric.metric_value
+        for metric in metrics
+        if metric.metric_scope == "global"
+    }
+    site_metrics = _site_report_metrics(metrics)
+    ranked_sites = [site for site in site_metrics if site.mae is not None]
+    ranked_sites.sort(key=lambda site: site.mae or 0)
+
+    return SiteProjectionEvaluationReportResponse(
+        id=evaluation.id,
+        model_key=evaluation.model_key,
+        status=evaluation.status,
+        completed_at=evaluation.completed_at,
+        summary=evaluation.summary,
+        global_metrics=global_metrics,
+        site_metrics=site_metrics,
+        best_predicted_sites=ranked_sites[:10],
+        worst_predicted_sites=list(reversed(ranked_sites[-10:])),
+    )
+
+
+def _site_report_metrics(
+    metrics: list[SiteModelEvaluationMetric],
+) -> list[SiteProjectionEvaluationSiteReport]:
+    grouped: dict[int, dict[str, float | int | None]] = {}
+    for metric in metrics:
+        if metric.metric_scope != "site" or metric.site_id is None:
+            continue
+        site_data = grouped.setdefault(
+            metric.site_id,
+            {"site_id": metric.site_id, "sample_count": metric.sample_count},
+        )
+        site_data[metric.metric_key] = metric.metric_value
+        if site_data.get("sample_count") is None:
+            site_data["sample_count"] = metric.sample_count
+
+    return [
+        SiteProjectionEvaluationSiteReport(
+            site_id=int(site_data["site_id"]),
+            sample_count=(
+                int(site_data["sample_count"])
+                if site_data.get("sample_count") is not None
+                else None
+            ),
+            mae=_optional_float(site_data.get("mae")),
+            rmse=_optional_float(site_data.get("rmse")),
+            critical_time_error_hours=_optional_float(
+                site_data.get("critical_time_error_hours")
+            ),
+            threshold_precision=_optional_float(site_data.get("threshold_precision")),
+            threshold_recall=_optional_float(site_data.get("threshold_recall")),
+        )
+        for site_data in grouped.values()
+    ]
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 
 
 def _parse_cutoff_from_config(config: dict | None) -> datetime | None:

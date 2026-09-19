@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
 from app.schemas.map.site_projection import (
+    SiteProjectionEvaluationReportResponse,
     SiteProjectionEvaluationRequest,
     SiteProjectionEvaluationResponse,
     SiteProjectionModel,
@@ -17,6 +18,7 @@ from app.schemas.map.site_projection import (
 from app.services.map.site_projection_evaluation_service import (
     create_site_projection_evaluation,
     get_site_projection_evaluation,
+    get_site_projection_evaluation_report,
 )
 from app.services.map.site_projection_models import (
     DEFAULT_MODEL_KEY,
@@ -98,6 +100,26 @@ async def get_site_projection_evaluation_endpoint(
     evaluation_id: Annotated[int, Path(ge=1)],
 ) -> SiteProjectionEvaluationResponse:
     return await get_site_projection_evaluation(
+        db=db,
+        evaluation_id=evaluation_id,
+    )
+
+
+@router.get(
+    "/evaluations/{evaluation_id}/report",
+    response_model=SiteProjectionEvaluationReportResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener reporte resumido de metricas de una evaluacion",
+    description=(
+        "Agrupa las metricas persistidas en globales, metricas por sitio y "
+        "ranking de sitios mejor y peor predichos."
+    ),
+)
+async def get_site_projection_evaluation_report_endpoint(
+    db: MapDbDep,
+    evaluation_id: Annotated[int, Path(ge=1)],
+) -> SiteProjectionEvaluationReportResponse:
+    return await get_site_projection_evaluation_report(
         db=db,
         evaluation_id=evaluation_id,
     )
