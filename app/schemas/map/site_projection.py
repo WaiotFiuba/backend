@@ -89,8 +89,17 @@ class SiteProjectionRunResponse(BaseModel):
 
 
 class SiteProjectionEvaluationRequest(BaseModel):
-    site_ids: list[int] = Field(
-        description="Sitios a evaluar contra historico observado."
+    site_ids: list[int] | None = Field(
+        default=None, description="Sitios a evaluar contra historico observado."
+    )
+    site_sample_size: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        description=(
+            "Cantidad de sitios random a evaluar cuando no se envian site_ids. "
+            "La muestra se toma entre sitios con mediciones en la ventana evaluable."
+        ),
     )
     cutoff: datetime = Field(
         description="Momento historico donde se corta la serie para iniciar el backtesting."

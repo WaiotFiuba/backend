@@ -79,7 +79,9 @@ async def create_site_projection(
     description=(
         "Corta el historico en un instante pasado, proyecta el horizonte pedido "
         "y compara contra observaciones reales posteriores. Persiste metricas "
-        "globales y por sitio para auditoria."
+        "globales y por sitio para auditoria. Se puede enviar una lista de "
+        "site_ids o site_sample_size para que el backend tome una muestra random "
+        "de sitios con mediciones en la ventana evaluable."
     ),
 )
 async def create_site_projection_evaluation_endpoint(

@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.map.container import Container
+from app.models.map.data_level import DataLevel
+from app.models.map.site import Site
 from app.models.map.site_projection import (
     SiteFeature,
     SiteModelEvaluation,
@@ -280,14 +283,12 @@ async def create_site_projection_evaluation(
     db: AsyncSession,
     request: SiteProjectionEvaluationRequest,
 ) -> SiteProjectionEvaluationResponse:
-    if not request.site_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="site_ids es requerido para ejecutar una evaluacion.",
-        )
-
-    unique_site_ids = sorted(set(request.site_ids))
     cutoff = _as_utc(request.cutoff)
+    unique_site_ids = await _resolve_evaluation_site_ids(
+        db=db,
+        request=request,
+        cutoff=cutoff,
+    )
     # Necesito traer historico antes del cutoff para construir el perfil del
     # modelo, y tambien despues del cutoff para tener observaciones contra las
     # cuales comparar. Por eso la ventana suma lookback + horizonte.
@@ -323,10 +324,12 @@ async def create_site_projection_evaluation(
     ]
 
     completed_at = datetime.now(UTC)
+    config = request.model_dump(mode="json")
+    config["selected_site_ids"] = unique_site_ids
     evaluation = SiteModelEvaluation(
         model_key=request.model_key,
         status="completed",
-        config=request.model_dump(mode="json"),
+        config=config,
         horizon_hours=request.horizon_hours,
         interval_minutes=request.interval_minutes,
         critical_level=request.critical_level,
@@ -406,6 +409,48 @@ def _evaluation_window_days(request: SiteProjectionEvaluationRequest) -> int:
     # arriba para no perder observaciones cuando el horizonte no cae justo en 24h.
     horizon_days = max(1, math.ceil(request.horizon_hours / 24))
     return request.lookback_days + horizon_days
+
+
+async def _resolve_evaluation_site_ids(
+    db: AsyncSession,
+    request: SiteProjectionEvaluationRequest,
+    cutoff: datetime,
+) -> list[int]:
+    if request.site_ids:
+        return sorted(set(request.site_ids))
+    if request.site_sample_size is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe enviarse site_ids o site_sample_size.",
+        )
+
+    # Para que la evaluacion tenga valor, la muestra random sale de sitios que
+    # realmente tienen mediciones dentro de la ventana usada por el backtesting.
+    start_time = cutoff - timedelta(days=request.lookback_days)
+    end_time = cutoff + timedelta(hours=request.horizon_hours)
+    stmt = (
+        select(Site.id)
+        .join(Container, Container.site_id == Site.id)
+        .join(DataLevel, DataLevel.container_id == Container.id)
+        .where(
+            Site.deleted_at.is_(None),
+            Container.deleted_at.is_(None),
+            DataLevel.container_current_level.is_not(None),
+            DataLevel.reading_date >= start_time,
+            DataLevel.reading_date <= end_time,
+        )
+        .group_by(Site.id)
+        .order_by(func.random())
+        .limit(request.site_sample_size)
+    )
+    result = await db.execute(stmt)
+    site_ids = [int(site_id) for site_id in result.scalars().all()]
+    if not site_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay sitios con mediciones en la ventana de evaluacion.",
+        )
+    return sorted(site_ids)
 
 
 async def _get_features_by_site(
