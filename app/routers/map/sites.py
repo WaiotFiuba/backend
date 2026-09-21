@@ -41,6 +41,7 @@ async def get_sites_by_bbox(
     level_aggregation: Literal["avg", "max"] = Query("avg"),
     limit: int | None = Query(None, ge=1),
     offset: int | None = Query(None, ge=0),
+    distribution: Literal["real", "whatif"] = Query("real"),
 ) -> list[SiteCluster] | list[SiteMapOutputSchema]:
     return await get_sites_clustered(
         db=db,
@@ -52,6 +53,7 @@ async def get_sites_by_bbox(
         level_aggregation=level_aggregation,
         limit=limit,
         offset=offset,
+        distribution=distribution,
     )
 
 
