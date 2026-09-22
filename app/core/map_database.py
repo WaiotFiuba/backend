@@ -8,8 +8,9 @@ map_engine = create_async_engine(
     settings.map_database_url,
     echo=False,
     future=True,
-    pool_size=30,
-    max_overflow=20,
+    pool_size=settings.map_db_pool_size,
+    max_overflow=settings.map_db_max_overflow,
+    pool_pre_ping=True,
 )
 MapSessionLocal = async_sessionmaker(map_engine, expire_on_commit=False)
 MapBase = declarative_base()

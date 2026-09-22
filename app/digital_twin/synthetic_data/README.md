@@ -313,8 +313,13 @@ La especificación interactiva está disponible en `http://localhost:8000/docs`.
 | `SIMULATOR_BACKEND_URL` | `http://api:8000` | URL interna utilizada por el worker |
 | `SIMULATOR_POLL_SECONDS` | `2` | Frecuencia de consulta de sesión y controles |
 | `SIMULATOR_BATCH_SIZE` | `250` | Mediciones enviadas por request |
+| `SIMULATOR_CONTAINER_LIMIT` | sin límite | Cantidad máxima de contenedores que el worker carga en la topología |
+| `SIMULATOR_CONTROL_MISS_TOLERANCE` | `5` | Fallos consecutivos tolerados al consultar controles antes de abandonar la sesión |
 | `ENABLE_MAP_DB` | `false` | Habilita la base PostGIS |
 | `MAP_DATABASE_URL` | ver `.env.example` | Conexión a PostGIS |
+
+Para demos contra hosting gratuito, configurar `SIMULATOR_CONTAINER_LIMIT=2000`
+o menos para evitar saturar la API y la base con todos los contenedores en cada tick.
 
 ## Logs
 

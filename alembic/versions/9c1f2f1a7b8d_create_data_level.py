@@ -5,6 +5,7 @@ Revises: bc51307a5d47
 Create Date: 2026-06-08 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -31,7 +32,9 @@ def upgrade() -> None:
         sa.Column("reported_temperature", sa.DOUBLE_PRECISION(), nullable=True),
         sa.Column("crash_alarm", sa.Boolean(), nullable=False),
         sa.Column("garbage_collection_alarm", sa.Boolean(), nullable=False),
-        sa.Column("reported_collection_date", sa.TIMESTAMP(timezone=True), nullable=True),
+        sa.Column(
+            "reported_collection_date", sa.TIMESTAMP(timezone=True), nullable=True
+        ),
         sa.Column("reported_low_consumption_voltage", sa.Boolean(), nullable=False),
         sa.Column("reported_high_consumption_voltage", sa.Boolean(), nullable=False),
         sa.Column("container_current_level_old", sa.Integer(), nullable=True),
@@ -51,8 +54,12 @@ def upgrade() -> None:
         sa.Column("zone_name", sa.String(), nullable=True),
         sa.Column("waste_type_id", sa.BigInteger(), nullable=True),
         sa.Column("waste_type_name", sa.String(), nullable=True),
-        sa.Column("waste_type_pickup_alert_threshold", sa.DOUBLE_PRECISION(), nullable=True),
-        sa.Column("waste_type_pickup_warning_threshold", sa.DOUBLE_PRECISION(), nullable=True),
+        sa.Column(
+            "waste_type_pickup_alert_threshold", sa.DOUBLE_PRECISION(), nullable=True
+        ),
+        sa.Column(
+            "waste_type_pickup_warning_threshold", sa.DOUBLE_PRECISION(), nullable=True
+        ),
         sa.Column("waste_type_max_days_between_pickup", sa.Integer(), nullable=True),
         sa.Column("waste_type_alert_rule_category_id", sa.BigInteger(), nullable=True),
         sa.Column("waste_type_alert_rule_category_name", sa.String(), nullable=True),
@@ -76,7 +83,9 @@ def upgrade() -> None:
         "data_level",
         ["container_id", "reading_date"],
     )
-    op.create_index("idx_data_level_imei_reading_date", "data_level", ["imei", "reading_date"])
+    op.create_index(
+        "idx_data_level_imei_reading_date", "data_level", ["imei", "reading_date"]
+    )
 
 
 def downgrade() -> None:
