@@ -49,6 +49,7 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
             detail="Plan de redistribución no encontrado.",
         )
     if plan.status == "active_whatif":
+        await _ensure_cache_for_plan(db, plan)
         return _plan_model_to_read(plan)
 
     # Desactivar any plan what-if previo
@@ -142,6 +143,93 @@ async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPla
 
     logger.info("What-if desactivado para plan %s.", plan_id)
     return _plan_model_to_read(plan)
+
+
+async def _ensure_cache_for_plan(
+    db: AsyncSession, plan: RedistributionPlanModel
+) -> None:
+    """Asegura que los mappings del plan estén cargados en memoria."""
+    global _active_plan_id, _optimized_mapping, _virtual_levels
+    if _active_plan_id == plan.id and _optimized_mapping:
+        return
+
+    moves = plan.moves or []
+    move_mapping: dict[int, int] = {m["container_id"]: m["to_site_id"] for m in moves}
+
+    containers = (
+        await db.execute(
+            select(Container.id, Container.site_id, Container.current_level).where(
+                Container.deleted_at.is_(None)
+            )
+        )
+    ).all()
+
+    _active_plan_id = plan.id
+    _optimized_mapping = {c.id: move_mapping.get(c.id, c.site_id) for c in containers}
+    _virtual_levels = {c.id: c.current_level for c in containers}
+
+
+async def ensure_whatif_cache(db: AsyncSession) -> None:
+    """Restaura la caché en memoria si hay un plan active_whatif en la base de datos."""
+    global _active_plan_id
+    if _active_plan_id is not None:
+        return
+
+    stmt = (
+        select(RedistributionPlanModel)
+        .where(RedistributionPlanModel.status == "active_whatif")
+        .order_by(RedistributionPlanModel.id.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    if plan is not None:
+        await _ensure_cache_for_plan(db, plan)
+
+
+async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionPlanRead:
+    """
+    Retorna el plan What-If activo actualmente.
+    Si no existe ninguno, crea y activa un plan base (copia 1:1 de la red física).
+    """
+    stmt = (
+        select(RedistributionPlanModel)
+        .where(RedistributionPlanModel.status == "active_whatif")
+        .order_by(RedistributionPlanModel.id.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+
+    if plan is not None:
+        await _ensure_cache_for_plan(db, plan)
+        return _plan_model_to_read(plan)
+
+    from app.schemas.map.optimization import OptimizationConfig
+
+    baseline_plan = RedistributionPlanModel(
+        status="draft",
+        config=OptimizationConfig().model_dump(),
+        moves=[],
+        metrics_snapshot=None,
+        summary={
+            "total_containers_moved": 0,
+            "sites_emptied": 0,
+            "sites_receiving": 0,
+            "sites_donating": 0,
+            "avg_distance_km": 0.0,
+            "expected_improvement": 0.0,
+            "original_mean_fill": 0.0,
+            "original_std_fill": 0.0,
+            "optimized_mean_fill": 0.0,
+            "optimized_std_fill": 0.0,
+        },
+    )
+    db.add(baseline_plan)
+    await db.commit()
+    await db.refresh(baseline_plan)
+
+    return await activate_whatif(db, baseline_plan.id)
 
 
 def is_whatif_active() -> bool:
