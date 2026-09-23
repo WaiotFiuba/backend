@@ -115,7 +115,9 @@ class BaselineOperationalForecaster:
 
         # Las features territoriales solo corrigen el fallback. Si el sitio ya
         # tiene suficiente historico propio, prefiero creerle a su serie real.
-        density_factor = _numeric_feature(context.site_features, "demand.density_factor")
+        density_factor = _numeric_feature(
+            context.site_features, "demand.density_factor"
+        )
         feature_adjustment = _feature_adjustment(
             density_factor=density_factor,
             has_enough_site_history=len(increment_profile.global_increments) >= 6,
