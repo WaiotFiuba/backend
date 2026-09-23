@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 
+from app.schemas.map.site_projection import SiteProjectionEvaluationRequest
 from app.services.map.site_projection_evaluation_service import (
     SiteBacktestRequest,
+    _resolve_automatic_cutoff,
     evaluate_site_forecast_backtest,
 )
 from app.services.map.site_projection_history_service import SiteLevelBucket
@@ -21,6 +24,55 @@ def bucket_at(timestamp: datetime, level: float) -> SiteLevelBucket:
         container_count=1,
         has_collection_signal=False,
     )
+
+
+class FakeResult:
+    def __init__(self, row):
+        self.row = row
+
+    def one(self):
+        return self.row
+
+
+class FakeDb:
+    def __init__(self, row):
+        self.row = row
+
+    async def execute(self, _stmt):
+        return FakeResult(self.row)
+
+
+@pytest.mark.asyncio
+async def test_automatic_cutoff_uses_latest_observation_minus_horizon():
+    earliest = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    latest = datetime(2026, 1, 1, 16, 0, tzinfo=UTC)
+
+    cutoff = await _resolve_automatic_cutoff(
+        db=FakeDb((earliest, latest)),
+        request=SiteProjectionEvaluationRequest(
+            site_sample_size=5,
+            horizon_hours=3,
+        ),
+    )
+
+    assert cutoff == datetime(2026, 1, 1, 13, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_automatic_cutoff_rejects_horizon_without_future_observations():
+    earliest = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    latest = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _resolve_automatic_cutoff(
+            db=FakeDb((earliest, latest)),
+            request=SiteProjectionEvaluationRequest(
+                site_sample_size=5,
+                horizon_hours=24,
+            ),
+        )
+
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio

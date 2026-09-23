@@ -101,12 +101,8 @@ class SiteProjectionEvaluationRequest(BaseModel):
             "La muestra se toma entre sitios con mediciones en la ventana evaluable."
         ),
     )
-    cutoff: datetime = Field(
-        description="Momento historico donde se corta la serie para iniciar el backtesting."
-    )
     model_key: str = "baseline_operational"
     horizon_hours: int = Field(default=24, ge=1, le=168)
-    interval_minutes: int = Field(default=60, ge=15, le=1440)
     critical_level: int = Field(default=80, ge=1, le=100)
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)

@@ -77,11 +77,12 @@ async def create_site_projection(
     status_code=status.HTTP_201_CREATED,
     summary="Ejecutar backtesting de un modelo de proyeccion",
     description=(
-        "Corta el historico en un instante pasado, proyecta el horizonte pedido "
-        "y compara contra observaciones reales posteriores. Persiste metricas "
-        "globales y por sitio para auditoria. Se puede enviar una lista de "
-        "site_ids o site_sample_size para que el backend tome una muestra random "
-        "de sitios con mediciones en la ventana evaluable."
+        "Calcula automaticamente un punto de corte usando las mediciones "
+        "disponibles, proyecta el horizonte pedido en intervalos fijos de 60 "
+        "minutos y compara contra observaciones reales posteriores. Persiste "
+        "metricas globales y por sitio para auditoria. Se puede enviar una "
+        "lista de site_ids o site_sample_size para que el backend tome una "
+        "muestra random de sitios con mediciones en la ventana evaluable."
     ),
 )
 async def create_site_projection_evaluation_endpoint(

@@ -25,6 +25,7 @@ from app.schemas.map.site_projection import (
 )
 from app.services.map.site_projection_history_service import (
     SiteLevelBucket,
+    floor_to_interval,
     get_site_level_series,
 )
 from app.services.map.site_projection_models import (
@@ -33,6 +34,8 @@ from app.services.map.site_projection_models import (
     ForecastRequest,
     get_forecaster,
 )
+
+EVALUATION_INTERVAL_MINUTES = 60
 
 
 @dataclass(frozen=True)
@@ -283,7 +286,7 @@ async def create_site_projection_evaluation(
     db: AsyncSession,
     request: SiteProjectionEvaluationRequest,
 ) -> SiteProjectionEvaluationResponse:
-    cutoff = _as_utc(request.cutoff)
+    cutoff = await _resolve_automatic_cutoff(db=db, request=request)
     unique_site_ids = await _resolve_evaluation_site_ids(
         db=db,
         request=request,
@@ -295,7 +298,7 @@ async def create_site_projection_evaluation(
     history_by_site = await get_site_level_series(
         db=db,
         site_ids=unique_site_ids,
-        interval_minutes=request.interval_minutes,
+        interval_minutes=EVALUATION_INTERVAL_MINUTES,
         level_aggregation=request.level_aggregation,
         lookback_days=_evaluation_window_days(request),
         end_time=cutoff + timedelta(hours=request.horizon_hours),
@@ -311,7 +314,7 @@ async def create_site_projection_evaluation(
                 site_id=site_id,
                 cutoff=cutoff,
                 horizon_hours=request.horizon_hours,
-                interval_minutes=request.interval_minutes,
+                interval_minutes=EVALUATION_INTERVAL_MINUTES,
                 critical_level=request.critical_level,
                 level_aggregation=request.level_aggregation,
                 lookback_days=request.lookback_days,
@@ -325,13 +328,16 @@ async def create_site_projection_evaluation(
 
     completed_at = datetime.now(UTC)
     config = request.model_dump(mode="json")
+    config["cutoff"] = cutoff.isoformat()
+    config["interval_minutes"] = EVALUATION_INTERVAL_MINUTES
+    config["cutoff_strategy"] = "latest_observation_minus_horizon"
     config["selected_site_ids"] = unique_site_ids
     evaluation = SiteModelEvaluation(
         model_key=request.model_key,
         status="completed",
         config=config,
         horizon_hours=request.horizon_hours,
-        interval_minutes=request.interval_minutes,
+        interval_minutes=EVALUATION_INTERVAL_MINUTES,
         critical_level=request.critical_level,
         level_aggregation=request.level_aggregation,
         lookback_days=request.lookback_days,
@@ -404,6 +410,43 @@ async def get_site_projection_evaluation_report(
     return _evaluation_report(evaluation, list(result.scalars().all()))
 
 
+async def _resolve_automatic_cutoff(
+    db: AsyncSession,
+    request: SiteProjectionEvaluationRequest,
+) -> datetime:
+    # El usuario no deberia tener que conocer el rango exacto del historico.
+    # Tomo la ultima medicion disponible y retrocedo el horizonte solicitado:
+    # asi queda una ventana futura real para comparar contra la prediccion.
+    result = await db.execute(
+        select(
+            func.min(DataLevel.reading_date),
+            func.max(DataLevel.reading_date),
+        ).where(DataLevel.container_current_level.is_not(None))
+    )
+    earliest_reading, latest_reading = result.one()
+    if earliest_reading is None or latest_reading is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay mediciones disponibles para ejecutar la evaluacion.",
+        )
+
+    earliest_reading = _as_utc(earliest_reading)
+    latest_reading = _as_utc(latest_reading)
+    cutoff = floor_to_interval(
+        latest_reading - timedelta(hours=request.horizon_hours),
+        EVALUATION_INTERVAL_MINUTES,
+    )
+    if cutoff < earliest_reading or cutoff >= latest_reading:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No hay suficientes mediciones para el horizonte solicitado. "
+                "Ejecuta una simulacion mas larga o reduce horizon_hours."
+            ),
+        )
+    return cutoff
+
+
 def _evaluation_window_days(request: SiteProjectionEvaluationRequest) -> int:
     # get_site_level_series recibe dias enteros. Redondeo el horizonte hacia
     # arriba para no perder observaciones cuando el horizonte no cae justo en 24h.
@@ -428,6 +471,12 @@ async def _resolve_evaluation_site_ids(
     # realmente tienen mediciones dentro de la ventana usada por el backtesting.
     start_time = cutoff - timedelta(days=request.lookback_days)
     end_time = cutoff + timedelta(hours=request.horizon_hours)
+    before_cutoff_count = func.count(DataLevel.id).filter(
+        DataLevel.reading_date <= cutoff
+    )
+    after_cutoff_count = func.count(DataLevel.id).filter(
+        DataLevel.reading_date > cutoff
+    )
     stmt = (
         select(Site.id)
         .join(Container, Container.site_id == Site.id)
@@ -440,6 +489,8 @@ async def _resolve_evaluation_site_ids(
             DataLevel.reading_date <= end_time,
         )
         .group_by(Site.id)
+        .having(before_cutoff_count > 0)
+        .having(after_cutoff_count > 0)
         .order_by(func.random())
         .limit(request.site_sample_size)
     )
