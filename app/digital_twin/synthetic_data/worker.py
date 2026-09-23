@@ -174,7 +174,7 @@ async def _run_session(session: SimulationSession) -> None:
             {"status": "running"},
         )
 
-        total_periods_val = config.periods if config.end is not None else 0
+        total_periods_val = config.periods if config.periods > 0 else 0
         pipeline = DeliveryPipeline(
             simulation_id,
             settings.simulator_backend_url,
@@ -187,7 +187,7 @@ async def _run_session(session: SimulationSession) -> None:
         previous_controls: ControlSnapshot | None = None
 
         period_iterator = (
-            range(config.periods) if config.end is not None else itertools.count()
+            range(config.periods) if config.periods > 0 else itertools.count()
         )
         for period in period_iterator:
             session_state = await _wait_until_runnable(
@@ -232,15 +232,29 @@ async def _run_session(session: SimulationSession) -> None:
 
             tick_started = asyncio.get_running_loop().time()
 
+            import unicodedata
+
+            def _norm_k(s: str | None) -> str:
+                if not s:
+                    return ""
+                n = unicodedata.normalize("NFKD", str(s).strip().casefold())
+                return "".join(c for c in n if not unicodedata.combining(c))
+
             zone_multipliers = {
-                name: current for name, current, _target in controls.zones
+                _norm_k(name): current for name, current, _target in controls.zones
             }
+            zone_multipliers.update(
+                {name: current for name, current, _target in controls.zones}
+            )
             tick = simulator.run_tick(
                 simulated_time,
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone: zone_multipliers.get(zone, 1.0),
+                zone_multiplier=lambda zone: zone_multipliers.get(
+                    zone,
+                    zone_multipliers.get(_norm_k(zone), 1.0),
+                ),
             )
 
             # Encolar mediciones para entrega desacoplada del reloj de simulación
@@ -271,7 +285,7 @@ async def _run_session(session: SimulationSession) -> None:
             target_delay = (config.frequency_minutes * 60.0) / speedup
             remaining_delay = max(0.0, target_delay - tick_elapsed)
 
-            total_periods_str = str(config.periods) if config.end is not None else "∞"
+            total_periods_str = str(config.periods) if config.periods > 0 else "∞"
             logger.info(
                 "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
                 "recolecciones=%s alarmas=%s speedup=%sx demanda=%.3f (computo=%.2fs, espera=%.2fs).",

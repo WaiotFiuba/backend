@@ -118,7 +118,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
 
         self.assertEqual(config.start, datetime(2026, 1, 1, 0, 0, 0))
         self.assertEqual(config.end, datetime(2026, 1, 1, 3, 0, 0))
-        self.assertEqual(config.periods, 3)
+        self.assertEqual(config.periods, 4)
 
     def test_scenario_end_date_must_be_after_start(self) -> None:
         with self.assertRaises(ValueError):

@@ -350,24 +350,60 @@ class TestTruckSimulation(unittest.TestCase):
         sim.initialize()
         sim.state.levels["328"] = 100.0
 
-        from app.services.simulation.collection_schedule_service import (
-            load_collection_schedule,
-        )
+        # El motor nuevo ya no consulta un cronograma estático por minuto:
+        # reparte las paradas de cada ruta dinámicamente entre las horas de
+        # collection_hours. Alcanza con que el sitio esté en la ruta.
+        for route in sim.truck_fleet.routes.values():
+            if "158" in route.site_ids:
+                route.site_ids = [s for s in route.site_ids if s != "158"]
+        if sim.truck_fleet and "RODRIGO_BUENO" in sim.truck_fleet.routes:
+            sim.truck_fleet.routes["RODRIGO_BUENO"].site_ids = ["158"]
 
-        schedules = load_collection_schedule()
-        schedules["RODRIGO_BUENO"] = {
-            "route_id": "RODRIGO_BUENO",
-            "stops": [
-                {
-                    "order": 1,
-                    "site_id": "158",
-                    "scheduled_time": "05:37",
-                    "scheduled_minute_of_day": 5 * 60 + 37,
-                }
-            ],
-        }
-
-        # Tick a las 05:45 (que incluye parada a las 05:37)
+        # Tick a las 05:45
         tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
         self.assertEqual(len(tick.collections), 1)
         self.assertLess(sim.state.levels["328"], 10.0)
+
+    def test_no_collection_days_blocks_trucks(self):
+        routes = {
+            "101": TruckRoute(
+                route_id="101",
+                zone=1,
+                service_name="Test Service",
+                site_ids=["SITE-101"],
+                waypoints=[(-34.601, -58.401)],
+            )
+        }
+        sites_dict = {"SITE-101": (-34.601, -58.401)}
+        # 2026-09-02 is Wednesday (weekday = 2)
+        simulator = TruckFleetSimulator(
+            routes=routes,
+            sites_dict=sites_dict,
+            collection_hours=(22,),
+            no_collection_days=(2,),  # Miércoles bloqueado
+            collection_threshold_pct=0.0,
+        )
+
+        containers_by_site = {
+            "SITE-101": [{"id": 1, "current_level": 85.0}],
+        }
+        wednesday_night = datetime(2026, 9, 2, 22, 0, 0)
+        events = simulator.step(
+            wednesday_night,
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
+        self.assertEqual(len(events), 0)
+        self.assertEqual(simulator.trucks["TRUCK-101"].status, TruckStatus.AT_DEPOT)
+
+        # On Thursday (weekday = 3), collection should occur
+        thursday_night = datetime(2026, 9, 3, 22, 0, 0)
+        events_thu = simulator.step(
+            thursday_night,
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
+        self.assertEqual(len(events_thu), 1)
+        self.assertEqual(simulator.trucks["TRUCK-101"].status, TruckStatus.COLLECTING)
