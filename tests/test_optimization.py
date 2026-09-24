@@ -734,14 +734,21 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(res.status_code, 201)
                 data = res.json()
                 self.assertIn("id", data)
-                self.assertEqual(data["status"], "draft")
+                self.assertEqual(data["status"], "active_whatif")
                 self.assertIn("moves", data)
                 self.assertIn("original_mean_fill", data)
                 self.assertIn("original_std_fill", data)
                 self.assertIn("optimized_mean_fill", data)
                 self.assertIn("optimized_std_fill", data)
 
-                # Recuperar el plan
+                # Verificar /map/optimization/plan/active
+                res_active = await client.get("/map/optimization/plan/active")
+                self.assertEqual(res_active.status_code, 200)
+                active_data = res_active.json()
+                self.assertEqual(active_data["id"], data["id"])
+                self.assertEqual(active_data["status"], "active_whatif")
+
+                # Recuperar el plan por ID
                 plan_id = data["id"]
                 res_get = await client.get(f"/map/optimization/plan/{plan_id}")
                 self.assertEqual(res_get.status_code, 200)
@@ -755,6 +762,11 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(res_404.status_code, 404)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
+            import app.services.map.optimization_whatif_service as whatif_svc
+
+            whatif_svc._active_plan_id = None
+            whatif_svc._optimized_mapping.clear()
+            whatif_svc._virtual_levels.clear()
 
 
 if __name__ == "__main__":
