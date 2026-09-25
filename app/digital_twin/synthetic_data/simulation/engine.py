@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
+from app.digital_twin.synthetic_data.zone_classifier import get_zone_classifier
+
 from app.digital_twin.synthetic_data.domain.entities import (
     Alarm,
     CollectionEvent,
@@ -124,7 +126,9 @@ class SyntheticDataSimulator:
                 routes=routes,
                 sites_dict=sites_dict,
                 collection_hours=self.config.collection_hours,
-                collection_threshold_pct=60.0,
+                no_collection_days=self.config.no_collection_days,
+                collection_threshold_pct=0.0,
+                rng=self.rng,
             )
         except Exception as e:
             logger.warning("No se pudo inicializar la flota de camiones: %s", e)
@@ -172,10 +176,6 @@ class SyntheticDataSimulator:
         zone_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         import numpy as np
-        from app.digital_twin.synthetic_data.generators.filling import (
-            _hour_factor,
-            _weekday_factor,
-        )
         from app.digital_twin.synthetic_data.generators.sensors import _daily_wave
 
         state = self.state or self.initialize()
@@ -199,6 +199,7 @@ class SyntheticDataSimulator:
             waste_factors = []
             heights = []
             reading_offsets = []
+            zone_profiles = []
 
             from collections import defaultdict
 
@@ -206,6 +207,9 @@ class SyntheticDataSimulator:
                 defaultdict(list)
             )
             containers_by_site: dict[str, list[int]] = defaultdict(list)
+
+            id_to_idx: dict[object, int] = {}
+            site_alias_to_indices: dict[str, list[int]] = defaultdict(list)
 
             for idx, container in enumerate(containers):
                 site = state.site_by_id[container.site_id]
@@ -218,11 +222,43 @@ class SyntheticDataSimulator:
                 )
                 heights.append(container.height_cm)
                 reading_offsets.append(state.reading_offsets[device.id])
+                zone_profiles.append(get_zone_classifier().get_profile(site.zone))
 
                 containers_by_site_and_waste[
                     (container.site_id, container.waste_type)
                 ].append(idx)
                 containers_by_site[container.site_id].append(idx)
+
+                # Index aliases for O(1) lookup
+                id_to_idx[container.id] = idx
+                id_to_idx[str(container.id)] = idx
+                c_id_raw = str(container.id).split("|")[-1]
+                id_to_idx[c_id_raw] = idx
+                if getattr(container, "serie_id", None):
+                    id_to_idx[container.serie_id] = idx
+                    id_to_idx[str(container.serie_id).split("|")[-1]] = idx
+
+                keys_to_index = {
+                    container.id,
+                    str(container.id),
+                    container.site_id,
+                    str(container.site_id),
+                }
+                if getattr(container, "serie_id", None):
+                    keys_to_index.add(container.serie_id)
+                    keys_to_index.add(str(container.serie_id).split("|")[-1])
+                keys_to_index.add(c_id_raw)
+                keys_to_index.add(f"contenedores_negros|{c_id_raw}")
+                keys_to_index.add(f"SITE-{c_id_raw}")
+
+                site_id_raw = str(container.site_id).split("|")[-1]
+                keys_to_index.add(site_id_raw)
+                keys_to_index.add(f"contenedores_negros|{site_id_raw}")
+                keys_to_index.add(f"SITE-{site_id_raw}")
+
+                for k in keys_to_index:
+                    if k is not None:
+                        site_alias_to_indices[str(k)].append(idx)
 
             state._cached_sites = site_list
             state._cached_devices = device_list
@@ -230,8 +266,11 @@ class SyntheticDataSimulator:
             state._cached_waste_factors = np.array(waste_factors, dtype=np.float64)
             state._cached_heights = np.array(heights, dtype=np.float64)
             state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
+            state._cached_zone_profiles = zone_profiles
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
+            state._cached_id_to_index = id_to_idx
+            state._cached_site_alias_to_indices = site_alias_to_indices
             state._cached_arrays = True
 
         measurements: list[Measurement] = []
@@ -259,16 +298,46 @@ class SyntheticDataSimulator:
         )
 
         # 1. Calculate filling increments and spillover to opposing sites
-        h_factor = _hour_factor(timestamp.hour)
-        wd_factor = _weekday_factor(timestamp.weekday())
+
+        # Base automática: cada sitio usa su ZoneProfile cacheado (zone_type +
+        # curva horaria/semanal propia), evaluado con la hora/día de este tick.
+        zone_classifier = get_zone_classifier()
+        zone_mults = np.array(
+            [
+                profile.effective_multiplier(timestamp.hour, timestamp.weekday())
+                for profile in state._cached_zone_profiles
+            ],
+            dtype=np.float64,
+        )
+
+        # Calibración global: si la media se sale del rango target ± tolerance_pct
+        # (zone_profiles.yaml), renormaliza para que el volumen agregado tienda a
+        # target_zone_mult × 1.5 kg/habitante/día (fuente CEAMSE/INDEC).
+        current_mean = float(zone_mults.mean())
+        target = zone_classifier.calibration_target
+        tol = zone_classifier.calibration_tolerance_pct / 100.0
+        lower = target * (1.0 - tol)
+        upper = target * (1.0 + tol)
+        if current_mean > 0.0 and not (lower <= current_mean <= upper):
+            logger.warning(
+                "zone_mults media=%.4f fuera del rango [%.4f, %.4f]. "
+                "Normalizando al target=%.4f.",
+                current_mean,
+                lower,
+                upper,
+                target,
+            )
+            zone_mults = zone_mults * (target / current_mean)
 
         if zone_multiplier:
-            zone_mults = np.array(
+            # Ajuste manual por zona (override del front): multiplica sobre la
+            # base automática ya calibrada, en vez de reemplazarla — una zona
+            # sin override configurado sigue diferenciándose por zone_type/hora.
+            overrides = np.array(
                 [zone_multiplier(site.zone) for site in state._cached_sites],
                 dtype=np.float64,
             )
-        else:
-            zone_mults = np.ones(N, dtype=np.float64)
+            zone_mults = zone_mults * overrides
 
         global_mult = (
             self.config.high_demand_multiplier
@@ -283,8 +352,6 @@ class SyntheticDataSimulator:
         increments = (
             state._cached_demand_bases
             * time_ratio
-            * h_factor
-            * wd_factor
             * state._cached_waste_factors
             * global_mult
             * zone_mults
@@ -334,39 +401,32 @@ class SyntheticDataSimulator:
         collected = np.zeros(N, dtype=bool)
 
         if getattr(self, "truck_fleet", None) is not None:
+            # Build lightweight mapping of site containers using cached indices
             containers_by_site_dict = defaultdict(list)
-            for i in range(N):
-                c = containers[i]
-                item = {
-                    "id": c.id,
-                    "index": i,
-                    "current_level": float(levels[i]),
-                    "waste_type": c.waste_type,
-                }
-                # Registrar todos los alias posibles (ID contenedor, ID sitio, serie_id)
-                keys_to_index = {
-                    c.id,
-                    str(c.id),
-                    c.site_id,
-                    str(c.site_id),
-                }
-                if getattr(c, "serie_id", None):
-                    keys_to_index.add(c.serie_id)
-                    keys_to_index.add(str(c.serie_id).split("|")[-1])
+            cached_map = getattr(state, "_cached_site_alias_to_indices", None)
+            if cached_map:
+                items = [
+                    {
+                        "id": containers[i].id,
+                        "index": i,
+                        "current_level": float(levels[i]),
+                        "waste_type": containers[i].waste_type,
+                    }
+                    for i in range(N)
+                ]
+                for alias, indices in cached_map.items():
+                    containers_by_site_dict[alias] = [items[idx] for idx in indices]
+            else:
+                for i in range(N):
+                    c = containers[i]
+                    item = {
+                        "id": c.id,
+                        "index": i,
+                        "current_level": float(levels[i]),
+                        "waste_type": c.waste_type,
+                    }
+                    containers_by_site_dict[str(c.site_id)].append(item)
 
-                c_id_raw = str(c.id).split("|")[-1]
-                keys_to_index.add(c_id_raw)
-                keys_to_index.add(f"contenedores_negros|{c_id_raw}")
-                keys_to_index.add(f"SITE-{c_id_raw}")
-
-                site_id_raw = str(c.site_id).split("|")[-1]
-                keys_to_index.add(site_id_raw)
-                keys_to_index.add(f"contenedores_negros|{site_id_raw}")
-                keys_to_index.add(f"SITE-{site_id_raw}")
-
-                for k in keys_to_index:
-                    if k is not None:
-                        containers_by_site_dict[k].append(item)
             truck_events = self.truck_fleet.step(
                 simulated_time=timestamp,
                 dt_seconds=self.config.frequency_minutes * 60.0,
@@ -375,31 +435,43 @@ class SyntheticDataSimulator:
             )
             self.truck_fleet.get_trucks_snapshot()
 
+            id_to_index = getattr(state, "_cached_id_to_index", {})
             for ev in truck_events:
                 c_id = ev["container_id"]
-                for i in range(N):
-                    if containers[i].id == c_id or str(containers[i].id) == str(c_id):
-                        levels[i] = ev["level_after"]
-                        state.levels[containers[i].id] = ev["level_after"]
-                        state.levels[str(containers[i].id)] = ev["level_after"]
-                        collected[i] = True
-                        reading_timestamp = timestamp + timedelta(
-                            minutes=int(state._cached_reading_offsets[i])
+                idx = ev.get("container_index")
+                if idx is None:
+                    idx = id_to_index.get(c_id)
+                    if idx is None:
+                        idx = id_to_index.get(str(c_id))
+                        if idx is None:
+                            idx = id_to_index.get(str(c_id).split("|")[-1])
+
+                if idx is not None and 0 <= idx < N:
+                    levels[idx] = ev["level_after"]
+                    state.levels[containers[idx].id] = ev["level_after"]
+                    state.levels[str(containers[idx].id)] = ev["level_after"]
+                    collected[idx] = True
+                    reading_timestamp = timestamp + timedelta(
+                        minutes=int(state._cached_reading_offsets[idx])
+                    )
+                    collection_events.append(
+                        CollectionEvent(
+                            timestamp=reading_timestamp,
+                            container_id=str(containers[idx].id),
+                            kind="total",
+                            level_before_pct=float(np.round(ev["level_before"], 2)),
+                            level_after_pct=float(np.round(ev["level_after"], 2)),
+                            detected_by_sensor=True,
                         )
-                        collection_events.append(
-                            CollectionEvent(
-                                timestamp=reading_timestamp,
-                                container_id=str(containers[i].id),
-                                kind="total",
-                                level_before_pct=float(np.round(ev["level_before"], 2)),
-                                level_after_pct=float(np.round(ev["level_after"], 2)),
-                                detected_by_sensor=True,
-                            )
-                        )
-                        break
+                    )
 
         else:
-            is_collection_hour = timestamp.hour in self.config.collection_hours
+            is_no_collection_day = timestamp.weekday() in getattr(
+                self.config, "no_collection_days", ()
+            )
+            is_collection_hour = (
+                timestamp.hour in self.config.collection_hours
+            ) and not is_no_collection_day
             if is_collection_hour:
                 omitted_roll = self.np_rng.random(size=N)
                 not_omitted = omitted_roll >= self.config.omitted_collection_probability

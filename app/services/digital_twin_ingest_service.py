@@ -121,7 +121,6 @@ async def ensure_cache(db: AsyncSession):
 async def reset_database_container_levels(db: AsyncSession) -> None:
     """Reinicia los niveles de los contenedores en memoria y en la base de datos de forma segura."""
     global _cache_loaded
-
     # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
         meta.current_level = 0
@@ -376,16 +375,29 @@ async def ingest_telemetry_batch(
                 await asyncpg_conn.execute(
                     """
                     UPDATE containers AS c
-                    SET current_level = v.level,
-                        last_reading = v.reading_date,
-                        last_pickup = CASE WHEN v.is_pickup THEN v.reading_date ELSE c.last_pickup END,
+                    SET current_level = a.level,
+                        last_reading = a.reading_date,
+                        last_pickup = COALESCE(a.pickup_date, c.last_pickup),
                         available = true,
                         change_version = nextval('container_change_version_seq')
-                    FROM temp_container_updates AS v
-                    WHERE c.id = v.id;
+                    FROM (
+                        SELECT
+                            id,
+                            (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
+                            max(reading_date) AS reading_date,
+                            max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
+                        FROM temp_container_updates
+                        GROUP BY id
+                    ) AS a
+                    WHERE c.id = a.id
+                      AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
                     """
                 )
             await db.commit()
+
+            # Actualizar niveles virtuales de what-if si hay un plan activo
+            await _update_whatif_levels(db, update_tuples)
+
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found
             )
@@ -433,6 +445,33 @@ async def ingest_telemetry_batch(
         flush=True,
     )
 
+    # Actualizar niveles virtuales de what-if si hay un plan activo
+    await _update_whatif_levels(db, update_tuples)
+
     return TelemetryIngestResult(
         accepted=len(measurements), updated=updated, not_found=not_found
     )
+
+
+async def _update_whatif_levels(
+    db: AsyncSession,
+    update_tuples: list[tuple],
+) -> None:
+    """
+    Si hay un plan what-if activo, actualiza los niveles virtuales de los
+    contenedores usando el mapping optimizado.
+    """
+    from app.services.map.optimization_whatif_service import (
+        is_whatif_active,
+        update_virtual_levels_batch,
+    )
+
+    if not is_whatif_active() or not update_tuples:
+        return
+
+    try:
+        # update_tuples: (container_id, level, reading_date, is_pickup)
+        virtual_updates = [(t[0], t[1]) for t in update_tuples]
+        await update_virtual_levels_batch(db, virtual_updates)
+    except Exception:
+        logger.warning("Error actualizando niveles virtuales what-if.", exc_info=True)

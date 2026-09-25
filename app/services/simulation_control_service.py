@@ -11,8 +11,12 @@ from sqlalchemy.orm import joinedload
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
+from app.models.map.saved_configuration import SavedConfiguration
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.schemas.digital_twin import (
+    SavedConfigurationCreate,
+    SavedConfigurationRead,
+    SavedConfigurationUpdate,
     SimulationControlsUpdate,
     SimulationCreate,
     SimulationRead,
@@ -331,12 +335,20 @@ def effective_multiplier(
 ) -> float:
     if not simulated_time or not transition_started_at or not transition_ends_at:
         return target
-    duration = (transition_ends_at - transition_started_at).total_seconds()
-    if duration <= 0 or simulated_time >= transition_ends_at:
+
+    def _to_utc(dt: datetime) -> datetime:
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+    st = _to_utc(simulated_time)
+    t_start = _to_utc(transition_started_at)
+    t_end = _to_utc(transition_ends_at)
+
+    duration = (t_end - t_start).total_seconds()
+    if duration <= 0 or st >= t_end:
         return target
-    if simulated_time <= transition_started_at:
+    if st <= t_start:
         return start
-    elapsed = (simulated_time - transition_started_at).total_seconds()
+    elapsed = (st - t_start).total_seconds()
     return start + (target - start) * elapsed / duration
 
 
@@ -493,3 +505,137 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+async def create_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    payload: SavedConfigurationCreate,
+) -> SavedConfigurationRead:
+    saved = SavedConfiguration(
+        user_id=user_id,
+        name=payload.name.strip(),
+        description=payload.description.strip() if payload.description else None,
+        config=payload.config,
+    )
+    db.add(saved)
+    await db.commit()
+    await db.refresh(saved)
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def list_saved_configurations(
+    db: AsyncSession,
+    user_id: int,
+) -> list[SavedConfigurationRead]:
+    stmt = (
+        select(SavedConfiguration)
+        .where(SavedConfiguration.user_id == user_id)
+        .order_by(SavedConfiguration.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    return [
+        SavedConfigurationRead(
+            id=item.id,
+            user_id=item.user_id,
+            name=item.name,
+            description=item.description,
+            config=item.config,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in records
+    ]
+
+
+async def get_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+) -> SavedConfigurationRead:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def update_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+    payload: SavedConfigurationUpdate,
+) -> SavedConfigurationRead:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    if payload.name is not None:
+        saved.name = payload.name.strip()
+    if payload.description is not None:
+        saved.description = payload.description.strip() if payload.description else None
+    if payload.config is not None:
+        saved.config = payload.config
+
+    await db.commit()
+    await db.refresh(saved)
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def delete_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+) -> None:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    await db.delete(saved)
+    await db.commit()

@@ -49,6 +49,7 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
             detail="Plan de redistribución no encontrado.",
         )
     if plan.status == "active_whatif":
+        await _ensure_cache_for_plan(db, plan)
         return _plan_model_to_read(plan)
 
     # Desactivar any plan what-if previo
@@ -144,6 +145,93 @@ async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPla
     return _plan_model_to_read(plan)
 
 
+async def _ensure_cache_for_plan(
+    db: AsyncSession, plan: RedistributionPlanModel
+) -> None:
+    """Asegura que los mappings del plan estén cargados en memoria."""
+    global _active_plan_id, _optimized_mapping, _virtual_levels
+    if _active_plan_id == plan.id and _optimized_mapping:
+        return
+
+    moves = plan.moves or []
+    move_mapping: dict[int, int] = {m["container_id"]: m["to_site_id"] for m in moves}
+
+    containers = (
+        await db.execute(
+            select(Container.id, Container.site_id, Container.current_level).where(
+                Container.deleted_at.is_(None)
+            )
+        )
+    ).all()
+
+    _active_plan_id = plan.id
+    _optimized_mapping = {c.id: move_mapping.get(c.id, c.site_id) for c in containers}
+    _virtual_levels = {c.id: c.current_level for c in containers}
+
+
+async def ensure_whatif_cache(db: AsyncSession) -> None:
+    """Restaura la caché en memoria si hay un plan active_whatif en la base de datos."""
+    global _active_plan_id
+    if _active_plan_id is not None:
+        return
+
+    stmt = (
+        select(RedistributionPlanModel)
+        .where(RedistributionPlanModel.status == "active_whatif")
+        .order_by(RedistributionPlanModel.id.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+    if plan is not None:
+        await _ensure_cache_for_plan(db, plan)
+
+
+async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionPlanRead:
+    """
+    Retorna el plan What-If activo actualmente.
+    Si no existe ninguno, crea y activa un plan base (copia 1:1 de la red física).
+    """
+    stmt = (
+        select(RedistributionPlanModel)
+        .where(RedistributionPlanModel.status == "active_whatif")
+        .order_by(RedistributionPlanModel.id.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    plan = result.scalar_one_or_none()
+
+    if plan is not None:
+        await _ensure_cache_for_plan(db, plan)
+        return _plan_model_to_read(plan)
+
+    from app.schemas.map.optimization import OptimizationConfig
+
+    baseline_plan = RedistributionPlanModel(
+        status="draft",
+        config=OptimizationConfig().model_dump(),
+        moves=[],
+        metrics_snapshot=None,
+        summary={
+            "total_containers_moved": 0,
+            "sites_emptied": 0,
+            "sites_receiving": 0,
+            "sites_donating": 0,
+            "avg_distance_km": 0.0,
+            "expected_improvement": 0.0,
+            "original_mean_fill": 0.0,
+            "original_std_fill": 0.0,
+            "optimized_mean_fill": 0.0,
+            "optimized_std_fill": 0.0,
+        },
+    )
+    db.add(baseline_plan)
+    await db.commit()
+    await db.refresh(baseline_plan)
+
+    return await activate_whatif(db, baseline_plan.id)
+
+
 def is_whatif_active() -> bool:
     """Retorna True si hay un plan what-if activo en memoria."""
     return _active_plan_id is not None
@@ -161,6 +249,9 @@ async def update_virtual_levels_batch(
     """
     Actualiza los niveles virtuales de múltiples contenedores.
     Se llama desde el ingest service después de procesar telemetría real.
+
+    Usa staging table + bulk UPDATE para rendimiento óptimo (1 COPY + 1 UPDATE
+    en vez de N UPDATEs individuales).
     """
     if not _active_plan_id or not updates:
         return
@@ -169,45 +260,55 @@ async def update_virtual_levels_batch(
     for container_id, new_level in updates:
         _virtual_levels[container_id] = new_level
 
-    # Actualizar en DB por lotes usando raw SQL para performance
+    plan_id = _active_plan_id
+
+    # Bulk update via staging table (fast path para asyncpg/PostgreSQL)
     try:
         conn = await db.connection()
         raw_conn = await conn.get_raw_connection()
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
-        if hasattr(asyncpg_conn, "executemany"):
-            await asyncpg_conn.executemany(
+        if hasattr(asyncpg_conn, "copy_records_to_table"):
+            await asyncpg_conn.execute(
                 """
-                UPDATE optimization_whatif_levels
-                SET virtual_level = $1, last_reading = NOW()
-                WHERE plan_id = $2 AND container_id = $3
-                """,
-                [(level, _active_plan_id, cid) for cid, level in updates],
+                CREATE TEMP TABLE IF NOT EXISTS _tmp_whatif_updates (
+                    container_id bigint,
+                    virtual_level integer
+                );
+                TRUNCATE _tmp_whatif_updates;
+                """
             )
-        else:
-            # Fallback SQLAlchemy
-            for cid, level in updates:
-                await db.execute(
-                    update(OptimizationWhatIfLevel)
-                    .where(
-                        OptimizationWhatIfLevel.plan_id == _active_plan_id,
-                        OptimizationWhatIfLevel.container_id == cid,
-                    )
-                    .values(virtual_level=level)
-                )
+            await asyncpg_conn.copy_records_to_table(
+                "_tmp_whatif_updates",
+                records=updates,
+                columns=["container_id", "virtual_level"],
+            )
+            await asyncpg_conn.execute(
+                """
+                UPDATE optimization_whatif_levels AS w
+                SET virtual_level = t.virtual_level,
+                    last_reading = NOW()
+                FROM _tmp_whatif_updates AS t
+                WHERE w.plan_id = $1 AND w.container_id = t.container_id;
+                """,
+                plan_id,
+            )
+            return
     except Exception:
         logger.warning(
-            "Error actualizando niveles virtuales, usando fallback.", exc_info=True
+            "Error en bulk update de niveles virtuales, usando fallback.", exc_info=True
         )
-        for cid, level in updates:
-            await db.execute(
-                update(OptimizationWhatIfLevel)
-                .where(
-                    OptimizationWhatIfLevel.plan_id == _active_plan_id,
-                    OptimizationWhatIfLevel.container_id == cid,
-                )
-                .values(virtual_level=level)
+
+    # Fallback SQLAlchemy (para SQLite u otros backends)
+    for cid, level in updates:
+        await db.execute(
+            update(OptimizationWhatIfLevel)
+            .where(
+                OptimizationWhatIfLevel.plan_id == plan_id,
+                OptimizationWhatIfLevel.container_id == cid,
             )
+            .values(virtual_level=level)
+        )
 
 
 async def get_comparison_metrics(

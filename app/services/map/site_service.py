@@ -32,12 +32,90 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _level_expr(level_aggregation: Literal["avg", "max"] = "avg"):
+def _level_expr(
+    level_aggregation: Literal["avg", "max"] = "avg",
+    c_level=None,
+):
+    if c_level is None:
+        c_level = Container.current_level
     if level_aggregation == "max":
-        return func.coalesce(func.max(Container.current_level), 0)
-    return func.coalesce(
-        func.round(cast(func.avg(Container.current_level), Numeric)), 0
+        return func.coalesce(func.max(c_level), 0)
+    return func.coalesce(func.round(cast(func.avg(c_level), Numeric)), 0)
+
+
+def _build_site_container_summary(c_row) -> SiteContainerSummary:
+    return SiteContainerSummary(
+        id=c_row.id,
+        serie_id=c_row.serie_id,
+        current_level=c_row.current_level,
+        device_imei=c_row.device_imei,
+        available=c_row.available,
+        container_type=c_row.container_type,
+        height_cm=c_row.height_cm,
+        volume_m3=c_row.volume_m3,
+        last_reading=c_row.last_reading,
     )
+
+
+def _build_site_map_output(
+    row, containers: list[SiteContainerSummary] | None = None
+) -> SiteMapOutputSchema:
+    return SiteMapOutputSchema(
+        id=row.id,
+        name=row.name,
+        address=row.address,
+        latitude=row.latitude,
+        longitude=row.longitude,
+        current_level=int(row.current_level),
+        available=bool(row.available),
+        load_side_category=row.load_side_category,
+        waste_type_id=row.waste_type_id,
+        waste_type_name=row.waste_type_name,
+        waste_type_color=row.waste_type_color,
+        container_count=int(row.container_count),
+        last_reading=row.last_reading,
+        last_pickup=row.last_pickup,
+        updated_at=row.updated_at,
+        containers=containers if containers is not None else [],
+    )
+
+
+def _containers_query(target_c=Container, site_ids: list[int] | None = None):
+    cols = target_c.c if hasattr(target_c, "c") else Container
+    stmt = (
+        select(
+            cols.id.label("id"),
+            cols.site_id.label("site_id"),
+            cols.serie_id.label("serie_id"),
+            cols.current_level.label("current_level"),
+            cols.device_imei.label("device_imei"),
+            cols.available.label("available"),
+            cols.last_reading.label("last_reading"),
+            ContainerType.name.label("container_type"),
+            ContainerType.height_cm,
+            ContainerType.volume_m3,
+        )
+        .select_from(target_c)
+        .outerjoin(ContainerType, cols.container_type_id == ContainerType.id)
+    )
+    if site_ids is not None:
+        stmt = stmt.where(cols.site_id.in_(site_ids))
+    return stmt
+
+
+async def _fetch_containers_by_site(
+    db: AsyncSession, target_c, site_ids: list[int]
+) -> dict[int, list[SiteContainerSummary]]:
+    if not site_ids:
+        return {}
+    c_stmt = _containers_query(target_c, site_ids)
+    c_result = await db.execute(c_stmt)
+    containers_by_site: dict[int, list[SiteContainerSummary]] = {}
+    for c_row in c_result.all():
+        containers_by_site.setdefault(c_row.site_id, []).append(
+            _build_site_container_summary(c_row)
+        )
+    return containers_by_site
 
 
 async def get_latest_cursor(db: AsyncSession) -> int:
@@ -57,11 +135,56 @@ async def get_sites_clustered(
     level_aggregation: Literal["avg", "max"] = "avg",
     limit: int | None = None,
     offset: int | None = None,
+    distribution: Literal["real", "whatif"] = "real",
 ) -> list[SiteCluster] | list[SiteMapOutputSchema]:
     grid_size = _zoom_to_grid_size(zoom)
 
+    # Definir origen de datos de contenedores según la distribución
+    target_c = Container
+    if distribution == "whatif":
+        from app.models.map.optimization import OptimizationWhatIfLevel
+        from app.services.map.optimization_whatif_service import (
+            get_or_create_default_whatif_plan,
+        )
+
+        plan = await get_or_create_default_whatif_plan(db)
+        target_c = (
+            select(
+                Container.id.label("id"),
+                Container.serie_id.label("serie_id"),
+                Container.device_imei.label("device_imei"),
+                Container.available.label("available"),
+                Container.container_type_id.label("container_type_id"),
+                Container.last_reading.label("last_reading"),
+                Container.last_pickup.label("last_pickup"),
+                func.coalesce(
+                    OptimizationWhatIfLevel.optimized_site_id, Container.site_id
+                ).label("site_id"),
+                func.coalesce(
+                    OptimizationWhatIfLevel.virtual_level, Container.current_level
+                ).label("current_level"),
+            )
+            .outerjoin(
+                OptimizationWhatIfLevel,
+                (OptimizationWhatIfLevel.container_id == Container.id)
+                & (OptimizationWhatIfLevel.plan_id == plan.id),
+            )
+            .where(Container.deleted_at.is_(None))
+            .subquery()
+        )
+
+    cols = target_c.c if hasattr(target_c, "c") else Container
+    c_id = cols.id
+    c_site_id = cols.site_id
+    c_level = cols.current_level
+    c_available = cols.available
+    c_last_reading = cols.last_reading
+    c_last_pickup = cols.last_pickup
+
     # Nivel de zoom alto (>= 18): Retornar sitios individuales
     if grid_size is None:
+        calc_level = _level_expr(level_aggregation, c_level)
+
         stmt = (
             select(
                 Site.id,
@@ -74,15 +197,13 @@ async def get_sites_clustered(
                 Site.updated_at,
                 WasteType.name.label("waste_type_name"),
                 WasteType.color.label("waste_type_color"),
-                _level_expr(level_aggregation).label("current_level"),
-                func.count(Container.id).label("container_count"),
-                func.max(Container.last_reading).label("last_reading"),
-                func.max(Container.last_pickup).label("last_pickup"),
-                func.coalesce(func.bool_or(Container.available), True).label(
-                    "available"
-                ),
+                calc_level.label("current_level"),
+                func.count(c_id).label("container_count"),
+                func.max(c_last_reading).label("last_reading"),
+                func.max(c_last_pickup).label("last_pickup"),
+                func.coalesce(func.bool_or(c_available), True).label("available"),
             )
-            .outerjoin(Container, Container.site_id == Site.id)
+            .outerjoin(target_c, c_site_id == Site.id)
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(
                 Site.latitude >= lat_min,
@@ -103,65 +224,11 @@ async def get_sites_clustered(
         rows = result.all()
 
         site_ids = [row.id for row in rows]
-        containers_by_site: dict[int, list[SiteContainerSummary]] = {}
-        if site_ids:
-            c_stmt = (
-                select(
-                    Container.id,
-                    Container.site_id,
-                    Container.serie_id,
-                    Container.current_level,
-                    Container.device_imei,
-                    Container.available,
-                    Container.last_reading,
-                    ContainerType.name.label("container_type"),
-                    ContainerType.height_cm,
-                    ContainerType.volume_m3,
-                )
-                .outerjoin(
-                    ContainerType, Container.container_type_id == ContainerType.id
-                )
-                .where(Container.site_id.in_(site_ids))
-            )
-            c_result = await db.execute(c_stmt)
-            for c_row in c_result.all():
-                containers_by_site.setdefault(c_row.site_id, []).append(
-                    SiteContainerSummary(
-                        id=c_row.id,
-                        serie_id=c_row.serie_id,
-                        current_level=c_row.current_level,
-                        device_imei=c_row.device_imei,
-                        available=c_row.available,
-                        container_type=c_row.container_type,
-                        height_cm=c_row.height_cm,
-                        volume_m3=c_row.volume_m3,
-                        last_reading=c_row.last_reading,
-                    )
-                )
+        containers_by_site = await _fetch_containers_by_site(db, target_c, site_ids)
 
-        output: list[SiteMapOutputSchema] = []
-        for r in rows:
-            output.append(
-                SiteMapOutputSchema(
-                    id=r.id,
-                    name=r.name,
-                    address=r.address,
-                    latitude=r.latitude,
-                    longitude=r.longitude,
-                    current_level=int(r.current_level),
-                    available=bool(r.available),
-                    load_side_category=r.load_side_category,
-                    waste_type_id=r.waste_type_id,
-                    waste_type_name=r.waste_type_name,
-                    waste_type_color=r.waste_type_color,
-                    container_count=int(r.container_count),
-                    last_reading=r.last_reading,
-                    last_pickup=r.last_pickup,
-                    updated_at=r.updated_at,
-                    containers=containers_by_site.get(r.id, []),
-                )
-            )
-        return output
+        return [
+            _build_site_map_output(r, containers_by_site.get(r.id, [])) for r in rows
+        ]
 
     # Nivel de zoom bajo (< 16): Clusters espaciales agregados
     # Agrupamos por grilla espacial pero calculamos el CENTROIDE REAL de los sitios
@@ -173,15 +240,15 @@ async def get_sites_clustered(
             func.avg(Site.latitude).label("cluster_lat"),
             func.avg(Site.longitude).label("cluster_lng"),
             func.count(func.distinct(Site.id)).label("site_count"),
-            func.coalesce(
-                func.round(cast(func.avg(Container.current_level), Numeric), 0), 0
-            ).label("avg_level"),
-            func.coalesce(func.max(Container.current_level), 0).label("max_level"),
-            func.coalesce(
-                func.sum(case((Container.available.is_(True), 1), else_=0)), 0
-            ).label("available_count"),
+            func.coalesce(func.round(cast(func.avg(c_level), Numeric), 0), 0).label(
+                "avg_level"
+            ),
+            func.coalesce(func.max(c_level), 0).label("max_level"),
+            func.coalesce(func.sum(case((c_available.is_(True), 1), else_=0)), 0).label(
+                "available_count"
+            ),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        .outerjoin(target_c, c_site_id == Site.id)
         .where(
             Site.latitude >= lat_min,
             Site.latitude <= lat_max,
@@ -246,27 +313,7 @@ async def get_site_map_snapshot(
     result = await db.execute(stmt)
     rows = result.all()
 
-    sites = [
-        SiteMapOutputSchema(
-            id=r.id,
-            name=r.name,
-            address=r.address,
-            latitude=r.latitude,
-            longitude=r.longitude,
-            current_level=int(r.current_level),
-            available=bool(r.available),
-            load_side_category=r.load_side_category,
-            waste_type_id=r.waste_type_id,
-            waste_type_name=r.waste_type_name,
-            waste_type_color=r.waste_type_color,
-            container_count=int(r.container_count),
-            last_reading=r.last_reading,
-            last_pickup=r.last_pickup,
-            updated_at=r.updated_at,
-            containers=[],
-        )
-        for r in rows
-    ]
+    sites = [_build_site_map_output(r) for r in rows]
 
     return SiteMapSnapshot(sites=sites, latest_cursor=latest_cursor, total=len(sites))
 
@@ -325,61 +372,8 @@ async def get_site_changes(
     result = await db.execute(stmt)
     rows = result.all()
 
-    # Obtener contenedores asociados a estos sitios
-    c_stmt = (
-        select(
-            Container.id,
-            Container.site_id,
-            Container.serie_id,
-            Container.current_level,
-            Container.device_imei,
-            Container.available,
-            Container.last_reading,
-            ContainerType.name.label("container_type"),
-            ContainerType.height_cm,
-            ContainerType.volume_m3,
-        )
-        .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
-        .where(Container.site_id.in_(site_ids))
-    )
-    c_result = await db.execute(c_stmt)
-    containers_by_site: dict[int, list[SiteContainerSummary]] = {}
-    for c_row in c_result.all():
-        containers_by_site.setdefault(c_row.site_id, []).append(
-            SiteContainerSummary(
-                id=c_row.id,
-                serie_id=c_row.serie_id,
-                current_level=c_row.current_level,
-                device_imei=c_row.device_imei,
-                available=c_row.available,
-                container_type=c_row.container_type,
-                height_cm=c_row.height_cm,
-                volume_m3=c_row.volume_m3,
-                last_reading=c_row.last_reading,
-            )
-        )
-
-    sites = [
-        SiteMapOutputSchema(
-            id=r.id,
-            name=r.name,
-            address=r.address,
-            latitude=r.latitude,
-            longitude=r.longitude,
-            current_level=int(r.current_level),
-            available=bool(r.available),
-            load_side_category=r.load_side_category,
-            waste_type_id=r.waste_type_id,
-            waste_type_name=r.waste_type_name,
-            waste_type_color=r.waste_type_color,
-            container_count=int(r.container_count),
-            last_reading=r.last_reading,
-            last_pickup=r.last_pickup,
-            updated_at=r.updated_at,
-            containers=containers_by_site.get(r.id, []),
-        )
-        for r in rows
-    ]
+    containers_by_site = await _fetch_containers_by_site(db, Container, site_ids)
+    sites = [_build_site_map_output(r, containers_by_site.get(r.id, [])) for r in rows]
 
     return SiteChanges(
         sites=sites,
@@ -430,57 +424,11 @@ async def get_site_by_id(
         result = await db.execute(stmt)
         row = result.first()
         if row:
-            c_stmt = (
-                select(
-                    Container.id,
-                    Container.site_id,
-                    Container.serie_id,
-                    Container.current_level,
-                    Container.device_imei,
-                    Container.available,
-                    Container.last_reading,
-                    ContainerType.name.label("container_type"),
-                    ContainerType.height_cm,
-                    ContainerType.volume_m3,
-                )
-                .outerjoin(
-                    ContainerType, Container.container_type_id == ContainerType.id
-                )
-                .where(Container.site_id == numeric_site_id)
+            containers_by_site = await _fetch_containers_by_site(
+                db, Container, [numeric_site_id]
             )
-            c_result = await db.execute(c_stmt)
-            containers = [
-                SiteContainerSummary(
-                    id=c_row.id,
-                    serie_id=c_row.serie_id,
-                    current_level=c_row.current_level,
-                    device_imei=c_row.device_imei,
-                    available=c_row.available,
-                    container_type=c_row.container_type,
-                    height_cm=c_row.height_cm,
-                    volume_m3=c_row.volume_m3,
-                    last_reading=c_row.last_reading,
-                )
-                for c_row in c_result.all()
-            ]
-
-            return SiteMapOutputSchema(
-                id=row.id,
-                name=row.name,
-                address=row.address,
-                latitude=row.latitude,
-                longitude=row.longitude,
-                current_level=int(row.current_level),
-                available=bool(row.available),
-                load_side_category=row.load_side_category,
-                waste_type_id=row.waste_type_id,
-                waste_type_name=row.waste_type_name,
-                waste_type_color=row.waste_type_color,
-                container_count=int(row.container_count),
-                last_reading=row.last_reading,
-                last_pickup=row.last_pickup,
-                updated_at=row.updated_at,
-                containers=containers,
+            return _build_site_map_output(
+                row, containers_by_site.get(numeric_site_id, [])
             )
 
     # Fallback: Buscar contenedor individual por ID o serie_id

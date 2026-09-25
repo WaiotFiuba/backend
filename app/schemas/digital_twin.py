@@ -40,13 +40,13 @@ class TelemetryIngestResult(BaseModel):
 
 class ZoneDemandOverride(BaseModel):
     neighborhood: str
-    multiplier: float = Field(gt=0, le=10)
+    multiplier: float = Field(gt=0, le=1100)
 
 
 class SimulationCreate(BaseModel):
     scenario: dict[str, object] = Field(default_factory=dict)
     speedup: float = Field(default=60, gt=0)
-    global_demand_multiplier: float = Field(default=1.0, gt=0, le=10)
+    global_demand_multiplier: float = Field(default=1.0, gt=0, le=1100)
     transition_minutes: int = Field(default=60, ge=0, le=10080)
     zone_overrides: list[ZoneDemandOverride] = Field(default_factory=list)
     start_time: datetime | None = Field(default=None)
@@ -54,7 +54,7 @@ class SimulationCreate(BaseModel):
 
 class SimulationControlsUpdate(BaseModel):
     speedup: float | None = Field(default=None, gt=0)
-    global_demand_multiplier: float | None = Field(default=None, gt=0, le=10)
+    global_demand_multiplier: float | None = Field(default=None, gt=0, le=1100)
     transition_minutes: int | None = Field(default=None, ge=0, le=10080)
     zone_overrides: list[ZoneDemandOverride] | None = None
 
@@ -113,3 +113,25 @@ class ZoneDemandRead(BaseModel):
     density_per_km2: float
     density_factor: float
     multiplier_effective: float
+
+
+class SavedConfigurationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    config: dict[str, object] = Field(default_factory=dict)
+
+
+class SavedConfigurationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    config: dict[str, object] | None = None
+
+
+class SavedConfigurationRead(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    description: str | None
+    config: dict[str, object]
+    created_at: datetime
+    updated_at: datetime

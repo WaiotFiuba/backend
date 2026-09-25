@@ -21,6 +21,7 @@ from app.services.map.optimization_whatif_service import (
     activate_whatif,
     deactivate_whatif,
     get_comparison_metrics,
+    get_or_create_default_whatif_plan,
 )
 
 router = APIRouter(prefix="/optimization", tags=["optimization"])
@@ -47,13 +48,25 @@ async def get_optimization_metrics(
     "/plan",
     response_model=RedistributionPlanRead,
     status_code=status.HTTP_201_CREATED,
-    summary="Generar un plan de redistribución de contenedores",
+    summary="Generar un plan de redistribución de contenedores y activarlo como What-If",
 )
 async def create_redistribution_plan(
     config: OptimizationConfig,
     db: MapDbDep,
 ) -> RedistributionPlanRead:
-    return await generate_redistribution_plan(db, config)
+    plan = await generate_redistribution_plan(db, config)
+    return await activate_whatif(db, plan.id)
+
+
+@router.get(
+    "/plan/active",
+    response_model=RedistributionPlanRead,
+    summary="Obtener el plan de redistribución What-If activo actualmente",
+)
+async def get_active_whatif_plan(
+    db: MapDbDep,
+) -> RedistributionPlanRead:
+    return await get_or_create_default_whatif_plan(db)
 
 
 @router.get(

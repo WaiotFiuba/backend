@@ -45,7 +45,6 @@ class Container(MapBase):
         default=0,
         server_default="0",
         nullable=False,
-        index=True,
     )
     available: Mapped[bool] = mapped_column(Boolean, default=False)
     last_pickup: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))

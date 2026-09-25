@@ -42,12 +42,20 @@ class TruckFleetSimulator:
         routes: dict[str, TruckRoute],
         sites_dict: dict[str, tuple[float, float]],
         collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
-        collection_threshold_pct: float = 60.0,
+        no_collection_days: tuple[int, ...] = (),
+        collection_threshold_pct: float = 0.0,
+        rng: random.Random | None = None,
     ) -> None:
         self.routes = routes
         self.sites_dict = sites_dict  # {site_id: (lat, lon)}
         self.collection_hours = collection_hours
+        self.no_collection_days = set(no_collection_days)
         self.collection_threshold_pct = collection_threshold_pct
+        # RNG propia (idealmente la del motor, sembrada con ScenarioConfig.seed)
+        # para que la flota sea reproducible igual que el resto de la simulación.
+        # Sin una instancia explícita, cae a random.Random() sin sembrar (uso
+        # fuera de una simulación, ej. la vista previa de demo).
+        self.rng = rng if rng is not None else random.Random()
         self.trucks: dict[str, TruckState] = {}
         self._init_fleet()
 
@@ -76,7 +84,7 @@ class TruckFleetSimulator:
                 collected_containers_count=0,
                 current_site_idx=0,
                 depot_id=depot.id,
-                speed_kmh=24.0 + random.uniform(-2.0, 4.0),
+                speed_kmh=24.0 + self.rng.uniform(-2.0, 4.0),
             )
         logger.info(
             "Inicializada flota de %d camiones en sus terminales.", len(self.trucks)
@@ -92,49 +100,57 @@ class TruckFleetSimulator:
         max_step_meters: float | None = None,
     ) -> list[dict]:
         """
-        Avanza la recolección discreta por los sitios de cada circuito a lo largo del turno (21:00 a 06:00).
-        La velocidad y cantidad de sitios por tick se adaptan automáticamente a dt_seconds / frequency_minutes.
+        Avanza la recolección discreta por los sitios de cada circuito a lo largo de las horas activas de collection_hours.
+        Distribuye dinámicamente todas las paradas de cada ruta a lo largo de las horas de recolección configuradas.
         """
-        is_collection_time = simulated_time.hour in self.collection_hours
+        ordered_hours = sorted(self.collection_hours, key=lambda h: (h - 18) % 24)
+        num_hours = len(ordered_hours)
+
+        if (
+            num_hours == 0
+            or simulated_time.hour not in self.collection_hours
+            or simulated_time.weekday() in self.no_collection_days
+        ):
+            for truck in self.trucks.values():
+                truck.status = TruckStatus.AT_DEPOT
+            return []
+
+        hour_idx = ordered_hours.index(simulated_time.hour)
         collection_events: list[dict] = []
-        from app.services.simulation.collection_schedule_service import (
-            get_sites_to_collect,
-        )
 
         for truck_id, truck in self.trucks.items():
             route = self.routes.get(truck.route_id)
-            if not route:
+            if not route or not route.site_ids:
                 continue
 
-            dt_minutes = max(1, int(round((dt_seconds * speedup) / 60.0)))
-            scheduled_stops = get_sites_to_collect(
-                simulated_time=simulated_time,
-                frequency_minutes=dt_minutes,
-                route_id=truck.route_id,
-            )
-
-            if not scheduled_stops:
-                # Si la ruta es sintética/mock no existente en el cronograma estático
-                from app.services.simulation.collection_schedule_service import (
-                    load_collection_schedule,
+            total_sites = len(route.site_ids)
+            if total_sites <= num_hours:
+                sites_to_collect = route.site_ids
+                end_idx = total_sites
+            else:
+                start_idx = int(hour_idx * total_sites / num_hours)
+                end_idx = (
+                    total_sites
+                    if hour_idx == num_hours - 1
+                    else int((hour_idx + 1) * total_sites / num_hours)
                 )
+                sites_to_collect = route.site_ids[start_idx:end_idx]
 
-                sched = load_collection_schedule()
-                if (
-                    route.site_ids
-                    and is_collection_time
-                    and truck.route_id not in sched
-                ):
-                    scheduled_stops = [{"site_id": s} for s in route.site_ids]
-                else:
-                    truck.status = (
-                        TruckStatus.AT_DEPOT
-                        if not is_collection_time
-                        else TruckStatus.COLLECTING
-                    )
-                    continue
+            scheduled_stops = [{"site_id": s} for s in sites_to_collect]
 
             truck.status = TruckStatus.COLLECTING
+            truck.current_site_idx = end_idx
+
+            if sites_to_collect:
+                last_site = str(sites_to_collect[-1]).split("|")[-1]
+                if last_site in self.sites_dict:
+                    s_lat, s_lon = self.sites_dict[last_site]
+                    truck.latitude = round(s_lat, 6)
+                    truck.longitude = round(s_lon, 6)
+                elif str(sites_to_collect[-1]) in self.sites_dict:
+                    s_lat, s_lon = self.sites_dict[str(sites_to_collect[-1])]
+                    truck.latitude = round(s_lat, 6)
+                    truck.longitude = round(s_lon, 6)
 
             for stop in scheduled_stops:
                 site_id = stop["site_id"]
@@ -163,9 +179,11 @@ class TruckFleetSimulator:
                         continue
 
                     c_level = float(c.get("current_level", 0.0))
-                    if c_level >= self.collection_threshold_pct:
-                        # VACIAR CONTENEDOR (>= 60%)
-                        new_level = round(random.uniform(0.0, 5.0), 1)
+                    if c_level > 0.0 and c_level >= self.collection_threshold_pct:
+                        # VACIAR CONTENEDOR
+                        new_level = round(self.rng.uniform(0.0, min(c_level, 3.0)), 1)
+                        if new_level >= c_level:
+                            new_level = 0.0
                         emptied_pct = c_level - new_level
                         emptied_kg = (emptied_pct / 100.0) * 350.0
 
@@ -177,6 +195,7 @@ class TruckFleetSimulator:
                             "truck_id": truck.id,
                             "site_id": site_id,
                             "container_id": c.get("id"),
+                            "container_index": c.get("index"),
                             "level_before": c_level,
                             "level_after": new_level,
                             "collected_kg": emptied_kg,

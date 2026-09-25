@@ -9,6 +9,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
 
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
 COPY app/ ./app/
+COPY db/ ./db/
+COPY datos/ ./datos/
 
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

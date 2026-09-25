@@ -10,5 +10,11 @@ def iter_timestamps(
     frequency_minutes: int,
 ) -> Iterator[datetime]:
     step = timedelta(minutes=frequency_minutes)
-    for index in range(periods):
-        yield start + index * step
+    if periods > 0:
+        for index in range(periods):
+            yield start + index * step
+    else:
+        index = 0
+        while True:
+            yield start + index * step
+            index += 1
