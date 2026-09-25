@@ -226,9 +226,15 @@ async def _run_session(session: SimulationSession) -> None:
                 zones=tuple(
                     sorted(
                         (
-                            item.neighborhood if hasattr(item, "neighborhood") else item["neighborhood"],
-                            item.multiplier_current if hasattr(item, "multiplier_current") else item["multiplier_current"],
-                            item.multiplier_target if hasattr(item, "multiplier_target") else item["multiplier_target"],
+                            item.neighborhood
+                            if hasattr(item, "neighborhood")
+                            else item["neighborhood"],
+                            item.multiplier_current
+                            if hasattr(item, "multiplier_current")
+                            else item["multiplier_current"],
+                            item.multiplier_target
+                            if hasattr(item, "multiplier_target")
+                            else item["multiplier_target"],
                         )
                         for item in overrides
                     )

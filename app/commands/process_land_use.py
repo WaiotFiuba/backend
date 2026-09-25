@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 app/commands/process_land_use.py
 ────────────────────────────────
@@ -18,13 +16,14 @@ Uso como CLI:
     uv run python -m app.commands.process_land_use
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import csv
 import json
 import logging
 import re
-import sys
 import time
 import unicodedata
 from collections import defaultdict
@@ -73,7 +72,9 @@ def _resolve_file(filename: str) -> Path | None:
     return next((p for p in candidates if p.exists()), None)
 
 
-def _load_yaml_config(config_path: Path | None) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+def _load_yaml_config(
+    config_path: Path | None,
+) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
     thresholds = {
         "industrial_min_pct": 25.0,
         "office_min_pct": 15.0,
@@ -82,12 +83,12 @@ def _load_yaml_config(config_path: Path | None) -> tuple[dict[str, float], dict[
         "residential_combined_min_pct": 40.0,
     }
     category_weights = {
-        "residential_multifamily":  {"demand_multiplier": 1.10, "weekend_factor": 0.60},
+        "residential_multifamily": {"demand_multiplier": 1.10, "weekend_factor": 0.60},
         "residential_singlefamily": {"demand_multiplier": 0.95, "weekend_factor": 0.85},
-        "commercial":               {"demand_multiplier": 1.40, "weekend_factor": 1.20},
-        "office":                   {"demand_multiplier": 0.85, "weekend_factor": 0.10},
-        "industrial":               {"demand_multiplier": 0.65, "weekend_factor": 0.20},
-        "other":                    {"demand_multiplier": 0.50, "weekend_factor": 0.75},
+        "commercial": {"demand_multiplier": 1.40, "weekend_factor": 1.20},
+        "office": {"demand_multiplier": 0.85, "weekend_factor": 0.10},
+        "industrial": {"demand_multiplier": 0.65, "weekend_factor": 0.20},
+        "other": {"demand_multiplier": 0.50, "weekend_factor": 0.75},
     }
 
     if config_path and config_path.exists():
@@ -103,7 +104,9 @@ def _load_yaml_config(config_path: Path | None) -> tuple[dict[str, float], dict[
                         "weekend_factor": float(val.get("weekend_factor", 0.75)),
                     }
         except Exception as err:
-            logger.warning(f"Error al leer {config_path}: {err}. Usando valores por defecto.")
+            logger.warning(
+                f"Error al leer {config_path}: {err}. Usando valores por defecto."
+            )
 
     return thresholds, category_weights
 
@@ -111,7 +114,12 @@ def _load_yaml_config(config_path: Path | None) -> tuple[dict[str, float], dict[
 def _norm_text(text: str) -> str:
     if not text:
         return ""
-    text = unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode("utf-8").upper()
+    text = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ASCII", "ignore")
+        .decode("utf-8")
+        .upper()
+    )
     text = re.sub(r"[^A-Z0-9\s]", " ", text)
     cleaned = " ".join(text.split())
     return KNOWN_ALIASES.get(cleaned, cleaned)
@@ -140,7 +148,12 @@ def _categorize_parcel(tipo1: str, tipo2: str, pisos: str) -> str:
                 return "residential_multifamily"
             return "residential_singlefamily"
 
-    if t1 in ("UNICOMERCIAL", "MULTICOMERCIAL", "GARAGE COMERCIAL", "ESTACION DE SERVICIO"):
+    if t1 in (
+        "UNICOMERCIAL",
+        "MULTICOMERCIAL",
+        "GARAGE COMERCIAL",
+        "ESTACION DE SERVICIO",
+    ):
         return "commercial"
 
     if t1 in ("OFICINAS", "EQUIPAMIENTO"):
@@ -175,7 +188,11 @@ def _derive_zone_type(
 
     res_combined = thresholds["residential_combined_min_pct"]
     if (res_multi_pct + res_single_pct) > res_combined:
-        return "residential_multifamily" if res_multi_pct >= res_single_pct else "residential_singlefamily"
+        return (
+            "residential_multifamily"
+            if res_multi_pct >= res_single_pct
+            else "residential_singlefamily"
+        )
 
     return "mixed"
 
@@ -188,13 +205,29 @@ def _compute_demand_multiplier(
     industrial_pct: float,
     category_weights: dict[str, dict[str, float]],
 ) -> float:
-    other_pct = max(0.0, 100.0 - res_multi_pct - res_single_pct - commercial_pct - office_pct - industrial_pct)
-    w_multi  = (res_multi_pct  / 100.0) * category_weights["residential_multifamily"]["demand_multiplier"]
-    w_single = (res_single_pct / 100.0) * category_weights["residential_singlefamily"]["demand_multiplier"]
-    w_comm   = (commercial_pct / 100.0) * category_weights["commercial"]["demand_multiplier"]
-    w_off    = (office_pct     / 100.0) * category_weights["office"]["demand_multiplier"]
-    w_ind    = (industrial_pct / 100.0) * category_weights["industrial"]["demand_multiplier"]
-    w_other  = (other_pct      / 100.0) * category_weights["other"]["demand_multiplier"]
+    other_pct = max(
+        0.0,
+        100.0
+        - res_multi_pct
+        - res_single_pct
+        - commercial_pct
+        - office_pct
+        - industrial_pct,
+    )
+    w_multi = (res_multi_pct / 100.0) * category_weights["residential_multifamily"][
+        "demand_multiplier"
+    ]
+    w_single = (res_single_pct / 100.0) * category_weights["residential_singlefamily"][
+        "demand_multiplier"
+    ]
+    w_comm = (commercial_pct / 100.0) * category_weights["commercial"][
+        "demand_multiplier"
+    ]
+    w_off = (office_pct / 100.0) * category_weights["office"]["demand_multiplier"]
+    w_ind = (industrial_pct / 100.0) * category_weights["industrial"][
+        "demand_multiplier"
+    ]
+    w_other = (other_pct / 100.0) * category_weights["other"]["demand_multiplier"]
     return round(w_multi + w_single + w_comm + w_off + w_ind + w_other, 4)
 
 
@@ -206,14 +239,20 @@ def _compute_weekend_factor(
     industrial_pct: float,
     category_weights: dict[str, dict[str, float]],
 ) -> float:
-    total = res_multi_pct + res_single_pct + commercial_pct + office_pct + industrial_pct
+    total = (
+        res_multi_pct + res_single_pct + commercial_pct + office_pct + industrial_pct
+    )
     if total <= 0:
         return category_weights["other"]["weekend_factor"]
-    w_multi  = (res_multi_pct  / total) * category_weights["residential_multifamily"]["weekend_factor"]
-    w_single = (res_single_pct / total) * category_weights["residential_singlefamily"]["weekend_factor"]
-    w_comm   = (commercial_pct / total) * category_weights["commercial"]["weekend_factor"]
-    w_off    = (office_pct     / total) * category_weights["office"]["weekend_factor"]
-    w_ind    = (industrial_pct / total) * category_weights["industrial"]["weekend_factor"]
+    w_multi = (res_multi_pct / total) * category_weights["residential_multifamily"][
+        "weekend_factor"
+    ]
+    w_single = (res_single_pct / total) * category_weights["residential_singlefamily"][
+        "weekend_factor"
+    ]
+    w_comm = (commercial_pct / total) * category_weights["commercial"]["weekend_factor"]
+    w_off = (office_pct / total) * category_weights["office"]["weekend_factor"]
+    w_ind = (industrial_pct / total) * category_weights["industrial"]["weekend_factor"]
     return round(w_multi + w_single + w_comm + w_off + w_ind, 4)
 
 
@@ -230,7 +269,10 @@ async def _load_streets_from_db_or_geojson(calles_path: Path | None, session=Non
     if session is not None:
         try:
             from sqlalchemy import text
-            stmt = text("SELECT nomoficial, nom_mapa, alt_izqini, alt_izqfin, alt_derini, alt_derfin, ST_AsText(geom) AS geom_wkt FROM public.calles")
+
+            stmt = text(
+                "SELECT nomoficial, nom_mapa, alt_izqini, alt_izqfin, alt_derini, alt_derfin, ST_AsText(geom) AS geom_wkt FROM public.calles"
+            )
             result = await session.execute(stmt)
             rows = result.fetchall()
             if rows:
@@ -268,11 +310,15 @@ async def _load_streets_from_db_or_geojson(calles_path: Path | None, session=Non
                                 if len(tokens) >= 2:
                                     for t in tokens:
                                         if len(t) >= 4:
-                                            calles_token_dict[(t,)].append((a_min, a_max, geom))
+                                            calles_token_dict[(t,)].append(
+                                                (a_min, a_max, geom)
+                                            )
                     except Exception:
                         continue
                 loaded_from = "postgis_db"
-                print(f"[INFO] Traza de calles cargada desde PostGIS (tabla 'calles'): {len(rows):,} tramos.")
+                print(
+                    f"[INFO] Traza de calles cargada desde PostGIS (tabla 'calles'): {len(rows):,} tramos."
+                )
         except Exception:
             pass
 
@@ -321,7 +367,9 @@ async def _load_streets_from_db_or_geojson(calles_path: Path | None, session=Non
             except Exception:
                 continue
         loaded_from = "geojson_fallback"
-        print(f"[INFO] Traza de calles cargada desde GeoJSON ({calles_path.name}): {len(calles_geo.get('features', [])):,} tramos.")
+        print(
+            f"[INFO] Traza de calles cargada desde GeoJSON ({calles_path.name}): {len(calles_geo.get('features', [])):,} tramos."
+        )
 
     return calles_dict, calles_token_dict, loaded_from
 
@@ -341,14 +389,29 @@ async def process_land_use_async(
     """
     t0 = time.time()
 
-    land_use_path = Path(land_use_csv) if land_use_csv else _resolve_file("relevamiento-usos-del-suelo-2022-2024.csv")
-    calles_path = Path(calles_geojson) if calles_geojson else _resolve_file("calles.geojson")
-    radios_path = Path(radios_csv) if radios_csv else _resolve_file("radios_caba_filtrado.csv")
+    land_use_path = (
+        Path(land_use_csv)
+        if land_use_csv
+        else _resolve_file("relevamiento-usos-del-suelo-2022-2024.csv")
+    )
+    calles_path = (
+        Path(calles_geojson) if calles_geojson else _resolve_file("calles.geojson")
+    )
+    radios_path = (
+        Path(radios_csv) if radios_csv else _resolve_file("radios_caba_filtrado.csv")
+    )
 
     config_path = (
         Path(config_yaml)
         if config_yaml
-        else (ROOT / "app" / "digital_twin" / "synthetic_data" / "config" / "zone_profiles.yaml")
+        else (
+            ROOT
+            / "app"
+            / "digital_twin"
+            / "synthetic_data"
+            / "config"
+            / "zone_profiles.yaml"
+        )
     )
 
     out_radio = (
@@ -363,15 +426,21 @@ async def process_land_use_async(
     )
 
     if not land_use_path or not land_use_path.exists():
-        print(f"[WARNING] No se encontró el archivo de usos del suelo: {land_use_path}. Omitiendo.")
+        print(
+            f"[WARNING] No se encontró el archivo de usos del suelo: {land_use_path}. Omitiendo."
+        )
         return {"status": "skipped", "reason": "land_use_csv_missing"}
 
     if not radios_path or not radios_path.exists():
-        print(f"[WARNING] No se encontró el archivo de radios: {radios_path}. Omitiendo.")
+        print(
+            f"[WARNING] No se encontró el archivo de radios: {radios_path}. Omitiendo."
+        )
         return {"status": "skipped", "reason": "radios_csv_missing"}
 
     if out_radio.exists() and not force:
-        print(f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar).")
+        print(
+            f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar)."
+        )
         return {"status": "already_exists", "output_radio": str(out_radio)}
 
     thresholds, category_weights = _load_yaml_config(config_path)
@@ -400,10 +469,14 @@ async def process_land_use_async(
     radio_dept_map = dict(zip(radio_codes, radio_depts))
 
     # 2. Cargar calles (PostGIS primero, fallback GeoJSON)
-    calles_dict, calles_token_dict, source = await _load_streets_from_db_or_geojson(calles_path, session=session)
+    calles_dict, calles_token_dict, source = await _load_streets_from_db_or_geojson(
+        calles_path, session=session
+    )
 
     if not calles_dict:
-        print("[ERROR] No se pudo cargar el trazado de calles ni de PostGIS ni de GeoJSON. Abortando.")
+        print(
+            "[ERROR] No se pudo cargar el trazado de calles ni de PostGIS ni de GeoJSON. Abortando."
+        )
         return {"status": "error", "reason": "calles_not_loaded"}
 
     def geocode(calle_str: str, p_num: int) -> Point | None:
@@ -452,7 +525,15 @@ async def process_land_use_async(
             if pt is None:
                 continue
             idxs = tree.query(pt, predicate="intersects")
-            r_code = radio_codes[idxs[0]] if len(idxs) > 0 else (radio_codes[tree.nearest(pt)] if tree.nearest(pt) is not None else None)
+            r_code = (
+                radio_codes[idxs[0]]
+                if len(idxs) > 0
+                else (
+                    radio_codes[tree.nearest(pt)]
+                    if tree.nearest(pt) is not None
+                    else None
+                )
+            )
             if r_code is None:
                 continue
             radio_counts[r_code][cat] += 1
@@ -470,8 +551,10 @@ async def process_land_use_async(
         total_p = sum(counts.values())
 
         if total_p > 0:
+
             def p_pct(c: str) -> float:
                 return round(counts.get(c, 0) / total_p * 100.0, 2)
+
             rm = p_pct("residential_multifamily")
             rs = p_pct("residential_singlefamily")
             cm = p_pct("commercial")
@@ -484,28 +567,38 @@ async def process_land_use_async(
         dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
         wf = _compute_weekend_factor(rm, rs, cm, of, ind, category_weights)
 
-        radio_rows.append({
-            "radio_code": r_code,
-            "barrio": barrio,
-            "department_name": dept_name,
-            "zone_type": zt,
-            "res_multifamily_pct": rm,
-            "res_singlefamily_pct": rs,
-            "commercial_pct": cm,
-            "office_pct": of,
-            "industrial_pct": ind,
-            "total_parcelas": total_p,
-            "demand_multiplier": dm,
-            "weekend_factor": wf,
-        })
+        radio_rows.append(
+            {
+                "radio_code": r_code,
+                "barrio": barrio,
+                "department_name": dept_name,
+                "zone_type": zt,
+                "res_multifamily_pct": rm,
+                "res_singlefamily_pct": rs,
+                "commercial_pct": cm,
+                "office_pct": of,
+                "industrial_pct": ind,
+                "total_parcelas": total_p,
+                "demand_multiplier": dm,
+                "weekend_factor": wf,
+            }
+        )
 
     for target_path in set([out_radio, ROOT / "datos" / "land_use_by_radio.csv"]):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
-            "radio_code", "barrio", "department_name", "zone_type",
-            "res_multifamily_pct", "res_singlefamily_pct", "commercial_pct",
-            "office_pct", "industrial_pct", "total_parcelas",
-            "demand_multiplier", "weekend_factor",
+            "radio_code",
+            "barrio",
+            "department_name",
+            "zone_type",
+            "res_multifamily_pct",
+            "res_singlefamily_pct",
+            "commercial_pct",
+            "office_pct",
+            "industrial_pct",
+            "total_parcelas",
+            "demand_multiplier",
+            "weekend_factor",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -518,8 +611,10 @@ async def process_land_use_async(
         total_b = sum(counts.values())
         if total_b == 0:
             continue
+
         def b_pct(c: str) -> float:
             return round(counts.get(c, 0) / total_b * 100.0, 2)
+
         rm = b_pct("residential_multifamily")
         rs = b_pct("residential_singlefamily")
         cm = b_pct("commercial")
@@ -528,25 +623,34 @@ async def process_land_use_async(
         zt = _derive_zone_type(rm, rs, cm, of, ind, thresholds)
         dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
         wf = _compute_weekend_factor(rm, rs, cm, of, ind, category_weights)
-        barrio_rows.append({
-            "barrio": barrio,
-            "zone_type": zt,
-            "res_multifamily_pct": rm,
-            "res_singlefamily_pct": rs,
-            "commercial_pct": cm,
-            "office_pct": of,
-            "industrial_pct": ind,
-            "total_parcelas": total_b,
-            "demand_multiplier": dm,
-            "weekend_factor": wf,
-        })
+        barrio_rows.append(
+            {
+                "barrio": barrio,
+                "zone_type": zt,
+                "res_multifamily_pct": rm,
+                "res_singlefamily_pct": rs,
+                "commercial_pct": cm,
+                "office_pct": of,
+                "industrial_pct": ind,
+                "total_parcelas": total_b,
+                "demand_multiplier": dm,
+                "weekend_factor": wf,
+            }
+        )
 
     for target_path in set([out_barrio, ROOT / "datos" / "land_use_by_barrio.csv"]):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
-            "barrio", "zone_type", "res_multifamily_pct", "res_singlefamily_pct",
-            "commercial_pct", "office_pct", "industrial_pct", "total_parcelas",
-            "demand_multiplier", "weekend_factor",
+            "barrio",
+            "zone_type",
+            "res_multifamily_pct",
+            "res_singlefamily_pct",
+            "commercial_pct",
+            "office_pct",
+            "industrial_pct",
+            "total_parcelas",
+            "demand_multiplier",
+            "weekend_factor",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -591,6 +695,7 @@ def process_land_use_command(
     if loop and loop.is_running():
         # Si ya estamos en un loop (ej: durante seed.py async), usamos create_task o await
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             return pool.submit(
                 lambda: asyncio.run(
@@ -622,8 +727,12 @@ def process_land_use_command(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Comando de procesamiento de usos del suelo por radio censal")
-    parser.add_argument("--land-use", default=None, help="Ruta al CSV de usos del suelo")
+    parser = argparse.ArgumentParser(
+        description="Comando de procesamiento de usos del suelo por radio censal"
+    )
+    parser.add_argument(
+        "--land-use", default=None, help="Ruta al CSV de usos del suelo"
+    )
     parser.add_argument("--calles", default=None, help="Ruta a calles.geojson")
     parser.add_argument("--radios", default=None, help="Ruta al CSV de radios censales")
     parser.add_argument("--config", default=None, help="Ruta al YAML de configuración")

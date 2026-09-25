@@ -639,4 +639,3 @@ async def delete_saved_configuration(
         )
     await db.delete(saved)
     await db.commit()
-
