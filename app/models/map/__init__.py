@@ -9,6 +9,7 @@ from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.saved_configuration import SavedConfiguration
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.models.map.site import Site
 from app.models.map.site_projection import (
@@ -31,6 +32,7 @@ __all__ = [
     "NeighborhoodDemographic",
     "OptimizationWhatIfLevel",
     "RedistributionPlan",
+    "SavedConfiguration",
     "SimulationSession",
     "SimulationZoneOverride",
     "Site",

@@ -16,12 +16,21 @@ from app.digital_twin.synthetic_data.simulation.truck_engine import (
 from app.services.simulation.truck_route_service import (
     RouteSegment,
     TruckRoute,
+    _fix_enie,
     assign_sites_to_routes,
     load_routes_from_csv,
 )
 
 
 class TestTruckSimulation(unittest.TestCase):
+    def test_fix_enie_restores_enie(self):
+        # El CSV fuente de circuitos trae la "ñ" corrompida como "±" en la
+        # columna nomoficial (ej. "Ca±ada" en vez de "Cañada").
+        self.assertEqual(_fix_enie("Casta±ares"), "Castañares")
+        self.assertEqual(_fix_enie("Nu±ez"), "Nuñez")
+        # Nombres sin el caracter corrompido quedan intactos.
+        self.assertEqual(_fix_enie("San Luis"), "San Luis")
+
     def test_load_routes_from_csv(self):
         routes = load_routes_from_csv()
         self.assertGreater(len(routes), 0)
@@ -29,6 +38,17 @@ class TestTruckSimulation(unittest.TestCase):
         route_rb = routes["RODRIGO_BUENO"]
         self.assertGreater(len(route_rb.waypoints), 10)
         self.assertEqual(route_rb.zone, 1)
+
+        # Ningun nombre de calle real cargado desde el CSV debe conservar el
+        # caracter de mojibake que reemplazaba a la "ñ" en el archivo fuente.
+        all_street_names = [
+            seg.street_name for route in routes.values() for seg in route.segments
+        ]
+        self.assertTrue(
+            any("ñ" in name.lower() for name in all_street_names),
+            "se esperaba encontrar al menos una calle con 'ñ' ya corregida",
+        )
+        self.assertFalse(any("±" in name for name in all_street_names))
 
     def test_depots_and_transfer_stations(self):
         self.assertEqual(len(DEPOTS_BY_ZONE), 7)
@@ -80,7 +100,141 @@ class TestTruckSimulation(unittest.TestCase):
 
         assignment = assign_sites_to_routes(sites, routes)
         self.assertIn("SITE-1", assignment["1184"])
-        self.assertEqual(routes["1184"].site_ids, ["SITE-1"])
+        # SITE-2 no matchea ninguna calle indexada, pero cae por cercania
+        # espacial a la unica ruta disponible (fallback de proximidad).
+        self.assertEqual(routes["1184"].site_ids, ["SITE-1", "SITE-2"])
+
+    def test_site_assignment_falls_back_to_nearest_route_by_distance(self):
+        # Dos rutas lejos entre si, cada una con un sitio matcheado por calle.
+        # Un sitio sin calle matcheada (huerfano) debe caer en la ruta cuyo
+        # centroide de sitios ya asignados este geograficamente mas cerca.
+        routes = {
+            "NORTE": TruckRoute(
+                route_id="NORTE",
+                zone=1,
+                service_name="Test",
+                segments=[
+                    RouteSegment(
+                        street_name="CABILDO",
+                        alt_start=100,
+                        alt_end=200,
+                        sentido="Creciente",
+                        service_name="Test",
+                        length_m=100.0,
+                        zone=1,
+                        comuna="1",
+                        barrio="Belgrano",
+                    )
+                ],
+            ),
+            "SUR": TruckRoute(
+                route_id="SUR",
+                zone=8,
+                service_name="Test",
+                segments=[
+                    RouteSegment(
+                        street_name="RIESTRA",
+                        alt_start=100,
+                        alt_end=200,
+                        sentido="Creciente",
+                        service_name="Test",
+                        length_m=100.0,
+                        zone=8,
+                        comuna="8",
+                        barrio="Villa Soldati",
+                    )
+                ],
+            ),
+        }
+        sites = [
+            {
+                "id": "SITE-NORTE",
+                "address": "CABILDO 150",
+                "latitude": -34.560,
+                "longitude": -58.456,
+            },
+            {
+                "id": "SITE-SUR",
+                "address": "RIESTRA 150",
+                "latitude": -34.670,
+                "longitude": -58.460,
+            },
+            {
+                "id": "SITE-HUERFANO",
+                "address": "CALLE DESCONOCIDA 999",
+                "latitude": -34.562,  # muy cerca de SITE-NORTE
+                "longitude": -58.457,
+            },
+        ]
+
+        assignment = assign_sites_to_routes(sites, routes)
+
+        self.assertIn("SITE-HUERFANO", assignment["NORTE"])
+        self.assertNotIn("SITE-HUERFANO", assignment["SUR"])
+
+    def test_site_assignment_matches_dirty_route_segment_street_names(self):
+        # Regresion: el CSV real de circuitos nombra las calles como
+        # "Corrientes Av." (sufijo, no prefijo) o "Mitre, Bartolome"
+        # (apellido, coma, nombre) porque nunca tienen altura embebida en el
+        # nombre. Antes del fix, esto nunca matcheaba contra una direccion de
+        # contenedor normalizada ("AV. CORRIENTES 1234" -> "CORRIENTES").
+        routes = {
+            "9001": TruckRoute(
+                route_id="9001",
+                zone=1,
+                service_name="Test",
+                segments=[
+                    RouteSegment(
+                        street_name="Corrientes Av.",
+                        alt_start=1200,
+                        alt_end=1300,
+                        sentido="Creciente",
+                        service_name="Test",
+                        length_m=100.0,
+                        zone=1,
+                        comuna="1",
+                        barrio="San Nicolas",
+                    )
+                ],
+            ),
+            "9002": TruckRoute(
+                route_id="9002",
+                zone=1,
+                service_name="Test",
+                segments=[
+                    RouteSegment(
+                        street_name="Mitre, Bartolome",
+                        alt_start=400,
+                        alt_end=600,
+                        sentido="Creciente",
+                        service_name="Test",
+                        length_m=100.0,
+                        zone=1,
+                        comuna="1",
+                        barrio="San Nicolas",
+                    )
+                ],
+            ),
+        }
+        sites = [
+            {
+                "id": "SITE-CORRIENTES",
+                "address": "AV. CORRIENTES 1234",
+                "latitude": -34.603,
+                "longitude": -58.381,
+            },
+            {
+                "id": "SITE-MITRE",
+                "address": "MITRE BARTOLOME 500",
+                "latitude": -34.604,
+                "longitude": -58.382,
+            },
+        ]
+
+        assignment = assign_sites_to_routes(sites, routes)
+
+        self.assertIn("SITE-CORRIENTES", assignment["9001"])
+        self.assertIn("SITE-MITRE", assignment["9002"])
 
     def test_truck_engine_daytime_idle_and_night_dispatch(self):
         routes = {
@@ -157,15 +311,15 @@ class TestTruckSimulation(unittest.TestCase):
         self.assertEqual(containers_by_site["SITE-102"][0]["current_level"], 40.0)
 
     def test_scheduled_collection_matching_site_aliases(self):
-        from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-        from app.digital_twin.synthetic_data.topology import (
-            SimulationTopology,
-            Container,
-            Device,
-            Site,
-        )
         from app.digital_twin.synthetic_data.simulation.engine import (
             SyntheticDataSimulator,
+        )
+        from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
+        from app.digital_twin.synthetic_data.topology import (
+            Container,
+            Device,
+            SimulationTopology,
+            Site,
         )
 
         site = Site(
@@ -177,43 +331,79 @@ class TestTruckSimulation(unittest.TestCase):
             demand_base=1.0,
         )
         cont = Container(
-            id=328,
+            id="328",
             site_id="158",
             name="RSU",
             waste_type="RSU Fracción Húmeda",
             height_cm=145,
             volume_m3=3.2,
         )
-        dev = Device(id="sim-device-328", container_id=328)
+        dev = Device(id="sim-device-328", container_id="328")
         topo = SimulationTopology(
             sites=[site],
             containers=[cont],
             devices=[dev],
-            initial_levels={328: 100.0},
+            initial_levels={"328": 100.0},
         )
         cfg = ScenarioConfig(frequency_minutes=15)
         sim = SyntheticDataSimulator(cfg, topology=topo)
         sim.initialize()
-        sim.state.levels[328] = 100.0
+        sim.state.levels["328"] = 100.0
 
-        from app.services.simulation.collection_schedule_service import (
-            load_collection_schedule,
-        )
+        # El motor nuevo ya no consulta un cronograma estático por minuto:
+        # reparte las paradas de cada ruta dinámicamente entre las horas de
+        # collection_hours. Alcanza con que el sitio esté en la ruta.
+        for route in sim.truck_fleet.routes.values():
+            if "158" in route.site_ids:
+                route.site_ids = [s for s in route.site_ids if s != "158"]
+        if sim.truck_fleet and "RODRIGO_BUENO" in sim.truck_fleet.routes:
+            sim.truck_fleet.routes["RODRIGO_BUENO"].site_ids = ["158"]
 
-        schedules = load_collection_schedule()
-        schedules["RODRIGO_BUENO"] = {
-            "route_id": "RODRIGO_BUENO",
-            "stops": [
-                {
-                    "order": 1,
-                    "site_id": "158",
-                    "scheduled_time": "05:37",
-                    "scheduled_minute_of_day": 5 * 60 + 37,
-                }
-            ],
-        }
-
-        # Tick a las 05:45 (que incluye parada a las 05:37)
+        # Tick a las 05:45
         tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
         self.assertEqual(len(tick.collections), 1)
-        self.assertLess(sim.state.levels[328], 10.0)
+        self.assertLess(sim.state.levels["328"], 10.0)
+
+    def test_no_collection_days_blocks_trucks(self):
+        routes = {
+            "101": TruckRoute(
+                route_id="101",
+                zone=1,
+                service_name="Test Service",
+                site_ids=["SITE-101"],
+                waypoints=[(-34.601, -58.401)],
+            )
+        }
+        sites_dict = {"SITE-101": (-34.601, -58.401)}
+        # 2026-09-02 is Wednesday (weekday = 2)
+        simulator = TruckFleetSimulator(
+            routes=routes,
+            sites_dict=sites_dict,
+            collection_hours=(22,),
+            no_collection_days=(2,),  # Miércoles bloqueado
+            collection_threshold_pct=0.0,
+        )
+
+        containers_by_site = {
+            "SITE-101": [{"id": 1, "current_level": 85.0}],
+        }
+        wednesday_night = datetime(2026, 9, 2, 22, 0, 0)
+        events = simulator.step(
+            wednesday_night,
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
+        self.assertEqual(len(events), 0)
+        self.assertEqual(simulator.trucks["TRUCK-101"].status, TruckStatus.AT_DEPOT)
+
+        # On Thursday (weekday = 3), collection should occur
+        thursday_night = datetime(2026, 9, 3, 22, 0, 0)
+        events_thu = simulator.step(
+            thursday_night,
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
+        self.assertEqual(len(events_thu), 1)
+        self.assertEqual(simulator.trucks["TRUCK-101"].status, TruckStatus.COLLECTING)

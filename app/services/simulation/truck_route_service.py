@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.digital_twin.synthetic_data.generators.street_pairing import (
+    approximate_distance_meters,
+    normalize_street_name,
     parse_street_address,
 )
 
@@ -146,6 +148,11 @@ def build_rodrigo_bueno_route() -> TruckRoute:
     )
 
 
+def _fix_enie(street_name: str) -> str:
+    """Corrige la "ñ" corrompida en el CSV fuente de circuitos de recoleccion."""
+    return street_name.replace("±", "ñ")
+
+
 def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckRoute]:
     global _CACHED_ROUTES
     if _CACHED_ROUTES is not None:
@@ -215,7 +222,7 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
                 if k_servic
                 else "Recoleccion Domiciliaria"
             )
-            street_name = row.get(k_calle, "").strip()
+            street_name = _fix_enie(row.get(k_calle, "").strip())
 
             try:
                 alt_start = (
@@ -273,6 +280,7 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
     """Pre-carga los waypoints geográficos para cada ruta a partir de los contenedores de CABA."""
     import json
     import math
+
     from app.digital_twin.synthetic_data.simulation.truck_depots import (
         get_depot_for_zone,
     )
@@ -331,6 +339,58 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
             ]
 
 
+_FALLBACK_ORDER = (
+    10**9
+)  # va al final del recorrido de su ruta, no interfiere el orden por calle
+
+
+def _assign_by_proximity(
+    unassigned_sites: list[tuple[str, float, float]],
+    routes: dict[str, TruckRoute],
+    route_to_sites: dict[str, list[tuple[int, str, float, float]]],
+) -> None:
+    """Asigna sitios sin calle matcheada a la ruta cuyo centroide (de los
+    sitios ya asignados por calle, o su primer waypoint, o el depósito de su
+    zona como último recurso) está geográficamente más cerca."""
+    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+        get_depot_for_zone,
+    )
+
+    route_centers: dict[str, tuple[float, float]] = {}
+    for r_id, route in routes.items():
+        if r_id == "RODRIGO_BUENO":
+            continue
+        pts = [
+            (lat, lon)
+            for _, _, lat, lon in route_to_sites.get(r_id, [])
+            if lat != 0.0 or lon != 0.0
+        ]
+        if pts:
+            route_centers[r_id] = (
+                sum(p[0] for p in pts) / len(pts),
+                sum(p[1] for p in pts) / len(pts),
+            )
+        elif route.waypoints:
+            route_centers[r_id] = route.waypoints[0]
+        else:
+            depot = get_depot_for_zone(route.zone)
+            route_centers[r_id] = (depot.latitude, depot.longitude)
+
+    if not route_centers:
+        return
+
+    for site_id, lat, lon in unassigned_sites:
+        if lat == 0.0 and lon == 0.0:
+            continue
+        best_r_id = min(
+            route_centers,
+            key=lambda r_id: approximate_distance_meters(
+                lat, lon, *route_centers[r_id]
+            ),
+        )
+        route_to_sites[best_r_id].append((_FALLBACK_ORDER, site_id, lat, lon))
+
+
 def assign_sites_to_routes(
     sites: list[dict], routes: dict[str, TruckRoute]
 ) -> dict[str, list[str]]:
@@ -348,8 +408,13 @@ def assign_sites_to_routes(
         route.site_ids.clear()
         route.waypoints.clear()
         for idx, seg in enumerate(route.segments):
-            parsed = parse_street_address(seg.street_name)
-            s_name = parsed[0] if parsed else seg.street_name.strip().upper()
+            # El nombre de un tramo de ruta nunca trae la altura embebida (vive
+            # en columnas separadas), así que parse_street_address siempre
+            # devolvería None acá — se usa normalize_street_name, que limpia
+            # "AV."/comas/títulos sin exigir un número.
+            s_name = normalize_street_name(seg.street_name) or (
+                seg.street_name.strip().upper()
+            )
             street_index.setdefault(s_name, []).append(
                 (
                     r_id,
@@ -392,6 +457,9 @@ def assign_sites_to_routes(
             route_to_sites[matched_route_id].append((matched_order, site_id, lat, lon))
         else:
             unassigned_sites.append((site_id, lat, lon))
+
+    if unassigned_sites:
+        _assign_by_proximity(unassigned_sites, routes, route_to_sites)
 
     # Ordenar los sitios dentro de cada ruta por el orden de recorrido de sus cuadras
     result: dict[str, list[str]] = {}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 from dataclasses import dataclass
@@ -10,16 +11,13 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
-from app.digital_twin.synthetic_data.domain.entities import Measurement
+from app.digital_twin.synthetic_data.domain.entities import SimulationSession
 from app.digital_twin.synthetic_data.loaders.backend_http import (
     load_topology_from_backend_api,
 )
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
-from app.digital_twin.synthetic_data.transport.backend_http import (
-    DeliveryReport,
-    send_measurements_batch,
-)
+from app.digital_twin.synthetic_data.transport.delivery_pipeline import DeliveryPipeline
 from app.services.simulation_control_service import (
     ACTIVE_STATUSES,
     effective_multiplier,
@@ -100,12 +98,13 @@ async def run_worker() -> None:
     while True:
         try:
             active_session = await _fetch_active_session(settings.simulator_backend_url)
+
         except Exception:
             logger.exception("No se pudo consultar la siguiente simulacion activa.")
             await asyncio.sleep(settings.simulator_poll_seconds)
             continue
 
-        if active_session is None or active_session.get("status") not in (
+        if active_session is None or active_session.status not in (
             "pending",
             "running",
             "paused",
@@ -116,9 +115,12 @@ async def run_worker() -> None:
         await _run_session(active_session)
 
 
-async def _fetch_active_session(backend_url: str) -> dict | None:
+async def _fetch_active_session(backend_url: str) -> SimulationSession | None:
     url = urljoin(backend_url.rstrip("/") + "/", "digital-twin/worker/active-session")
-    return await asyncio.to_thread(_http_get_json, url)
+    data = await asyncio.to_thread(_http_get_json, url)
+    if data is None:
+        return None
+    return SimulationSession.model_validate(data)
 
 
 async def _mark_interrupted_sessions_failed(backend_url: str) -> bool:
@@ -149,12 +151,13 @@ async def _update_progress(
     return await asyncio.to_thread(_http_post_json, url, progress, method="PATCH")
 
 
-async def _run_session(session: dict) -> None:
+async def _run_session(session: SimulationSession) -> None:
     settings = get_settings()
-    simulation_id = session["id"]
+    simulation_id = session.id
     logger.info("Iniciando simulacion %s.", simulation_id)
+    pipeline: DeliveryPipeline | None = None
     try:
-        config = scenario_from_mapping(session["scenario"])
+        config = scenario_from_mapping(session.scenario)
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.simulator_backend_url,
@@ -177,14 +180,20 @@ async def _run_session(session: dict) -> None:
             {"status": "running"},
         )
 
-        delivery_sem = asyncio.Semaphore(3)
-        pending_deliveries: list[asyncio.Task] = []
+        total_periods_val = config.periods if config.periods > 0 else 0
+        pipeline = DeliveryPipeline(
+            simulation_id,
+            settings.simulator_backend_url,
+            total_periods_val,
+            batch_size=settings.simulator_batch_size,
+            maxsize=settings.simulator_delivery_queue_maxsize,
+        )
+        pipeline.start()
 
         previous_controls: ControlSnapshot | None = None
-        import itertools
 
         period_iterator = (
-            range(config.periods) if config.end is not None else itertools.count()
+            range(config.periods) if config.periods > 0 else itertools.count()
         )
         for period in period_iterator:
             session_state = await _wait_until_runnable(
@@ -199,18 +208,18 @@ async def _run_session(session: dict) -> None:
             simulated_time = _as_utc(simulated_time)
 
             global_multiplier = effective_multiplier(
-                session_state.get("global_demand_current", 1.0),
-                session_state.get("global_demand_target", 1.0),
+                session_state.global_demand_current,
+                session_state.global_demand_target,
                 simulated_time,
-                _parse_iso(session_state.get("transition_started_at")),
-                _parse_iso(session_state.get("transition_ends_at")),
+                _parse_iso(session_state.started_at),
+                _parse_iso(session_state.finished_at),
             )
 
-            overrides = session_state.get("zone_overrides", [])
+            overrides = session_state.zone_overrides
             controls = ControlSnapshot(
-                speedup=session_state.get("speedup", 60.0),
+                speedup=session_state.speedup,
                 global_current=global_multiplier,
-                global_target=session_state.get("global_demand_target", 1.0),
+                global_target=session_state.global_demand_target,
                 zones=tuple(
                     sorted(
                         (
@@ -229,33 +238,33 @@ async def _run_session(session: dict) -> None:
 
             tick_started = asyncio.get_running_loop().time()
 
+            import unicodedata
+
+            def _norm_k(s: str | None) -> str:
+                if not s:
+                    return ""
+                n = unicodedata.normalize("NFKD", str(s).strip().casefold())
+                return "".join(c for c in n if not unicodedata.combining(c))
+
             zone_multipliers = {
-                name: current for name, current, _target in controls.zones
+                _norm_k(name): current for name, current, _target in controls.zones
             }
+            zone_multipliers.update(
+                {name: current for name, current, _target in controls.zones}
+            )
             tick = simulator.run_tick(
                 simulated_time,
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone, multipliers=zone_multipliers: (
-                    multipliers.get(zone, 1.0)
+                zone_multiplier=lambda zone: zone_multipliers.get(
+                    zone,
+                    zone_multipliers.get(_norm_k(zone), 1.0),
                 ),
             )
 
-            # Enviar mediciones en background sin bloquear el reloj de simulación
-            total_periods_val = config.periods if config.end is not None else 0
-            task = asyncio.create_task(
-                _deliver_in_background(
-                    delivery_sem,
-                    simulation_id,
-                    tick.measurements,
-                    settings.simulator_backend_url,
-                    period + 1,
-                    total_periods_val,
-                )
-            )
-            pending_deliveries.append(task)
-            pending_deliveries = [t for t in pending_deliveries if not t.done()]
+            # Encolar mediciones para entrega desacoplada del reloj de simulación
+            await pipeline.enqueue(period + 1, tick.measurements)
 
             # Actualizar progreso en la API
             trucks_snapshot = (
@@ -282,7 +291,7 @@ async def _run_session(session: dict) -> None:
             target_delay = (config.frequency_minutes * 60.0) / speedup
             remaining_delay = max(0.0, target_delay - tick_elapsed)
 
-            total_periods_str = str(config.periods) if config.end is not None else "∞"
+            total_periods_str = str(config.periods) if config.periods > 0 else "∞"
             logger.info(
                 "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
                 "recolecciones=%s alarmas=%s speedup=%sx demanda=%.3f (computo=%.2fs, espera=%.2fs).",
@@ -309,19 +318,22 @@ async def _run_session(session: dict) -> None:
             ):
                 break
         else:
-            if pending_deliveries:
-                await asyncio.gather(*pending_deliveries, return_exceptions=True)
             await _finish_session(
                 settings.simulator_backend_url, simulation_id, "completed"
             )
             logger.info("Simulacion %s completada.", simulation_id)
+        await pipeline.aclose(timeout=settings.simulator_delivery_drain_timeout)
     except asyncio.CancelledError:
+        if pipeline is not None:
+            pipeline.cancel()
         await _finish_session(
             settings.simulator_backend_url, simulation_id, "failed", "Worker cancelado."
         )
         raise
     except Exception as exc:
         logger.exception("La simulacion %s fallo.", simulation_id)
+        if pipeline is not None:
+            await pipeline.aclose(timeout=settings.simulator_delivery_drain_timeout)
         await _finish_session(
             settings.simulator_backend_url, simulation_id, "failed", str(exc)
         )
@@ -351,10 +363,10 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
             await asyncio.sleep(settings.simulator_poll_seconds)
             continue
 
-        if session.get("id") != simulation_id:
+        if session.id != simulation_id:
             return None
         missed_polls = 0
-        status = session.get("status")
+        status = session.status
         if status == "stopping":
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
@@ -366,7 +378,7 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
                 await _update_progress(
                     backend_url, simulation_id, {"status": "running"}
                 )
-                session["status"] = "running"
+                session.status = "running"
             if paused_logged:
                 logger.info("Simulacion %s reanudada.", simulation_id)
             return session
@@ -376,51 +388,6 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
             logger.info("Simulacion %s pausada.", simulation_id)
             paused_logged = True
         await asyncio.sleep(settings.simulator_poll_seconds)
-
-
-async def _deliver_tick_measurements(
-    measurements: list[Measurement],
-    backend_url: str,
-) -> DeliveryReport:
-    if not measurements:
-        return DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
-
-    settings = get_settings()
-    return await asyncio.to_thread(
-        send_measurements_batch,
-        measurements,
-        backend_url,
-        batch_size=settings.simulator_batch_size,
-    )
-
-
-async def _deliver_in_background(
-    sem: asyncio.Semaphore,
-    simulation_id: int,
-    measurements: list[Measurement],
-    backend_url: str,
-    tick_number: int,
-    total_ticks: int,
-) -> None:
-    async with sem:
-        try:
-            report = await _deliver_tick_measurements(measurements, backend_url)
-            logger.debug(
-                "Simulacion %s tick %s/%s entrega: enviadas=%s actualizadas=%s no_encontradas=%s.",
-                simulation_id,
-                tick_number,
-                total_ticks,
-                report.sent,
-                report.updated,
-                report.not_found,
-            )
-        except Exception:
-            logger.exception(
-                "Simulacion %s tick %s/%s: error enviando mediciones.",
-                simulation_id,
-                tick_number,
-                total_ticks,
-            )
 
 
 def _remaining_tick_delay(
@@ -469,10 +436,10 @@ async def _wait_between_ticks(
             )
             continue
 
-        if session.get("id") != simulation_id:
+        if session.id != simulation_id:
             return False
         missed_polls = 0
-        status = session.get("status")
+        status = session.status
         if status == "stopping":
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id

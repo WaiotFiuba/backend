@@ -25,6 +25,12 @@ async def main():
         print("Generando cronograma de recolección para todas las rutas...")
         save_collection_schedule()
         print("Cronograma generado y guardado exitosamente.")
+
+        from app.commands.process_land_use import process_land_use_async
+
+        print("Procesando usos del suelo y perfiles por radio censal...")
+        await process_land_use_async()
+        print("Usos del suelo y perfiles procesados exitosamente.")
     except Exception as e:
         print(f"Error durante la siembra de datos: {e}")
         sys.exit(1)
