@@ -249,6 +249,9 @@ async def update_virtual_levels_batch(
     """
     Actualiza los niveles virtuales de múltiples contenedores.
     Se llama desde el ingest service después de procesar telemetría real.
+
+    Usa staging table + bulk UPDATE para rendimiento óptimo (1 COPY + 1 UPDATE
+    en vez de N UPDATEs individuales).
     """
     if not _active_plan_id or not updates:
         return
@@ -257,45 +260,55 @@ async def update_virtual_levels_batch(
     for container_id, new_level in updates:
         _virtual_levels[container_id] = new_level
 
-    # Actualizar en DB por lotes usando raw SQL para performance
+    plan_id = _active_plan_id
+
+    # Bulk update via staging table (fast path para asyncpg/PostgreSQL)
     try:
         conn = await db.connection()
         raw_conn = await conn.get_raw_connection()
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
-        if hasattr(asyncpg_conn, "executemany"):
-            await asyncpg_conn.executemany(
+        if hasattr(asyncpg_conn, "copy_records_to_table"):
+            await asyncpg_conn.execute(
                 """
-                UPDATE optimization_whatif_levels
-                SET virtual_level = $1, last_reading = NOW()
-                WHERE plan_id = $2 AND container_id = $3
-                """,
-                [(level, _active_plan_id, cid) for cid, level in updates],
+                CREATE TEMP TABLE IF NOT EXISTS _tmp_whatif_updates (
+                    container_id bigint,
+                    virtual_level integer
+                );
+                TRUNCATE _tmp_whatif_updates;
+                """
             )
-        else:
-            # Fallback SQLAlchemy
-            for cid, level in updates:
-                await db.execute(
-                    update(OptimizationWhatIfLevel)
-                    .where(
-                        OptimizationWhatIfLevel.plan_id == _active_plan_id,
-                        OptimizationWhatIfLevel.container_id == cid,
-                    )
-                    .values(virtual_level=level)
-                )
+            await asyncpg_conn.copy_records_to_table(
+                "_tmp_whatif_updates",
+                records=updates,
+                columns=["container_id", "virtual_level"],
+            )
+            await asyncpg_conn.execute(
+                """
+                UPDATE optimization_whatif_levels AS w
+                SET virtual_level = t.virtual_level,
+                    last_reading = NOW()
+                FROM _tmp_whatif_updates AS t
+                WHERE w.plan_id = $1 AND w.container_id = t.container_id;
+                """,
+                plan_id,
+            )
+            return
     except Exception:
         logger.warning(
-            "Error actualizando niveles virtuales, usando fallback.", exc_info=True
+            "Error en bulk update de niveles virtuales, usando fallback.", exc_info=True
         )
-        for cid, level in updates:
-            await db.execute(
-                update(OptimizationWhatIfLevel)
-                .where(
-                    OptimizationWhatIfLevel.plan_id == _active_plan_id,
-                    OptimizationWhatIfLevel.container_id == cid,
-                )
-                .values(virtual_level=level)
+
+    # Fallback SQLAlchemy (para SQLite u otros backends)
+    for cid, level in updates:
+        await db.execute(
+            update(OptimizationWhatIfLevel)
+            .where(
+                OptimizationWhatIfLevel.plan_id == plan_id,
+                OptimizationWhatIfLevel.container_id == cid,
             )
+            .values(virtual_level=level)
+        )
 
 
 async def get_comparison_metrics(
