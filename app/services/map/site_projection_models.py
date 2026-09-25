@@ -115,7 +115,9 @@ class BaselineOperationalForecaster:
 
         # Las features territoriales solo corrigen el fallback. Si el sitio ya
         # tiene suficiente historico propio, prefiero creerle a su serie real.
-        density_factor = _numeric_feature(context.site_features, "demand.density_factor")
+        density_factor = _numeric_feature(
+            context.site_features, "demand.density_factor"
+        )
         feature_adjustment = _feature_adjustment(
             density_factor=density_factor,
             has_enough_site_history=len(increment_profile.global_increments) >= 6,
@@ -283,16 +285,30 @@ _MODEL_REGISTRY: dict[str, SiteLevelForecaster] = {
 }
 
 
+def _get_registry() -> dict[str, SiteLevelForecaster]:
+    if "chronos_2_small" not in _MODEL_REGISTRY:
+        try:
+            from app.services.map.site_projection_chronos import (
+                CHRONOS_2_SMALL_MODEL,
+                Chronos2SmallForecaster,
+            )
+
+            _MODEL_REGISTRY[CHRONOS_2_SMALL_MODEL.key] = Chronos2SmallForecaster()
+        except Exception:
+            pass
+    return _MODEL_REGISTRY
+
+
 def list_projection_models() -> list[ForecastModelInfo]:
-    return [forecaster.model_info for forecaster in _MODEL_REGISTRY.values()]
+    return [forecaster.model_info for forecaster in _get_registry().values()]
 
 
 def get_projection_model_info(model_key: str) -> ForecastModelInfo | None:
-    forecaster = _MODEL_REGISTRY.get(model_key)
+    forecaster = _get_registry().get(model_key)
     if forecaster is None:
         return None
     return forecaster.model_info
 
 
 def get_forecaster(model_key: str) -> SiteLevelForecaster | None:
-    return _MODEL_REGISTRY.get(model_key)
+    return _get_registry().get(model_key)
