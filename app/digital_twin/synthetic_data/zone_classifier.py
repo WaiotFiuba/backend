@@ -70,21 +70,20 @@ class ZoneProfile:
         default_factory=dict
     )  # del YAML de perfiles
 
+    _temporal_norm: float | None = field(default=None, init=False, repr=False)
+    _cached_hour_weights: tuple[float, ...] | None = field(
+        default=None, init=False, repr=False
+    )
+    _cached_matrix: tuple[tuple[float, ...], ...] | None = field(
+        default=None, init=False, repr=False
+    )
+
     @property
     def residential_pct(self) -> float:
         """Suma de residencial multifamiliar y unifamiliar (para compatibilidad)."""
         return round(self.res_multifamily_pct + self.res_singlefamily_pct, 2)
 
-    def get_hour_weight(self, hour: int) -> float:
-        """
-        Factor de generación para la hora del día (0-23).
-
-        Si la hora está definida en hour_weights, se usa ese valor directo.
-        Si no, se interpola linealmente entre los dos puntos definidos más
-        cercanos DE ESTE MISMO PERFIL (cíclico, dando la vuelta la medianoche)
-        — así la curva de cada zona queda coherente consigo misma en vez de
-        caer a una curva genérica compartida por todos los tipos de zona.
-        """
+    def _compute_hour_weight(self, hour: int) -> float:
         if hour in self.hour_weights:
             return self.hour_weights[hour]
         if not self.hour_weights:
@@ -102,6 +101,17 @@ class ZoneProfile:
         t = (hour - prev_hour) / (next_hour - prev_hour)
         return prev_weight + (next_weight - prev_weight) * t
 
+    def get_hour_weight(self, hour: int) -> float:
+        """
+        Factor de generación para la hora del día (0-23).
+        Precalculado en tupla de 24h para acceso instantáneo O(1).
+        """
+        if self._cached_hour_weights is None:
+            self._cached_hour_weights = tuple(
+                self._compute_hour_weight(h) for h in range(24)
+            )
+        return self._cached_hour_weights[hour % 24]
+
     def get_weekday_factor(self, weekday: int) -> float:
         """
         Factor según día de la semana (Monday=0 … Sunday=6).
@@ -112,39 +122,36 @@ class ZoneProfile:
     def temporal_normalization_factor(self) -> float:
         """
         Media de la componente temporal (hour_weight × weekday_factor) sobre una semana
-        completa (24h × 7 días).
-
-        Se usa para normalizar solo la distribución temporal, dejando el demand_multiplier
-        intacto. Esto garantiza que:
-          - La forma horaria/semanal (cuándo) promedia a 1.0 y no agrega volumen extra.
-          - El demand_multiplier (cuánto) sigue diferenciando zonas:
-              residential_multifamily (1.10) > commercial (1.40) > office (0.85) > industrial (0.65)
-          - El global de todos los contenedores tiende a 1.5 kg/persona/día (del censo INDEC).
+        completa (24h × 7 días). Cacheada en la instancia para evitar millones de evaluaciones.
         """
-        total = sum(
-            self.get_hour_weight(h) * self.get_weekday_factor(wd)
-            for wd in range(7)
-            for h in range(24)
-        )
-        mean = total / (24 * 7)
-        return mean if mean > 0.0 else 1.0
+        if self._temporal_norm is None:
+            total = sum(
+                self.get_hour_weight(h) * self.get_weekday_factor(wd)
+                for wd in range(7)
+                for h in range(24)
+            )
+            mean = total / (24 * 7)
+            self._temporal_norm = mean if mean > 0.0 else 1.0
+        return self._temporal_norm
 
     def effective_multiplier(self, hour: int, weekday: int) -> float:
         """
         Multiplicador efectivo para un instante (hora, día de semana).
-
-        Fórmula: demand_multiplier × (hour_weight × weekday_factor) / temporal_mean
-
-        La componente temporal se normaliza (promedio semanal = 1.0) para que la curva
-        solo redistribuya cuándo se genera la basura, sin inflar el total.
-        El demand_multiplier permanece sin normalizar y diferencia genuinamente zonas:
-          - Residencial multifamiliar genera MÁS (1.10× el demand_base censal)
-          - Comercial genera MÁS en pico pero también cae más en horas valle (1.40×)
-          - Industrial genera MENOS (0.65×)
-        La suma global de todos los contenedores tiende a 1.5 kg/persona/día.
+        Precalcula y cachea la matriz 7x24 para acceso ultra rápido O(1).
         """
-        temporal = self.get_hour_weight(hour) * self.get_weekday_factor(weekday)
-        return self.demand_multiplier * (temporal / self.temporal_normalization_factor)
+        if self._cached_matrix is None:
+            norm = self.temporal_normalization_factor
+            matrix = []
+            for wd in range(7):
+                wf = self.get_weekday_factor(wd)
+                matrix.append(
+                    tuple(
+                        self.demand_multiplier * (self.get_hour_weight(h) * wf / norm)
+                        for h in range(24)
+                    )
+                )
+            self._cached_matrix = tuple(matrix)
+        return self._cached_matrix[weekday % 7][hour % 24]
 
 
 # Perfil por defecto cuando no se puede determinar la zona

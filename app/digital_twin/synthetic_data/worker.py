@@ -1,9 +1,9 @@
-from __future__ import annotations
-
 import asyncio
+import functools
 import itertools
 import json
 import logging
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.error import HTTPError, URLError
@@ -27,6 +27,14 @@ from app.services.simulation_control_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=256)
+def _norm_zone_name(s: str | None) -> str:
+    if not s:
+        return ""
+    n = unicodedata.normalize("NFKD", str(s).strip().casefold())
+    return "".join(c for c in n if not unicodedata.combining(c))
 
 
 @dataclass(frozen=True)
@@ -247,29 +255,30 @@ async def _run_session(session: SimulationSession) -> None:
 
             tick_started = asyncio.get_running_loop().time()
 
-            import unicodedata
+            has_zone_overrides = any(current != 1.0 for _, current, _ in controls.zones)
+            if has_zone_overrides:
+                zone_multipliers = {
+                    _norm_zone_name(name): current
+                    for name, current, _target in controls.zones
+                }
+                zone_multipliers.update(
+                    {name: current for name, current, _target in controls.zones}
+                )
 
-            def _norm_k(s: str | None) -> str:
-                if not s:
-                    return ""
-                n = unicodedata.normalize("NFKD", str(s).strip().casefold())
-                return "".join(c for c in n if not unicodedata.combining(c))
+                def zone_fn(zone: str) -> float:
+                    return zone_multipliers.get(
+                        zone,
+                        zone_multipliers.get(_norm_zone_name(zone), 1.0),
+                    )
+            else:
+                zone_fn = None
 
-            zone_multipliers = {
-                _norm_k(name): current for name, current, _target in controls.zones
-            }
-            zone_multipliers.update(
-                {name: current for name, current, _target in controls.zones}
-            )
             tick = simulator.run_tick(
                 simulated_time,
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=lambda zone: zone_multipliers.get(
-                    zone,
-                    zone_multipliers.get(_norm_k(zone), 1.0),
-                ),
+                zone_multiplier=zone_fn,
             )
 
             # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
