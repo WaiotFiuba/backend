@@ -335,12 +335,20 @@ def effective_multiplier(
 ) -> float:
     if not simulated_time or not transition_started_at or not transition_ends_at:
         return target
-    duration = (transition_ends_at - transition_started_at).total_seconds()
-    if duration <= 0 or simulated_time >= transition_ends_at:
+
+    def _to_utc(dt: datetime) -> datetime:
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+    st = _to_utc(simulated_time)
+    t_start = _to_utc(transition_started_at)
+    t_end = _to_utc(transition_ends_at)
+
+    duration = (t_end - t_start).total_seconds()
+    if duration <= 0 or st >= t_end:
         return target
-    if simulated_time <= transition_started_at:
+    if st <= t_start:
         return start
-    elapsed = (simulated_time - transition_started_at).total_seconds()
+    elapsed = (st - t_start).total_seconds()
     return start + (target - start) * elapsed / duration
 
 

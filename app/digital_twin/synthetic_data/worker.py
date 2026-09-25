@@ -17,7 +17,10 @@ from app.digital_twin.synthetic_data.loaders.backend_http import (
 )
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
-from app.digital_twin.synthetic_data.transport.delivery_pipeline import DeliveryPipeline
+from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
+    DeliveryPipeline,
+    deliver_tick_measurements,
+)
 from app.services.simulation_control_service import (
     ACTIVE_STATUSES,
     effective_multiplier,
@@ -223,9 +226,9 @@ async def _run_session(session: SimulationSession) -> None:
                 zones=tuple(
                     sorted(
                         (
-                            item["neighborhood"],
-                            item["multiplier_current"],
-                            item["multiplier_target"],
+                            item.neighborhood if hasattr(item, "neighborhood") else item["neighborhood"],
+                            item.multiplier_current if hasattr(item, "multiplier_current") else item["multiplier_current"],
+                            item.multiplier_target if hasattr(item, "multiplier_target") else item["multiplier_target"],
                         )
                         for item in overrides
                     )
@@ -263,10 +266,14 @@ async def _run_session(session: SimulationSession) -> None:
                 ),
             )
 
-            # Encolar mediciones para entrega desacoplada del reloj de simulación
-            await pipeline.enqueue(period + 1, tick.measurements)
+            # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
+            await deliver_tick_measurements(
+                tick.measurements,
+                settings.simulator_backend_url,
+                settings.simulator_batch_size,
+            )
 
-            # Actualizar progreso en la API
+            # 2. Con los datos 100% guardados en Postgres, publicar el progreso y la hora simulada
             trucks_snapshot = (
                 simulator.truck_fleet.get_trucks_snapshot()
                 if getattr(simulator, "truck_fleet", None)
@@ -454,12 +461,14 @@ async def _wait_between_ticks(
     return True
 
 
-def _parse_iso(value: str | None) -> datetime | None:
+def _parse_iso(value: str | datetime | None) -> datetime | None:
     if not value:
         return None
+    if isinstance(value, datetime):
+        return _as_utc(value)
     try:
-        return datetime.fromisoformat(value)
-    except ValueError:
+        return _as_utc(datetime.fromisoformat(str(value)))
+    except (ValueError, TypeError):
         return None
 
 

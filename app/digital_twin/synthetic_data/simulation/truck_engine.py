@@ -43,7 +43,7 @@ class TruckFleetSimulator:
         sites_dict: dict[str, tuple[float, float]],
         collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
         no_collection_days: tuple[int, ...] = (),
-        collection_threshold_pct: float = 60.0,
+        collection_threshold_pct: float = 0.0,
         rng: random.Random | None = None,
     ) -> None:
         self.routes = routes
@@ -179,9 +179,11 @@ class TruckFleetSimulator:
                         continue
 
                     c_level = float(c.get("current_level", 0.0))
-                    if c_level >= self.collection_threshold_pct:
-                        # VACIAR CONTENEDOR (>= 60%)
-                        new_level = round(self.rng.uniform(0.0, 5.0), 1)
+                    if c_level > 0.0 and c_level >= self.collection_threshold_pct:
+                        # VACIAR CONTENEDOR
+                        new_level = round(self.rng.uniform(0.0, min(c_level, 3.0)), 1)
+                        if new_level >= c_level:
+                            new_level = 0.0
                         emptied_pct = c_level - new_level
                         emptied_kg = (emptied_pct / 100.0) * 350.0
 

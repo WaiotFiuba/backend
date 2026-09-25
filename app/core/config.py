@@ -1,9 +1,17 @@
 from functools import lru_cache
+from typing import Any
 
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
     app_env: str = "development"
     database_url: str = "sqlite+aiosqlite:///./dev.db"
     secret_key: str = "change-me"
@@ -40,10 +48,12 @@ class Settings(BaseSettings):
         150.0  # kg/dia de fallback para contenedores sin ningun radio conectado
     )
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        extra = "ignore"
+    @field_validator("simulator_container_limit", mode="before")
+    @classmethod
+    def parse_container_limit(cls, v: Any) -> int | None:
+        if v == "" or v is None:
+            return None
+        return int(v)
 
 
 @lru_cache
