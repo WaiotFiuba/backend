@@ -104,6 +104,7 @@ for filepath in "$IMPORT_DIR"/*.geojson; do
         # -nlt PROMOTE_TO_MULTI: Estandariza geometrías mixtas a MultiPolygon/MultiLineString/MultiPoint
         # -lco GEOMETRY_NAME=geom: Nombra la columna de geometría como 'geom'
         # -lco FID=id: Nombra la columna clave primaria como 'id'
+        # -lco SPATIAL_INDEX=NONE: Evita crear el índice dos veces (se crea abajo explícitamente como idx_${filename}_geom)
         # -t_srs EPSG:4326: Fuerza/proyecta a coordenadas WGS84
         # --config PG_USE_COPY YES: Utiliza el método ultra rápido COPY de PostgreSQL para inserciones masivas
         # -skipfailures: Continúa la importación aunque algún feature individual falle
@@ -114,6 +115,7 @@ for filepath in "$IMPORT_DIR"/*.geojson; do
             $OVERWRITE_FLAG \
             -lco GEOMETRY_NAME=geom \
             -lco FID=id \
+            -lco SPATIAL_INDEX=NONE \
             -nlt PROMOTE_TO_MULTI \
             -t_srs EPSG:4326 \
             --config PG_USE_COPY YES \
@@ -124,8 +126,11 @@ for filepath in "$IMPORT_DIR"/*.geojson; do
         psql "${PSQL_ARGS[@]}" -v ON_ERROR_STOP=1 -c "ANALYZE \"${filename}\";" >/dev/null
 
         # --- Validación de integridad post-importación ---
-        # Contar features en el archivo fuente
-        SOURCE_COUNT=$(ogrinfo -al -so "$filepath" 2>/dev/null | grep "Feature Count" | awk '{print $3}')
+        # Contar features en el archivo fuente (rápido con grep; fallback a ogrinfo si da 0)
+        SOURCE_COUNT=$(grep -c '"type": "Feature"' "$filepath" 2>/dev/null || true)
+        if [ -z "$SOURCE_COUNT" ] || [ "$SOURCE_COUNT" -eq 0 ]; then
+            SOURCE_COUNT=$(ogrinfo -al -so "$filepath" 2>/dev/null | grep "Feature Count" | awk '{print $3}')
+        fi
 
         # Contar filas en la tabla de destino
         DB_COUNT=$(psql "${PSQL_ARGS[@]}" -t -Ac "SELECT count(*) FROM \"$filename\";" 2>/dev/null | tr -d ' ')

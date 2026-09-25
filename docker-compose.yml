@@ -35,7 +35,7 @@ services:
     build:
       context: .
       dockerfile: db/Dockerfile.postgis
-    image: postgis-ogr2ogr:16-bookworm
+    image: postgis-ogr2ogr:16-3.4
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -48,11 +48,19 @@ services:
       - ./db:/app/db
       - ./db/00_enable_postgis.sql:/docker-entrypoint-initdb.d/00_enable_postgis.sql
       - ./db/import_geojson.sh:/docker-entrypoint-initdb.d/20_import_geojson.sh
+    command: >
+      postgres
+      -c max_wal_size=4GB
+      -c checkpoint_timeout=15min
+      -c shared_buffers=256MB
+      -c wal_buffers=16MB
+      -c maintenance_work_mem=256MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 90s
 
   simulator:
     profiles:
