@@ -280,7 +280,9 @@ def load_routes_from_csv(
     return routes
 
 
-def load_green_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckRoute]:
+def load_green_routes_from_csv(
+    csv_path: Path | str | None = None,
+) -> dict[str, TruckRoute]:
     global _CACHED_GREEN_ROUTES
     use_default_cache = csv_path is None
     if use_default_cache and _CACHED_GREEN_ROUTES is not None:

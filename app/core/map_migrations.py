@@ -312,7 +312,6 @@ async def seed_map_data(recluster: bool = False) -> None:
         elif has_existing_containers:
             print("[INFO] Los sitios ya se encuentran registrados en la DB.")
 
-
     await _seed_neighborhood_demographics(datos_dir)
     print("\n--- SCRIPT DE SIEMBRA FINALIZADO ---")
 

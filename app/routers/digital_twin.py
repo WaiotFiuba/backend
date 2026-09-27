@@ -235,7 +235,11 @@ async def get_route_details_endpoint(route_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Circuito no encontrado")
 
     is_green_route = "Contenedores Verdes" in route.service_name
-    if not is_green_route and not route.total_distance_m and clean_id != "RODRIGO_BUENO":
+    if (
+        not is_green_route
+        and not route.total_distance_m
+        and clean_id != "RODRIGO_BUENO"
+    ):
         try:
             from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
 
