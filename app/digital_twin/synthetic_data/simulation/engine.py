@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from app.digital_twin.synthetic_data.zone_classifier import get_zone_classifier
-
 from app.digital_twin.synthetic_data.domain.entities import (
     Alarm,
     CollectionEvent,
@@ -130,7 +129,7 @@ class SyntheticDataSimulator:
                 collection_threshold_pct=0.0,
                 rng=self.rng,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("No se pudo inicializar la flota de camiones: %s", e)
             self.truck_fleet = None
 
@@ -235,8 +234,14 @@ class SyntheticDataSimulator:
                 c_id_raw = str(container.id).split("|")[-1]
                 id_to_idx[c_id_raw] = idx
                 if getattr(container, "serie_id", None):
-                    id_to_idx[container.serie_id] = idx
-                    id_to_idx[str(container.serie_id).split("|")[-1]] = idx
+                    serie_id = str(container.serie_id)
+                    id_to_idx[serie_id] = idx
+                    id_to_idx[serie_id.split("|")[-1]] = idx
+                    serie_prefix = (
+                        serie_id.split("|", 1)[0] if "|" in serie_id else None
+                    )
+                else:
+                    serie_prefix = None
 
                 keys_to_index = {
                     container.id,
@@ -245,15 +250,19 @@ class SyntheticDataSimulator:
                     str(container.site_id),
                 }
                 if getattr(container, "serie_id", None):
-                    keys_to_index.add(container.serie_id)
-                    keys_to_index.add(str(container.serie_id).split("|")[-1])
+                    keys_to_index.add(serie_id)
+                    keys_to_index.add(serie_id.split("|")[-1])
                 keys_to_index.add(c_id_raw)
                 keys_to_index.add(f"contenedores_negros|{c_id_raw}")
+                if serie_prefix:
+                    keys_to_index.add(f"{serie_prefix}|{c_id_raw}")
                 keys_to_index.add(f"SITE-{c_id_raw}")
 
                 site_id_raw = str(container.site_id).split("|")[-1]
                 keys_to_index.add(site_id_raw)
                 keys_to_index.add(f"contenedores_negros|{site_id_raw}")
+                if serie_prefix:
+                    keys_to_index.add(f"{serie_prefix}|{site_id_raw}")
                 keys_to_index.add(f"SITE-{site_id_raw}")
 
                 for k in keys_to_index:
