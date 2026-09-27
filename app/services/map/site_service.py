@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import Numeric, case, cast, func, select
+from sqlalchemy import Numeric, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
@@ -103,6 +103,24 @@ def _containers_query(target_c=Container, site_ids: list[int] | None = None):
     return stmt
 
 
+def _waste_filter_conditions(
+    waste_filter: Literal["all", "humedo", "reciclable"],
+):
+    if waste_filter == "reciclable":
+        waste_name = func.lower(func.coalesce(WasteType.name, ""))
+        return [or_(waste_name.like("%seca%"), waste_name.like("%recicl%"))]
+    if waste_filter == "humedo":
+        waste_name = func.lower(func.coalesce(WasteType.name, ""))
+        return [
+            or_(
+                waste_name.like("%humeda%"),
+                waste_name.like("%húmeda%"),
+                waste_name.like("%hÃºmeda%"),
+            )
+        ]
+    return []
+
+
 async def _fetch_containers_by_site(
     db: AsyncSession, target_c, site_ids: list[int]
 ) -> dict[int, list[SiteContainerSummary]]:
@@ -136,6 +154,7 @@ async def get_sites_clustered(
     limit: int | None = None,
     offset: int | None = None,
     distribution: Literal["real", "whatif"] = "real",
+    waste_filter: Literal["all", "humedo", "reciclable"] = "all",
 ) -> list[SiteCluster] | list[SiteMapOutputSchema]:
     grid_size = _zoom_to_grid_size(zoom)
 
@@ -180,6 +199,7 @@ async def get_sites_clustered(
     c_available = cols.available
     c_last_reading = cols.last_reading
     c_last_pickup = cols.last_pickup
+    waste_conditions = _waste_filter_conditions(waste_filter)
 
     # Nivel de zoom alto (>= 18): Retornar sitios individuales
     if grid_size is None:
@@ -211,6 +231,7 @@ async def get_sites_clustered(
                 Site.longitude >= lng_min,
                 Site.longitude <= lng_max,
                 Site.deleted_at.is_(None),
+                *waste_conditions,
             )
             .group_by(Site.id, WasteType.name, WasteType.color)
             .order_by(Site.id)
@@ -255,6 +276,7 @@ async def get_sites_clustered(
             Site.longitude >= lng_min,
             Site.longitude <= lng_max,
             Site.deleted_at.is_(None),
+            *waste_conditions,
         )
         .group_by(grid_lat, grid_lng)
     )

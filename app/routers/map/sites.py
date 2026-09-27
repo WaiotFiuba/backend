@@ -45,6 +45,7 @@ async def get_sites_by_bbox(
     limit: int | None = Query(None, ge=1),
     offset: int | None = Query(None, ge=0),
     distribution: Literal["real", "whatif"] = Query("real"),
+    waste_filter: Literal["all", "humedo", "reciclable"] = Query("all"),
 ) -> list[SiteCluster] | list[SiteMapOutputSchema]:
     return await get_sites_clustered(
         db=db,
@@ -57,6 +58,7 @@ async def get_sites_by_bbox(
         limit=limit,
         offset=offset,
         distribution=distribution,
+        waste_filter=waste_filter,
     )
 
 
