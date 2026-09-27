@@ -43,6 +43,7 @@ class TruckRoute:
 
 
 _CACHED_ROUTES: dict[str, TruckRoute] | None = None
+_CACHED_GREEN_ROUTES: dict[str, TruckRoute] | None = None
 FOCUS_RODRIGO_BUENO_MODE = False
 
 
@@ -153,12 +154,16 @@ def _fix_enie(street_name: str) -> str:
     return street_name.replace("±", "ñ")
 
 
-def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckRoute]:
+def load_routes_from_csv(
+    csv_path: Path | str | None = None,
+    container_data_files: tuple[str, ...] = ("contenedores_negros.json",),
+) -> dict[str, TruckRoute]:
     global _CACHED_ROUTES
-    if _CACHED_ROUTES is not None:
+    use_default_cache = csv_path is None
+    if use_default_cache and _CACHED_ROUTES is not None:
         return _CACHED_ROUTES
 
-    if FOCUS_RODRIGO_BUENO_MODE:
+    if use_default_cache and FOCUS_RODRIGO_BUENO_MODE:
         rb_route = build_rodrigo_bueno_route()
         routes = {rb_route.route_id: rb_route}
         _CACHED_ROUTES = routes
@@ -168,8 +173,6 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
             len(rb_route.waypoints),
         )
         return routes
-    if _CACHED_ROUTES is not None:
-        return _CACHED_ROUTES
 
     if csv_path is None:
         base_datos = Path(__file__).resolve().parent.parent.parent.parent / "datos"
@@ -270,13 +273,50 @@ def load_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckR
     if "RODRIGO_BUENO" not in routes:
         routes["RODRIGO_BUENO"] = build_rodrigo_bueno_route()
 
-    _prepopulate_waypoints(routes)
-    _CACHED_ROUTES = routes
+    _prepopulate_waypoints(routes, container_data_files)
+    if use_default_cache:
+        _CACHED_ROUTES = routes
     logger.info("Cargadas %d rutas de recoleccion desde CSV.", len(routes))
     return routes
 
 
-def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
+def load_green_routes_from_csv(csv_path: Path | str | None = None) -> dict[str, TruckRoute]:
+    global _CACHED_GREEN_ROUTES
+    use_default_cache = csv_path is None
+    if use_default_cache and _CACHED_GREEN_ROUTES is not None:
+        return _CACHED_GREEN_ROUTES
+
+    if csv_path is None:
+        base_datos = Path(__file__).resolve().parent.parent.parent.parent / "datos"
+        candidates = [
+            base_datos / "rutas_recoleccion_residuos_secos.csv",
+            base_datos / "rutas_recoleccion_residuos_secos_clean.csv",
+            Path("/app/datos/rutas_recoleccion_residuos_secos.csv"),
+            Path("/app/datos/rutas_recoleccion_residuos_secos_clean.csv"),
+            Path("datos/rutas_recoleccion_residuos_secos.csv"),
+            Path("datos/rutas_recoleccion_residuos_secos_clean.csv"),
+        ]
+        csv_path = next((p for p in candidates if p.exists()), candidates[0])
+
+    routes = load_routes_from_csv(
+        csv_path,
+        container_data_files=("contenedores_verdes.json",),
+    )
+    if use_default_cache:
+        _CACHED_GREEN_ROUTES = routes
+    return routes
+
+
+def load_all_collection_routes() -> dict[str, TruckRoute]:
+    routes = load_routes_from_csv().copy()
+    routes.update(load_green_routes_from_csv())
+    return routes
+
+
+def _prepopulate_waypoints(
+    routes: dict[str, TruckRoute],
+    container_data_files: tuple[str, ...] = ("contenedores_negros.json",),
+) -> None:
     """Pre-carga los waypoints geográficos para cada ruta a partir de los contenedores de CABA."""
     import json
     import math
@@ -285,14 +325,19 @@ def _prepopulate_waypoints(routes: dict[str, TruckRoute]) -> None:
         get_depot_for_zone,
     )
 
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "db"
-        / "datos"
-        / "contenedores_negros.json",
-        Path("/app/db/datos/contenedores_negros.json"),
-        Path("db/datos/contenedores_negros.json"),
-    ]
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    candidates = []
+    for filename in container_data_files:
+        candidates.extend(
+            [
+                project_root / "datos" / filename,
+                project_root / "db" / "datos" / filename,
+                Path("/app/datos") / filename,
+                Path("/app/db/datos") / filename,
+                Path("datos") / filename,
+                Path("db/datos") / filename,
+            ]
+        )
     json_path = next((p for p in candidates if p.exists()), None)
     if json_path:
         try:

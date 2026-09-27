@@ -14,6 +14,20 @@ from app.services.simulation.truck_route_service import TruckRoute
 logger = logging.getLogger(__name__)
 
 
+def _is_green_route(route: TruckRoute) -> bool:
+    service_name = route.service_name.lower()
+    return any(token in service_name for token in ("verde", "recicl", "seca"))
+
+
+def _is_recyclable_container(container: dict) -> bool:
+    w_type = str(container.get("waste_type") or "").lower()
+    c_type = str(container.get("container_type") or "").lower()
+    return any(
+        token in w_type or token in c_type
+        for token in ("seca", "recicl", "verde", "vidrio")
+    )
+
+
 class TruckStatus:
     AT_DEPOT = "AT_DEPOT"  # En espera en terminal/depósito
     COLLECTING = "COLLECTING"  # En recorrido de recolección activo
@@ -122,6 +136,7 @@ class TruckFleetSimulator:
             route = self.routes.get(truck.route_id)
             if not route or not route.site_ids:
                 continue
+            is_green_route = _is_green_route(route)
 
             total_sites = len(route.site_ids)
             if total_sites <= num_hours:
@@ -158,6 +173,7 @@ class TruckFleetSimulator:
                 site_containers = (
                     containers_by_site.get(str(site_id))
                     or containers_by_site.get(raw_id)
+                    or containers_by_site.get(f"contenedores_verdes|{raw_id}")
                     or containers_by_site.get(f"contenedores_negros|{raw_id}")
                     or containers_by_site.get(f"SITE-{raw_id}")
                     or []
@@ -169,13 +185,8 @@ class TruckFleetSimulator:
                         continue
                     seen_c_ids.add(c_id)
 
-                    # FILTRO EXCLUSIVO: Solo recolectar contenedores de Fracción Húmeda
-                    w_type = str(c.get("waste_type") or "").lower()
-                    c_type = str(c.get("container_type") or "").lower()
-                    if any(
-                        x in w_type or x in c_type
-                        for x in ("seca", "recicl", "verde", "vidrio")
-                    ):
+                    # Match route stream: wet routes collect wet containers, green routes collect recyclables.
+                    if _is_recyclable_container(c) != is_green_route:
                         continue
 
                     c_level = float(c.get("current_level", 0.0))

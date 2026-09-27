@@ -92,8 +92,7 @@ class SyntheticDataSimulator:
 
         try:
             from app.services.simulation.truck_route_service import (
-                assign_sites_to_routes,
-                load_routes_from_csv,
+                load_all_collection_routes,
             )
             from app.digital_twin.synthetic_data.simulation.truck_engine import (
                 TruckFleetSimulator,
@@ -101,7 +100,7 @@ class SyntheticDataSimulator:
 
             # Carga las definiciones de circuitos/rutas de recolección de camiones desde el archivo CSV
             # Retorna un diccionario {route_id: TruckRoute} con metadatos de zona, paradas y coordenadas
-            routes = load_routes_from_csv()
+            routes = load_all_collection_routes()
 
             # Normaliza la lista de sitios de la topología actual
             # necesario para el algoritmo de asignación geográfica por calle y altura:
@@ -109,17 +108,6 @@ class SyntheticDataSimulator:
             # - 'address': Dirección normalizada (calle y altura) para vincular con los circuitos de la ruta
             # - 'name': Nombre de referencia del sitio
             # - 'latitude' / 'longitude': Coordenadas GPS para asignación espacial por cercanía y distancias
-            sites_raw = [
-                {
-                    "id": s.id,
-                    "address": s.address,
-                    "name": s.name,
-                    "latitude": s.latitude,
-                    "longitude": s.longitude,
-                }
-                for s in topology.sites
-            ]
-            assign_sites_to_routes(sites_raw, routes)
             sites_dict = {s.id: (s.latitude, s.longitude) for s in topology.sites}
             self.truck_fleet = TruckFleetSimulator(
                 routes=routes,

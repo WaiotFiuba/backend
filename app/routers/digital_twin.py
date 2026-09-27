@@ -226,15 +226,16 @@ async def get_active_trucks_endpoint() -> list[dict]:
 async def get_route_details_endpoint(route_id: str) -> dict:
     """Retorna los tramos y waypoints de un circuito de recolección."""
     from fastapi import HTTPException
-    from app.services.simulation.truck_route_service import load_routes_from_csv
+    from app.services.simulation.truck_route_service import load_all_collection_routes
 
-    routes = load_routes_from_csv()
+    routes = load_all_collection_routes()
     clean_id = route_id.split(".")[0].strip()
     route = routes.get(clean_id)
     if not route:
         raise HTTPException(status_code=404, detail="Circuito no encontrado")
 
-    if not route.total_distance_m and clean_id != "RODRIGO_BUENO":
+    is_green_route = "Contenedores Verdes" in route.service_name
+    if not is_green_route and not route.total_distance_m and clean_id != "RODRIGO_BUENO":
         try:
             from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
 

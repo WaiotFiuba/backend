@@ -18,6 +18,8 @@ from app.services.simulation.truck_route_service import (
     TruckRoute,
     _fix_enie,
     assign_sites_to_routes,
+    load_all_collection_routes,
+    load_green_routes_from_csv,
     load_routes_from_csv,
 )
 
@@ -49,6 +51,21 @@ class TestTruckSimulation(unittest.TestCase):
             "se esperaba encontrar al menos una calle con 'ñ' ya corregida",
         )
         self.assertFalse(any("±" in name for name in all_street_names))
+
+    def test_load_green_routes_from_csv(self):
+        routes = load_green_routes_from_csv()
+        self.assertGreater(len(routes), 0)
+        self.assertIn("1RECLDM8510F6", routes)
+
+        route = routes["1RECLDM8510F6"]
+        self.assertEqual(route.service_name, "Recoleccion De Contenedores Verdes")
+        self.assertGreater(len(route.segments), 0)
+        self.assertGreater(route.segments[0].length_m, 0.0)
+
+    def test_load_all_collection_routes_includes_wet_and_green_routes(self):
+        routes = load_all_collection_routes()
+        self.assertIn("RODRIGO_BUENO", routes)
+        self.assertIn("1RECLDM8510F6", routes)
 
     def test_depots_and_transfer_stations(self):
         self.assertEqual(len(DEPOTS_BY_ZONE), 7)
@@ -309,6 +326,42 @@ class TestTruckSimulation(unittest.TestCase):
 
         # SITE-102 (40%) should NOT be collected
         self.assertEqual(containers_by_site["SITE-102"][0]["current_level"], 40.0)
+
+    def test_green_route_collects_recyclable_container(self):
+        routes = {
+            "GREEN": TruckRoute(
+                route_id="GREEN",
+                zone=1,
+                service_name="Recoleccion De Contenedores Verdes",
+                site_ids=["contenedores_verdes|1"],
+                waypoints=[(-34.601, -58.401)],
+            )
+        }
+        simulator = TruckFleetSimulator(
+            routes=routes,
+            sites_dict={"contenedores_verdes|1": (-34.601, -58.401)},
+            collection_hours=(22,),
+            collection_threshold_pct=0.0,
+        )
+        containers_by_site = {
+            "contenedores_verdes|1": [
+                {
+                    "id": "contenedores_verdes|1",
+                    "current_level": 80.0,
+                    "waste_type": "RSU Fraccion Seca Reciclable",
+                }
+            ]
+        }
+
+        events = simulator.step(
+            datetime(2026, 9, 3, 22, 0, 0),
+            dt_seconds=60.0,
+            speedup=1.0,
+            containers_by_site=containers_by_site,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["container_id"], "contenedores_verdes|1")
 
     def test_scheduled_collection_matching_site_aliases(self):
         from app.digital_twin.synthetic_data.simulation.engine import (
