@@ -10,6 +10,9 @@ from app.core.map_database import get_map_db
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.schemas.digital_twin import (
+    SavedConfigurationCreate,
+    SavedConfigurationRead,
+    SavedConfigurationUpdate,
     SimulationControlsUpdate,
     SimulationCreate,
     SimulationFinish,
@@ -21,13 +24,18 @@ from app.schemas.digital_twin import (
 )
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
 from app.services.simulation_control_service import (
+    create_saved_configuration,
     create_simulation,
+    delete_saved_configuration,
     fail_interrupted_sessions,
     finish_simulation_session,
     get_active_simulation,
+    get_saved_configuration,
+    list_saved_configurations,
     list_zone_demand,
     set_active_simulation_status,
     update_active_simulation_controls,
+    update_saved_configuration,
     update_simulation_progress,
 )
 
@@ -125,6 +133,51 @@ async def read_zone_demand(
     return await list_zone_demand(db)
 
 
+@router.post("/configurations", response_model=SavedConfigurationRead)
+async def create_configuration_endpoint(
+    payload: SavedConfigurationCreate,
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> SavedConfigurationRead:
+    return await create_saved_configuration(db, current_user.id, payload)
+
+
+@router.get("/configurations", response_model=list[SavedConfigurationRead])
+async def list_configurations_endpoint(
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> list[SavedConfigurationRead]:
+    return await list_saved_configurations(db, current_user.id)
+
+
+@router.get("/configurations/{config_id}", response_model=SavedConfigurationRead)
+async def get_configuration_endpoint(
+    config_id: int,
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> SavedConfigurationRead:
+    return await get_saved_configuration(db, current_user.id, config_id)
+
+
+@router.put("/configurations/{config_id}", response_model=SavedConfigurationRead)
+async def update_configuration_endpoint(
+    config_id: int,
+    payload: SavedConfigurationUpdate,
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> SavedConfigurationRead:
+    return await update_saved_configuration(db, current_user.id, config_id, payload)
+
+
+@router.delete("/configurations/{config_id}", status_code=204)
+async def delete_configuration_endpoint(
+    config_id: int,
+    db: MapDbDep,
+    current_user: CurrentUserDep,
+) -> None:
+    await delete_saved_configuration(db, current_user.id, config_id)
+
+
 @router.get("/depots")
 async def get_depots_endpoint() -> dict:
     """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
@@ -173,15 +226,20 @@ async def get_active_trucks_endpoint() -> list[dict]:
 async def get_route_details_endpoint(route_id: str) -> dict:
     """Retorna los tramos y waypoints de un circuito de recolección."""
     from fastapi import HTTPException
-    from app.services.simulation.truck_route_service import load_routes_from_csv
+    from app.services.simulation.truck_route_service import load_all_collection_routes
 
-    routes = load_routes_from_csv()
+    routes = load_all_collection_routes()
     clean_id = route_id.split(".")[0].strip()
     route = routes.get(clean_id)
     if not route:
         raise HTTPException(status_code=404, detail="Circuito no encontrado")
 
-    if not route.total_distance_m and clean_id != "RODRIGO_BUENO":
+    is_green_route = "Contenedores Verdes" in route.service_name
+    if (
+        not is_green_route
+        and not route.total_distance_m
+        and clean_id != "RODRIGO_BUENO"
+    ):
         try:
             from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
 

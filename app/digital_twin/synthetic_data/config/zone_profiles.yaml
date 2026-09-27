@@ -1,0 +1,201 @@
+# ─── ADVERTENCIA SOBRE EL ORIGEN DE LOS DATOS ─────────────────────────────────
+# El baseline global (1.5 kg/persona/día) y el ajuste de target_zone_mult están
+# citados a CEAMSE/INDEC. Los demand_multiplier por zone_type y las curvas
+# horarias/semanales de 'profiles' NO surgen de un estudio de generación
+# diferencial de residuos por uso de suelo en CABA — son estimaciones de
+# sentido común (razonables, pero no medidas) para darle forma realista a la
+# simulación. Si se usan estos datos para algo más que generar datos
+# sintéticos de prueba, conviene validarlos contra una fuente real primero.
+
+# ─── Calibración Global de Demanda ────────────────────────────────────────────
+# Controla el nivel GLOBAL de generación de residuos en relación al baseline censal
+# (1.5 kg/persona/día, fuente CEAMSE/INDEC).
+#
+# Los demand_multiplier de cada zona (en 'profiles') definen la distribución relativa
+# (quién genera más o menos), pero su promedio ponderado sobre todos los contenedores
+# puede alejarse del 1.0. Este parámetro normaliza ese promedio.
+#
+# target_zone_mult: media objetivo del zone_mult global.
+#   1.0  → la simulación tiende exactamente a 1.5 kg/hab/día del censo
+#   1.05 → tiende a ~1.58 kg/hab/día (margen por recuperadores informales no
+#           capturados en CEAMSE, variación estacional, etc.)
+#   Rango razonable: 0.90 – 1.15
+#
+# tolerance_pct: desvío porcentual aceptable antes de que se aplique la normalización.
+#   3 → si el promedio real está entre 0.97 y 1.03 × target, NO se normaliza
+#       (se respeta el YAML tal cual). Solo se normaliza si sale de ese rango.
+#   Esto permite que cambios moderados en demand_multiplier del YAML se vean
+#   reflejados naturalmente, sin forzar siempre a exactamente el target.
+#   (Antes era 10 — con los demand_multiplier reales de CABA el promedio da
+#   ~1.093, +9.3% sobre el censo, más del doble del +5% documentado arriba
+#   como intención, y una tolerancia de ±10% lo dejaba pasar sin corregir.
+#   Con ±3% el mecanismo sí hace lo que dice: corrige de vuelta al target.)
+global_demand_calibration:
+  target_zone_mult: 1.05      # ~1.58 kg/hab/día: levemente sobre CEAMSE para incluir
+                               # recuperación informal y variación estacional
+  tolerance_pct: 3.0           # ±3% de tolerancia antes de normalizar
+
+# ─── Umbrales de Clasificación de Zonas (en % de parcelas) ────────────────────
+classification_thresholds:
+  industrial_min_pct: 25.0
+  office_min_pct: 15.0
+  commercial_min_pct: 30.0
+  residential_dominant_min_pct: 35.0
+  residential_combined_min_pct: 40.0
+
+
+# ─── Ponderación por Categoría de Parcela (para cálculo del radio censal) ─────
+category_demand_weights:
+  residential_multifamily:
+    demand_multiplier: 1.10
+    weekend_factor: 0.60
+  residential_singlefamily:
+    demand_multiplier: 0.95
+    weekend_factor: 0.85
+  commercial:
+    demand_multiplier: 1.40
+    weekend_factor: 1.20
+  office:
+    demand_multiplier: 0.85
+    weekend_factor: 0.10
+  industrial:
+    demand_multiplier: 0.65
+    weekend_factor: 0.20
+  other:
+    demand_multiplier: 0.50
+    weekend_factor: 0.75
+
+# ─── Perfiles de Zona (Modulación Horaria y Semanal) ─────────────────────────
+profiles:
+
+  # ── Zona Residencial Multifamiliar (Edificios / Departamentos) ─────────────
+  # Edificios con consorcio y encargado. El encargado saca la basura temprano
+  # por la mañana (pico 7-9h). Fines de semana con fuerte caída porque los
+  # encargados no trabajan y se acumula menos en contenedores hasta el lunes/martes.
+  residential_multifamily:
+    base_demand_multiplier: 1.10
+    weekend_factor: 0.60
+    hour_weights:
+      3:  0.25   # piso nocturno
+      7:  1.3    # encargado inicia ronda
+      8:  1.6    # pico máximo del encargado bajando residuos
+      9:  1.4    # cierre ronda encargado
+      14: 0.5    # mediodía, sin actividad entre rondas del encargado
+      19: 1.2    # residentes retornan
+      20: 1.5    # cena / descarte
+      21: 1.7    # pico nocturno residentes
+      22: 1.4
+    weekday_factors:
+      0: 0.85    # Lunes
+      5: 0.60    # Sábado (encargado no trabaja / medio día)
+      6: 0.55    # Domingo (encargado no trabaja)
+
+  # ── Zona Residencial Unifamiliar (Casas / PHs bajos) ─────────────────────────
+  # Casas bajas y PHs sin encargado. Los propios residentes sacan la basura
+  # principalmente por la noche. La actividad de fin de semana se mantiene
+  # relativamente estable porque la gente está en el hogar.
+  residential_singlefamily:
+    base_demand_multiplier: 0.95
+    weekend_factor: 0.85
+    hour_weights:
+      3:  0.25   # piso nocturno
+      8:  1.1
+      12: 1.2    # mediodía en casa
+      13: 1.2
+      19: 1.3
+      20: 1.5    # noche
+      21: 1.6    # pico nocturno al sacar bolsa
+      22: 1.3
+    weekday_factors:
+      0: 0.95    # Lunes normal
+      5: 0.88    # Sábado (actividad domiciliaria normal)
+      6: 0.85    # Domingo (actividad domiciliaria normal)
+
+  # ── Zona Residencial Genérica (Fallback) ───────────────────────────────────
+  residential:
+    base_demand_multiplier: 1.00
+    weekend_factor: 0.65
+    hour_weights:
+      3:  0.25   # piso nocturno
+      7:  1.3
+      8:  1.5
+      9:  1.3
+      14: 0.5    # mediodía, sin actividad entre rondas
+      20: 1.4
+      21: 1.6
+      22: 1.4
+    weekday_factors:
+      0: 0.80
+      5: 0.65
+      6: 0.60
+
+  # ── Zona Comercial / Gastronómica ─────────────────────────────────────────
+  # Locales comerciales, restaurantes, cafeterías. Fuerte pico al mediodía
+  # y hacia el cierre del día. Fines de semana alto por turismo y salidas.
+  commercial:
+    base_demand_multiplier: 1.40
+    weekend_factor: 1.20
+    hour_weights:
+      3:  0.25   # piso nocturno
+      11: 1.3
+      12: 1.6    # almuerzo
+      13: 1.8    # pico mediodía comercial
+      14: 1.5
+      19: 1.4    # cierre locales
+      20: 1.6    # pico gastronómico
+      21: 1.5
+    weekday_factors:
+      5: 1.20    # Sábado (máxima actividad)
+      6: 1.10    # Domingo (turismo, parques)
+
+  # ── Zona de Oficinas / Microcentro ────────────────────────────────────────
+  # Edificios corporativos, estudios, instituciones. Generación concentrada
+  # en horas hábiles. Los fines de semana casi no hay actividad.
+  office:
+    base_demand_multiplier: 0.85
+    weekend_factor: 0.10
+    hour_weights:
+      3:  0.25   # piso nocturno
+      8:  1.2
+      9:  1.3
+      12: 1.5    # almuerzo de empleados (deliveries, kioscos)
+      13: 1.7    # pico máximo
+      14: 1.4
+      17: 1.2    # salida de empleados
+      18: 1.0
+    weekday_factors:
+      0: 0.95    # Lunes (comienzo semana)
+      5: 0.12    # Sábado (casi vacío)
+      6: 0.08    # Domingo (vacío)
+
+  # ── Zona Industrial ────────────────────────────────────────────────────────
+  # Depósitos, fábricas, talleres. Residuos mayormente en horas de turno.
+  # Fines de semana prácticamente sin actividad domiciliaria.
+  industrial:
+    base_demand_multiplier: 0.65
+    weekend_factor: 0.20
+    hour_weights:
+      3:  0.25   # piso nocturno
+      7:  1.2
+      8:  1.4    # inicio turno mañana
+      12: 1.3    # almuerzo
+      17: 1.3    # fin turno
+    weekday_factors:
+      5: 0.20    # Sábado
+      6: 0.08    # Domingo
+
+  # ── Zona Mixta ─────────────────────────────────────────────────────────────
+  # Mezcla de usos. Comportamiento intermedio entre residencial y comercial.
+  mixed:
+    base_demand_multiplier: 1.00
+    weekend_factor: 0.80
+    hour_weights:
+      3:  0.25   # piso nocturno
+      8:  1.2
+      12: 1.4
+      13: 1.5
+      20: 1.3
+      21: 1.4
+    weekday_factors:
+      5: 0.90    # Sábado
+      6: 0.80    # Domingo

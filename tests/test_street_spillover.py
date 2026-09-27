@@ -10,6 +10,7 @@ from app.digital_twin.synthetic_data.domain.entities import (
 )
 from app.digital_twin.synthetic_data.generators.street_pairing import (
     build_opposing_sites_map,
+    normalize_street_name,
     parse_street_address,
 )
 from app.digital_twin.synthetic_data.simulation.engine import (
@@ -45,6 +46,32 @@ class TestStreetPairingAndSpillover(unittest.TestCase):
         self.assertIsNone(parse_street_address("CORRIENTES"))
         # 6. None o vacío
         self.assertIsNone(parse_street_address(None))
+
+    def test_normalize_street_name_matches_dirty_route_segment_names(self):
+        # Nombres de tramo de ruta reales del CSV de circuitos (sin altura
+        # embebida) deben normalizar igual que la dirección de un contenedor
+        # sobre la misma calle.
+        self.assertEqual(normalize_street_name("Corrientes Av."), "CORRIENTES")
+        self.assertEqual(
+            parse_street_address("AV. CORRIENTES 1234")[0],
+            normalize_street_name("Corrientes Av."),
+        )
+        self.assertEqual(normalize_street_name("Mitre, Bartolome"), "MITRE BARTOLOME")
+        self.assertEqual(
+            parse_street_address("MITRE BARTOLOME 500")[0],
+            normalize_street_name("Mitre, Bartolome"),
+        )
+        # Sin texto util tras limpiar -> None (igual que parse_street_address)
+        self.assertIsNone(normalize_street_name(""))
+        self.assertIsNone(normalize_street_name(None))
+
+    def test_ordinal_degree_and_masculine_sign_are_equivalent(self):
+        # Los datos reales usan "°" (grado) y "º" (ordinal masculino)
+        # indistintamente para lo mismo (ej. "Cabo 2°" vs "Cabo 2º").
+        self.assertEqual(
+            normalize_street_name("Lopez, Jorge Eduardo, Cabo 2°"),
+            normalize_street_name("Lopez, Jorge Eduardo, Cabo 2º"),
+        )
 
     def test_build_opposing_sites_map(self):
         # Dos sitios en la misma calle pero veredas opuestas (par vs. impar)

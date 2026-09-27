@@ -40,7 +40,7 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
     effective_site_id = (
         str(raw_site_id)
         if raw_site_id is not None
-        else (f"contenedores_negros|{serie_id}" if serie_id else str(row["id"]))
+        else (str(serie_id) if serie_id else str(row["id"]))
     )
     return ContainersMapOutputSchema(
         id=row["id"],

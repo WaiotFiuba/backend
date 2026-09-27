@@ -29,8 +29,10 @@ from app.digital_twin.synthetic_data.transport.backend_http import (
     send_result_batch,
     stream_result,
 )
+from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
+    deliver_tick_measurements,
+)
 from app.digital_twin.synthetic_data.worker import (
-    _deliver_tick_measurements,
     _remaining_tick_delay,
 )
 from app.digital_twin.synthetic_data.validation.checks import validate_result
@@ -116,7 +118,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
 
         self.assertEqual(config.start, datetime(2026, 1, 1, 0, 0, 0))
         self.assertEqual(config.end, datetime(2026, 1, 1, 3, 0, 0))
-        self.assertEqual(config.periods, 3)
+        self.assertEqual(config.periods, 4)
 
     def test_scenario_end_date_must_be_after_start(self) -> None:
         with self.assertRaises(ValueError):
@@ -495,7 +497,7 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                 runnable,
             ),
             patch(
-                "app.digital_twin.synthetic_data.worker.send_measurements_batch",
+                "app.digital_twin.synthetic_data.transport.delivery_pipeline.send_measurements_batch",
                 return_value=DeliveryReport(
                     sent=2,
                     updated=2,
@@ -504,9 +506,10 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                 ),
             ) as send_batch,
         ):
-            report = await _deliver_tick_measurements(
+            report = await deliver_tick_measurements(
                 measurements=result.measurements,
                 backend_url="http://backend",
+                batch_size=30000,
             )
 
         self.assertIsNotNone(report)

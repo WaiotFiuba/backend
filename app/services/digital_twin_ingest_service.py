@@ -375,13 +375,22 @@ async def ingest_telemetry_batch(
                 await asyncpg_conn.execute(
                     """
                     UPDATE containers AS c
-                    SET current_level = v.level,
-                        last_reading = v.reading_date,
-                        last_pickup = CASE WHEN v.is_pickup THEN v.reading_date ELSE c.last_pickup END,
+                    SET current_level = a.level,
+                        last_reading = a.reading_date,
+                        last_pickup = COALESCE(a.pickup_date, c.last_pickup),
                         available = true,
                         change_version = nextval('container_change_version_seq')
-                    FROM temp_container_updates AS v
-                    WHERE c.id = v.id;
+                    FROM (
+                        SELECT
+                            id,
+                            (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
+                            max(reading_date) AS reading_date,
+                            max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
+                        FROM temp_container_updates
+                        GROUP BY id
+                    ) AS a
+                    WHERE c.id = a.id
+                      AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
                     """
                 )
             await db.commit()

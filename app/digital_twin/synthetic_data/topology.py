@@ -66,12 +66,15 @@ def topology_from_backend_records(
             if demand_info is not None
             else record.demand_base
         )
-
         if site_id not in sites_by_id:
             zone_name = (
-                demand_info.department_name
-                if (demand_info and demand_info.department_name != "UNKNOWN")
-                else (record.zone or "")
+                demand_info.radio_code
+                if (demand_info and demand_info.radio_code)
+                else (
+                    demand_info.department_name
+                    if (demand_info and demand_info.department_name != "UNKNOWN")
+                    else (record.zone or "")
+                )
             )
             sites_by_id[site_id] = Site(
                 id=site_id,

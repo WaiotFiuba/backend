@@ -192,7 +192,7 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
             demand_base=2.5,
         )
         cont1 = Container(
-            id=201,
+            id="201",
             site_id=site_id,
             name="Contenedor Húmedo 1",
             waste_type="RSU Fracción Húmeda",
@@ -200,15 +200,15 @@ class TestCollectionSchedulerSimulation(unittest.TestCase):
             volume_m3=3.2,
         )
         cont2 = Container(
-            id=202,
+            id="202",
             site_id=site_id,
             name="Contenedor Húmedo 2",
             waste_type="RSU Fracción Húmeda",
             height_cm=145.0,
             volume_m3=3.2,
         )
-        dev1 = Device(id="dev-201", container_id=201)
-        dev2 = Device(id="dev-202", container_id=202)
+        dev1 = Device(id="dev-201", container_id="201")
+        dev2 = Device(id="dev-202", container_id="202")
 
         topo = SimulationTopology(
             sites=[site],

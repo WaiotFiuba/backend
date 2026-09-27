@@ -50,16 +50,45 @@ def test_effective_multiplier_interpolates_in_simulated_time():
 
 
 def test_incremental_engine_preserves_state_and_applies_geographic_demand():
-    low_site = Site("LOW", "Low", "Low", -34.6, -58.4, 0.5)
-    high_site = Site("HIGH", "High", "High", -34.61, -58.41, 2.0)
+    low_site = Site(
+        id="LOW",
+        name="Low",
+        zone="Low",
+        latitude=-34.6,
+        longitude=-58.4,
+        demand_base=0.5,
+    )
+    high_site = Site(
+        id="HIGH",
+        name="High",
+        zone="High",
+        latitude=-34.61,
+        longitude=-58.41,
+        demand_base=2.0,
+    )
     containers = [
-        Container("1", "LOW", "Low container", "residuos_humedos", 150),
-        Container("2", "HIGH", "High container", "residuos_humedos", 150),
+        Container(
+            id="1",
+            site_id="LOW",
+            name="Low container",
+            waste_type="residuos_humedos",
+            height_cm=150,
+        ),
+        Container(
+            id="2",
+            site_id="HIGH",
+            name="High container",
+            waste_type="residuos_humedos",
+            height_cm=150,
+        ),
     ]
     topology = SimulationTopology(
         sites=[low_site, high_site],
         containers=containers,
-        devices=[Device("D1", "1"), Device("D2", "2")],
+        devices=[
+            Device(id="D1", container_id="1"),
+            Device(id="D2", container_id="2"),
+        ],
         initial_levels={"1": 10, "2": 10},
     )
     simulator = SyntheticDataSimulator(
