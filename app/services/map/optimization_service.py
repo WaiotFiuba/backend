@@ -23,6 +23,7 @@ from app.models.map.data_level import DataLevel
 from app.models.map.optimization import RedistributionPlan as RedistributionPlanModel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
+from app.services.map.site_capacity_service import get_site_capacity_service
 from app.schemas.map.optimization import (
     OptimizationConfig,
     OptimizationMetricsResponse,
@@ -181,6 +182,7 @@ async def compute_site_utilization_metrics(
     # Construir métricas por sitio
     site_metrics: list[SiteUtilizationMetric] = []
     category_counts: dict[str, int] = defaultdict(int)
+    capacity_service = get_site_capacity_service()
 
     for row in site_rows:
         sid = row.id
@@ -206,6 +208,10 @@ async def compute_site_utilization_metrics(
         category = _classify(utilization_score)
         category_counts[category] += 1
 
+        max_cap, puede_ingresar = capacity_service.evaluate_site(
+            row.latitude, row.longitude, container_count
+        )
+
         site_metrics.append(
             SiteUtilizationMetric(
                 site_id=sid,
@@ -213,6 +219,8 @@ async def compute_site_utilization_metrics(
                 latitude=row.latitude,
                 longitude=row.longitude,
                 container_count=container_count,
+                max_containers=max_cap,
+                puede_ingresar=max_cap > container_count,
                 waste_type_id=row.waste_type_id,
                 waste_type_name=row.waste_type_name,
                 container_type_id=row.container_type_id,
@@ -362,14 +370,24 @@ async def generate_redistribution_plan(
     for r in receivers:
         if r.container_count <= 0:
             continue
-        d = max(
+        needed = max(
             1,
             math.ceil(
                 r.container_count
                 * (r.utilization_score / config.target_utilization - 1)
             ),
         )
-        demand[r.site_id] = d
+        if getattr(config, "apply_capacity_constraints", True):
+            max_cap = getattr(r, "max_containers", 10)
+            cupo_libre = max(0, max_cap - r.container_count)
+            if cupo_libre <= 0:
+                continue
+            d = min(needed, cupo_libre)
+        else:
+            d = needed
+
+        if d > 0:
+            demand[r.site_id] = d
 
     # 5. Resolver con el algoritmo elegido
     if config.algorithm == "lp":

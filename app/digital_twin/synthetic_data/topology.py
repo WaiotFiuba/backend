@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from app.digital_twin.synthetic_data.density_processor import get_density_processor
 from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
+from app.services.map.site_capacity_service import get_site_capacity_service
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,8 @@ def topology_from_backend_records(
                     else (record.zone or "")
                 )
             )
+            cap_service = get_site_capacity_service()
+            max_c = cap_service.get_capacity_for_coordinates(record.latitude, record.longitude)
             sites_by_id[site_id] = Site(
                 id=site_id,
                 name=record.site_name or "",
@@ -84,6 +87,8 @@ def topology_from_backend_records(
                 longitude=record.longitude,
                 demand_base=calculated_demand,
                 address=record.address,
+                max_containers=max_c,
+                puede_ingresar=True,
             )
 
         containers.append(

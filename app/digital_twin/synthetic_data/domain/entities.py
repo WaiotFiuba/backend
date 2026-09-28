@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SimulationZoneState(BaseModel):
@@ -62,6 +62,8 @@ class Site(BaseModel):
     longitude: float
     demand_base: float
     address: str | None = None
+    max_containers: int = 10
+    puede_ingresar: bool = True
 
     def to_record(self) -> dict[str, object]:
         return self.model_dump()

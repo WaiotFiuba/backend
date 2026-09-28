@@ -32,6 +32,10 @@ class OptimizationConfig(BaseModel):
         "greedy",
         description="Algoritmo de optimización: 'lp' (programación lineal) o 'greedy'.",
     )
+    apply_capacity_constraints: bool = Field(
+        True,
+        description="Si True, limita la asignación de contenedores a la capacidad física máxima de la cuadra (max_containers). Si False, opera solo por estadística.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +48,8 @@ class SiteUtilizationMetric(BaseModel):
     latitude: float
     longitude: float
     container_count: int
+    max_containers: int = 10
+    puede_ingresar: bool = True
     waste_type_id: int | None = None
     waste_type_name: str | None = None
     container_type_id: int | None = None

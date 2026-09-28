@@ -115,6 +115,7 @@ def main():
     gar_path = os.path.join(datos_dir, 'garajes-comerciales.csv')
     garaje_pts = []
     garaje_alturas = []
+    garaje_calles = []
     if os.path.exists(gar_path):
         df_gar = pd.read_csv(gar_path, sep=',', encoding='utf-8')
         for _, row in df_gar.iterrows():
@@ -122,13 +123,16 @@ def main():
             pt_utm = transform(wgs84_to_utm, pt)
             garaje_pts.append(pt_utm)
             garaje_alturas.append(row.get('calle_altura', ''))
+            garaje_calles.append(str(row.get('calle_nombre', '')).strip().upper())
     tree_garajes = STRtree(garaje_pts) if garaje_pts else None
 
     mob_path = os.path.join(datos_dir, 'mobiliario-urbano.csv')
     paradas_pts = []
     paradas_alturas = []
+    paradas_calles = []
     puestos_pts = []
     puestos_alturas = []
+    puestos_calles = []
     postes_pts = []
 
     if os.path.exists(mob_path):
@@ -142,19 +146,36 @@ def main():
             pt = Point(row['X_num'], row['Y_num'])
             pt_utm = transform(wgs84_to_utm, pt)
             alt = row.get('Altura', '')
+            c_nom = str(row.get('calle', '')).strip().upper()
             
             if 'REFUGIO' in elem or 'BUS' in elem:
                 paradas_pts.append(pt_utm)
                 paradas_alturas.append(alt)
+                paradas_calles.append(c_nom)
             elif 'PUESTO' in elem:
                 puestos_pts.append(pt_utm)
                 puestos_alturas.append(alt)
+                puestos_calles.append(c_nom)
             else:
                 postes_pts.append(pt_utm)
 
     tree_paradas = STRtree(paradas_pts) if paradas_pts else None
     tree_puestos = STRtree(puestos_pts) if puestos_pts else None
     tree_postes = STRtree(postes_pts) if postes_pts else None
+
+    cont_path = os.path.join(base_dir, 'db', 'datos', 'contenedores_negros.json')
+    cont_pts = []
+    if os.path.exists(cont_path):
+        with open(cont_path, 'r', encoding='utf-8') as f:
+            cont_data = json.load(f)
+        for feat in cont_data.get('features', []):
+            try:
+                coords = feat['geometry']['coordinates']
+                pt_utm = Point(wgs84_to_utm(coords[0], coords[1]))
+                cont_pts.append(pt_utm)
+            except Exception:
+                pass
+    tree_contenedores = STRtree(cont_pts) if cont_pts else None
 
     print("Procesando tramos, identificando esquinas transversales y restricciones...")
     registros_unificados = []
@@ -202,58 +223,72 @@ def main():
         pt_inicio = Point(coords[0])
         pt_fin = Point(coords[-1])
 
-        cand_ini_idx = tree_calles.query(pt_inicio.buffer(25.0))
-        calles_trans_ini = sorted(list(set(valid_names[i] for i in cand_ini_idx if valid_names[i] != calle_nombre_upper)))
-        cruce_inicio_str = ', '.join(calles_trans_ini) if calles_trans_ini else 'Bocacalle inicio'
+        cand_ini_idx = tree_calles.query(pt_inicio.buffer(15.0))
+        cand_ini_valid = [i for i in cand_ini_idx if valid_names[i] != calle_nombre_upper and valid_geoms[i].distance(pt_inicio) <= 15.0]
+        calles_trans_ini = sorted(list(set(valid_names[i] for i in cand_ini_valid)))
+        cruce_inicio_str = ', '.join(calles_trans_ini) if calles_trans_ini else 'Continuación arteria inicio'
 
-        cand_fin_idx = tree_calles.query(pt_fin.buffer(25.0))
-        calles_trans_fin = sorted(list(set(valid_names[i] for i in cand_fin_idx if valid_names[i] != calle_nombre_upper)))
-        cruce_fin_str = ', '.join(calles_trans_fin) if calles_trans_fin else 'Bocacalle fin'
+        cand_fin_idx = tree_calles.query(pt_fin.buffer(15.0))
+        cand_fin_valid = [i for i in cand_fin_idx if valid_names[i] != calle_nombre_upper and valid_geoms[i].distance(pt_fin) <= 15.0]
+        calles_trans_fin = sorted(list(set(valid_names[i] for i in cand_fin_valid)))
+        cruce_fin_str = ', '.join(calles_trans_fin) if calles_trans_fin else 'Continuación arteria fin'
+
+        tiene_esquina_ini = len(calles_trans_ini) > 0
+        tiene_esquina_fin = len(calles_trans_fin) > 0
+
+        if tiene_esquina_ini and tiene_esquina_fin and set(calles_trans_ini) == set(calles_trans_fin):
+            d_ini = min(valid_geoms[i].distance(pt_inicio) for i in cand_ini_valid)
+            d_fin = min(valid_geoms[i].distance(pt_fin) for i in cand_fin_valid)
+            if d_ini <= d_fin:
+                tiene_esquina_fin = False
+                cruce_fin_str = 'Continuación arteria fin'
+            else:
+                tiene_esquina_ini = False
+                cruce_inicio_str = 'Continuación arteria inicio'
 
         restricciones = []
         intervalos_bloqueados = []
+        intervalos_ochava = []
+        metros_ochava = 0.0
 
-        if longitud_total > (2 * RESERVA_OCHAVA_EXTREMO_M):
-            intervalos_ochava = [
-                {
-                  "ubicacion": f"Esquina inicio con calle {cruce_inicio_str}",
-                  "interseccion_calle": cruce_inicio_str,
-                  "desde_metro": 0.0,
-                  "hasta_metro": RESERVA_OCHAVA_EXTREMO_M
-                },
-                {
-                  "ubicacion": f"Esquina fin con calle {cruce_fin_str}",
-                  "interseccion_calle": cruce_fin_str,
-                  "desde_metro": round(longitud_total - RESERVA_OCHAVA_EXTREMO_M, 2),
-                  "hasta_metro": longitud_total
-                }
-            ]
-            intervalos_bloqueados.append((0.0, RESERVA_OCHAVA_EXTREMO_M))
-            intervalos_bloqueados.append((longitud_total - RESERVA_OCHAVA_EXTREMO_M, longitud_total))
-            metros_ochava = 2 * RESERVA_OCHAVA_EXTREMO_M
-        else:
-            intervalos_ochava = [
-                {
-                    "ubicacion": f"Cuadra corta entre {cruce_inicio_str} y {cruce_fin_str}",
-                    "desde_metro": 0.0,
-                    "hasta_metro": longitud_total
-                }
-            ]
-            intervalos_bloqueados.append((0.0, longitud_total))
-            metros_ochava = longitud_total
+        if tiene_esquina_ini:
+            bloq_ini = min(RESERVA_OCHAVA_EXTREMO_M, longitud_total)
+            intervalos_ochava.append({
+                "ubicacion": f"Esquina inicio con calle {cruce_inicio_str}",
+                "interseccion_calle": cruce_inicio_str,
+                "desde_metro": 0.0,
+                "hasta_metro": bloq_ini
+            })
+            intervalos_bloqueados.append((0.0, bloq_ini))
+            metros_ochava += bloq_ini
 
-        restricciones.append({
-            "tipo": "OCHAVA",
-            "descripcion": "Reserva de visibilidad en esquinas (chaflán) y sendas peatonales",
-            "esquina_inicio": cruce_inicio_str,
-            "esquina_fin": cruce_fin_str,
-            "intervalos_metros": intervalos_ochava,
-            "metros_ocupados": round(metros_ochava, 2)
-        })
+        if tiene_esquina_fin:
+            bloq_fin_desde = max(0.0, round(longitud_total - RESERVA_OCHAVA_EXTREMO_M, 2))
+            intervalos_ochava.append({
+                "ubicacion": f"Esquina fin con calle {cruce_fin_str}",
+                "interseccion_calle": cruce_fin_str,
+                "desde_metro": bloq_fin_desde,
+                "hasta_metro": longitud_total
+            })
+            intervalos_bloqueados.append((bloq_fin_desde, longitud_total))
+            metros_ochava += round(longitud_total - bloq_fin_desde, 2)
 
-        if tree_garajes is not None and longitud_total > (2 * RESERVA_OCHAVA_EXTREMO_M):
+        if intervalos_ochava:
+            restricciones.append({
+                "tipo": "OCHAVA",
+                "descripcion": "Reserva de visibilidad en esquinas (chaflán) y sendas peatonales",
+                "esquina_inicio": cruce_inicio_str,
+                "esquina_fin": cruce_fin_str,
+                "intervalos_metros": intervalos_ochava,
+                "metros_ocupados": round(metros_ochava, 2)
+            })
+
+        if tree_garajes is not None:
             cand_gar = tree_garajes.query(geom_utm.buffer(12.0))
             for g_idx in cand_gar:
+                g_calle = garaje_calles[g_idx]
+                if g_calle and g_calle != calle_nombre_upper and g_calle not in calle_nombre_upper and calle_nombre_upper not in g_calle:
+                    continue
                 g_pt = garaje_pts[g_idx]
                 if geom_utm.distance(g_pt) <= 10.0:
                     s = geom_utm.project(g_pt)
@@ -269,9 +304,12 @@ def main():
                         "metros_ocupados": round(fin - ini, 2)
                     })
 
-        if tree_paradas is not None and longitud_total > (2 * RESERVA_OCHAVA_EXTREMO_M):
+        if tree_paradas is not None:
             cand_par = tree_paradas.query(geom_utm.buffer(12.0))
             for p_idx in cand_par:
+                p_calle = paradas_calles[p_idx]
+                if p_calle and p_calle != calle_nombre_upper and p_calle not in calle_nombre_upper and calle_nombre_upper not in p_calle:
+                    continue
                 p_pt = paradas_pts[p_idx]
                 if geom_utm.distance(p_pt) <= 10.0:
                     s = geom_utm.project(p_pt)
@@ -287,9 +325,12 @@ def main():
                         "metros_ocupados": round(fin - ini, 2)
                     })
 
-        if tree_puestos is not None and longitud_total > (2 * RESERVA_OCHAVA_EXTREMO_M):
+        if tree_puestos is not None:
             cand_pst = tree_puestos.query(geom_utm.buffer(12.0))
             for pst_idx in cand_pst:
+                pst_calle = puestos_calles[pst_idx]
+                if pst_calle and pst_calle != calle_nombre_upper and pst_calle not in calle_nombre_upper and calle_nombre_upper not in pst_calle:
+                    continue
                 pst_pt = puestos_pts[pst_idx]
                 if geom_utm.distance(pst_pt) <= 10.0:
                     s = geom_utm.project(pst_pt)
@@ -365,9 +406,17 @@ def main():
         if cursor < longitud_total:
             intervalos_libres.append((cursor, longitud_total))
 
+        contenedores_instalados = 0
+        if tree_contenedores is not None:
+            cand_cnt = tree_contenedores.query(geom_utm.buffer(8.0))
+            for c_i in cand_cnt:
+                if geom_utm.distance(cont_pts[c_i]) <= 6.0:
+                    contenedores_instalados += 1
+
         cap_calzada = calcular_capacidad_intervalos(intervalos_libres) if permite_calzada else 0
         cap_acera = calcular_capacidad_intervalos(intervalos_libres)
-        max_contenedores = cap_calzada if permite_calzada else cap_acera
+        cap_teorica = cap_calzada if permite_calzada else cap_acera
+        max_contenedores = max(cap_teorica, contenedores_instalados)
 
         registros_unificados.append({
             'segment_id': row['id'],
@@ -386,6 +435,7 @@ def main():
             'espacio_bloqueado_m': longitud_bloqueada,
             'espacio_disponible_m': longitud_disponible,
             'MAX_CONTENEDORES': max_contenedores,
+            'contenedores_instalados': contenedores_instalados,
             'max_contenedores_calzada': cap_calzada,
             'max_contenedores_acera': cap_acera,
             'restricciones_json': json.dumps(restricciones, ensure_ascii=False),
