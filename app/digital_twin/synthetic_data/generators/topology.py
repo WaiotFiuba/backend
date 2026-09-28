@@ -5,6 +5,7 @@ import random
 from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
 from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.digital_twin.synthetic_data.topology import SimulationTopology
+from app.services.map.site_capacity_service import get_site_capacity_service
 
 CABA_ZONES = (
     ("Palermo", -34.5832, -58.4243, 1.15),
@@ -24,16 +25,24 @@ def generate_synthetic_topology(
     devices: list[Device] = []
     initial_levels: dict[str, float] = {}
     waste_types = tuple(config.waste_type_factors)
+    capacity_service = get_site_capacity_service()
 
     for index in range(config.synthetic_site_count):
         zone, lat, lon, demand = CABA_ZONES[index % len(CABA_ZONES)]
+        lat_rnd = round(lat + rng.uniform(-0.006, 0.006), 7)
+        lon_rnd = round(lon + rng.uniform(-0.006, 0.006), 7)
+        max_c, puede_ing = capacity_service.evaluate_site(
+            lat_rnd, lon_rnd, config.synthetic_containers_per_site
+        )
         site = Site(
             id=f"SITE-{index + 1:04d}",
             name=f"{zone} {index + 1:03d}",
             zone=zone,
-            latitude=round(lat + rng.uniform(-0.006, 0.006), 7),
-            longitude=round(lon + rng.uniform(-0.006, 0.006), 7),
+            latitude=lat_rnd,
+            longitude=lon_rnd,
             demand_base=round(demand * rng.uniform(0.85, 1.25), 4),
+            max_containers=max_c,
+            puede_ingresar=puede_ing,
         )
         sites.append(site)
 
