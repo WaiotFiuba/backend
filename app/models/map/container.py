@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.map.container_type import ContainerType
-    from app.models.map.caba_geo_extension import CabaContainerSpatialMetadata
+    from app.models.map.neighborhood import Neighborhood
     from app.models.map.site import Site
 
 from geoalchemy2 import Geometry
@@ -64,8 +64,14 @@ class Container(MapBase):
         nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    neighborhood_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("neighborhoods.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     container_type: Mapped["ContainerType"] = relationship(back_populates="containers")
     site: Mapped["Site | None"] = relationship(back_populates="containers")
-    spatial_metadata: Mapped["CabaContainerSpatialMetadata | None"] = relationship(
-        back_populates="container", uselist=False
+    neighborhood: Mapped["Neighborhood | None"] = relationship(
+        back_populates="containers"
     )

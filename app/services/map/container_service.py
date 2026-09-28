@@ -1,13 +1,12 @@
 from fastapi import HTTPException, status
 from geoalchemy2 import functions as geo_funcs
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
-from app.models.map.neighborhood_demographic import NeighborhoodDemographic
+from app.models.map.neighborhood import Neighborhood
 from app.models.map.waste_type import WasteType
 from app.schemas.map.container import (
     ContainerChanges,
@@ -95,8 +94,8 @@ def _base_select():
             ContainerType.overflow_zone_cm,
             WasteType.name.label("waste_type_name"),
             WasteType.color.label("waste_type_color"),
-            Barrio.nombre.label("zone"),
-            NeighborhoodDemographic.density_factor,
+            Neighborhood.name.label("zone"),
+            literal(1.0).label("density_factor"),
         )
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
         .outerjoin(
@@ -106,15 +105,7 @@ def _base_select():
         .outerjoin(
             WasteType, container_type_waste_types.c.waste_type_id == WasteType.id
         )
-        .outerjoin(
-            CabaContainerSpatialMetadata,
-            CabaContainerSpatialMetadata.container_id == Container.id,
-        )
-        .outerjoin(Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id)
-        .outerjoin(
-            NeighborhoodDemographic,
-            NeighborhoodDemographic.neighborhood_id == Barrio.id,
-        )
+        .outerjoin(Neighborhood, Container.neighborhood_id == Neighborhood.id)
     )
 
 
@@ -364,7 +355,7 @@ async def get_all_containers_paginated(
         filters.append(
             (cast(Container.site_id, String).ilike(f"%{search}%"))
             | (Container.site_name.ilike(f"%{search}%"))
-            | (Barrio.nombre.ilike(f"%{search}%"))
+            | (Neighborhood.name.ilike(f"%{search}%"))
             | (cast(Container.id, String).ilike(f"%{search}%"))
         )
     if type and type != "all":
@@ -379,11 +370,7 @@ async def get_all_containers_paginated(
     count_stmt = (
         select(func.count(Container.id))
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
-        .outerjoin(
-            CabaContainerSpatialMetadata,
-            CabaContainerSpatialMetadata.container_id == Container.id,
-        )
-        .outerjoin(Barrio, Barrio.id == CabaContainerSpatialMetadata.barrio_id)
+        .outerjoin(Neighborhood, Container.neighborhood_id == Neighborhood.id)
     )
     if filters:
         count_stmt = count_stmt.where(*filters)

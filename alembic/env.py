@@ -13,6 +13,7 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container  # noqa: F401
 from app.models.map.container_type import ContainerType  # noqa: F401
 from app.models.map.data_level import DataLevel  # noqa: F401
+from app.models.map.neighborhood import Neighborhood  # noqa: F401
 from app.models.map.neighborhood_demographic import (
     NeighborhoodDemographic,  # noqa: F401
 )

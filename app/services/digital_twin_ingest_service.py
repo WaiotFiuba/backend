@@ -12,7 +12,6 @@ from sqlalchemy.orm import joinedload
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
-from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
 
 logger = logging.getLogger(__name__)
@@ -84,16 +83,14 @@ async def ensure_cache(db: AsyncSession):
     _cache_by_imei.clear()
     query = select(Container).options(
         joinedload(Container.container_type).selectinload(ContainerType.waste_types),
-        joinedload(Container.spatial_metadata)
-        .joinedload(CabaContainerSpatialMetadata.barrio)
-        .selectinload(Barrio.demographic),
+        joinedload(Container.neighborhood),
     )
     result = await db.execute(query)
     containers = result.scalars().all()
     for c in containers:
         ctype = c.container_type
         wtype = ctype.waste_types[0] if ctype and ctype.waste_types else None
-        barrio = c.spatial_metadata.barrio if c.spatial_metadata else None
+        neighborhood = c.neighborhood
         meta = ContainerCacheMeta(
             id=c.id,
             device_imei=c.device_imei,
@@ -108,8 +105,8 @@ async def ensure_cache(db: AsyncSession):
             container_type_volume_m3=ctype.volume_m3 if ctype else None,
             waste_type_id=wtype.id if wtype else None,
             waste_type_name=wtype.name if wtype else None,
-            zone_id=barrio.id if barrio else None,
-            zone_name=barrio.nombre if barrio else None,
+            zone_id=neighborhood.id if neighborhood else None,
+            zone_name=neighborhood.name if neighborhood else None,
         )
         _cache_by_id[meta.id] = meta
         if meta.device_imei:
