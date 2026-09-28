@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import csv
 import time
 import pandas as pd
 import numpy as np
@@ -125,6 +126,23 @@ def main():
             garaje_alturas.append(row.get('calle_altura', ''))
             garaje_calles.append(str(row.get('calle_nombre', '')).strip().upper())
     tree_garajes = STRtree(garaje_pts) if garaje_pts else None
+
+    caj_path = os.path.join(datos_dir, 'cajones-para-carga-y-descarga.csv')
+    cajones_pts = []
+    cajones_alturas = []
+    cajones_calles = []
+    if os.path.exists(caj_path):
+        df_caj = pd.read_csv(caj_path, encoding='utf-8')
+        for _, row in df_caj.iterrows():
+            try:
+                pt = Point(row['long'], row['lat'])
+                pt_utm = transform(wgs84_to_utm, pt)
+                cajones_pts.append(pt_utm)
+                cajones_alturas.append(row.get('calle_altura', ''))
+                cajones_calles.append(str(row.get('calle_nombre', '')).strip().upper())
+            except Exception:
+                pass
+    tree_cajones = STRtree(cajones_pts) if cajones_pts else None
 
     mob_path = os.path.join(datos_dir, 'mobiliario-urbano.csv')
     paradas_pts = []
@@ -346,6 +364,28 @@ def main():
                         "metros_ocupados": round(fin - ini, 2)
                     })
 
+        if tree_cajones is not None:
+            cand_caj = tree_cajones.query(geom_utm.buffer(12.0))
+            for c_idx in cand_caj:
+                c_calle = cajones_calles[c_idx]
+                if c_calle and c_calle != calle_nombre_upper and c_calle not in calle_nombre_upper and calle_nombre_upper not in c_calle:
+                    continue
+                c_pt = cajones_pts[c_idx]
+                if geom_utm.distance(c_pt) <= 10.0:
+                    s = geom_utm.project(c_pt)
+                    ini = max(0.0, s - 5.0)
+                    fin = min(longitud_total, s + 5.0)
+                    intervalos_bloqueados.append((ini, fin))
+                    alt_caj = cajones_alturas[c_idx]
+                    restricciones.append({
+                        "tipo": "CARGA_Y_DESCARGA",
+                        "descripcion": "Espacio exclusivo delimitado para carga y descarga comercial (10m)",
+                        "ubicacion_en_cuadra": f"Altura {alt_caj}" if alt_caj else f"A {round(s, 1)}m de esquina {cruce_inicio_str}",
+                        "intervalo_metros": {"desde_metro": round(ini, 2), "hasta_metro": round(fin, 2)},
+                        "metros_ocupados": round(fin - ini, 2),
+                        "afecta_calzada": True
+                    })
+
         tiene_ciclovia = False
         if tree_ciclovias is not None:
             candidatos_ciclo = tree_ciclovias.query(geom_utm.buffer(8.0))
@@ -354,13 +394,17 @@ def main():
                     tiene_ciclovia = True
                     break
 
+        # En CABA las ciclovías corren principalmente por el margen izquierdo.
+        # Si este tramo corresponde a la acera DERECHA, la ciclovía izquierda NO anula la calzada derecha.
+        ciclovia_afecta_este_lado = tiene_ciclovia and (acera_lado != 'DERECHO')
+
         if tiene_ciclovia:
             restricciones.append({
                 "tipo": "CICLOVIA",
                 "descripcion": f"Carril exclusivo de ciclovía/bicisenda en calzada entre {cruce_inicio_str} y {cruce_fin_str}",
-                "ubicacion_en_cuadra": "Toda la cuadra",
+                "ubicacion_en_cuadra": "Margen izquierdo de la calzada" if acera_lado == 'IZQUIERDO' else "Toda la cuadra",
                 "intervalo_metros": {"desde_metro": 0.0, "hasta_metro": longitud_total},
-                "afecta_calzada": True
+                "afecta_calzada": ciclovia_afecta_este_lado
             })
 
         if normativa != '':
@@ -389,8 +433,12 @@ def main():
                 "afecta_calzada": True
             })
 
-        permite_calzada = (not prohibido_estacionar) and (not tiene_ciclovia) and (not es_peatonal)
-        permite_acera = True
+        permite_calzada = (not prohibido_estacionar) and (not ciclovia_afecta_este_lado) and (not es_peatonal)
+
+        # Resolución 1/SSHU/19 - Ubicación en Acera (Excepción):
+        # Solo se permite subirlos a la acera en avenidas o calles donde esté estrictamente prohibido estacionar
+        # las 24 horas, o cuando las condiciones técnicas de la calzada impidan la recolección.
+        permite_acera = (not permite_calzada)
 
         intervalos_bloq_unificados = unir_intervalos(intervalos_bloqueados)
         longitud_bloqueada = sum(fin - ini for ini, fin in intervalos_bloq_unificados)
@@ -413,10 +461,24 @@ def main():
                 if geom_utm.distance(cont_pts[c_i]) <= 6.0:
                     contenedores_instalados += 1
 
-        cap_calzada = calcular_capacidad_intervalos(intervalos_libres) if permite_calzada else 0
-        cap_acera = calcular_capacidad_intervalos(intervalos_libres)
-        cap_teorica = cap_calzada if permite_calzada else cap_acera
-        max_contenedores = max(cap_teorica, contenedores_instalados)
+        # CÁLCULO DE CAPACIDAD BAJO RESOLUCIÓN CONJUNTA N° 1/SSHU/19:
+        # 1. Calzada: Límite estricto de 4 metros lineales = MÁXIMO 2 CONTENEDORES DE 3.200L
+        if permite_calzada:
+            espacio_slots = calcular_capacidad_intervalos(intervalos_libres)
+            cap_calzada = min(2, espacio_slots)
+        else:
+            cap_calzada = 0
+
+        # 2. Acera (Vereda Excepcional): Límite estricto de 11 metros lineales = MÁXIMO 2 CONTENEDORES GRANDES DE 3.200L
+        # Requiere que exista espacio libre continuo no bloqueado por garajes, paradas, cajones u ochavas.
+        if permite_acera:
+            espacio_slots_acera = calcular_capacidad_intervalos(intervalos_libres)
+            cap_acera = min(2, espacio_slots_acera)
+        else:
+            cap_acera = 0
+
+        # Capacidad física reglamentaria total del tramo (valores factibles: 0, 1 o 2)
+        max_contenedores = max(cap_calzada, cap_acera)
 
         registros_unificados.append({
             'segment_id': row['id'],
@@ -444,7 +506,7 @@ def main():
 
     df_salida = pd.DataFrame(registros_unificados)
     salida_path = os.path.join(datos_dir, 'restricciones_contenedores.csv')
-    df_salida.to_csv(salida_path, sep=';', index=False, encoding='utf-8')
+    df_salida.to_csv(salida_path, sep=';', index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
 
     elapsed = round(time.time() - start_time, 2)
     print(f"\nArchivo regenerado con éxito en {elapsed} segundos.")

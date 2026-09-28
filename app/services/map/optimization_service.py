@@ -378,7 +378,7 @@ async def generate_redistribution_plan(
             ),
         )
         if getattr(config, "apply_capacity_constraints", True):
-            max_cap = getattr(r, "max_containers", 10)
+            max_cap = getattr(r, "max_containers", 2)
             cupo_libre = max(0, max_cap - r.container_count)
             if cupo_libre <= 0:
                 continue

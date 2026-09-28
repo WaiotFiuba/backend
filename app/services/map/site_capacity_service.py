@@ -41,7 +41,7 @@ class SiteCapacityService:
                     g = shapely.wkt.loads(wkt_str)
                     g_utm = transform(self._wgs84_to_utm, g)
                     self._geoms_utm.append(g_utm)
-                    self._max_containers_list.append(int(row.get("MAX_CONTENEDORES", 10)))
+                    self._max_containers_list.append(int(row.get("MAX_CONTENEDORES", 2)))
                 except Exception:
                     continue
 
@@ -52,7 +52,7 @@ class SiteCapacityService:
             self._initialized = False
 
     def evaluate_site(
-        self, latitude: float | None, longitude: float | None, current_containers: int = 0, default_cap: int = 10
+        self, latitude: float | None, longitude: float | None, current_containers: int = 0, default_cap: int = 2
     ) -> Tuple[int, bool]:
         if latitude is None or longitude is None or not self._initialized or self._tree is None:
             max_containers = default_cap
@@ -66,8 +66,14 @@ class SiteCapacityService:
             if len(cand_indices) == 0:
                 max_containers = default_cap
             else:
-                best_idx = min(cand_indices, key=lambda i: self._geoms_utm[i].distance(pt_utm))
-                max_containers = self._max_containers_list[best_idx]
+                # En una esquina o cuadra, existen tramos para ambas márgenes (izq/der) e intersecciones.
+                # La capacidad del sitio es la máxima de los tramos contiguos dentro de 25 metros.
+                nearby = [i for i in cand_indices if self._geoms_utm[i].distance(pt_utm) <= 25.0]
+                if nearby:
+                    max_containers = max(self._max_containers_list[i] for i in nearby)
+                else:
+                    best_idx = min(cand_indices, key=lambda i: self._geoms_utm[i].distance(pt_utm))
+                    max_containers = self._max_containers_list[best_idx]
         except Exception:
             max_containers = default_cap
 
@@ -75,7 +81,7 @@ class SiteCapacityService:
         return max_containers, puede_ingresar
 
     def get_capacity_for_coordinates(
-        self, latitude: float | None, longitude: float | None, default_cap: int = 10
+        self, latitude: float | None, longitude: float | None, default_cap: int = 2
     ) -> int:
         cap, _ = self.evaluate_site(latitude, longitude, current_containers=0, default_cap=default_cap)
         return cap

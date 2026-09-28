@@ -56,7 +56,12 @@ class StandaloneSiteCapacityCalculator:
                 sitios_procesados.append(site)
                 continue
 
-            best_idx = min(cand_indices, key=lambda i: self.geoms_utm[i].distance(pt_utm))
+            # Considerar tramos contiguos a la esquina/cuadra (<= 25m) para tomar el lado habilitado
+            nearby_indices = [i for i in cand_indices if self.geoms_utm[i].distance(pt_utm) <= 25.0]
+            if nearby_indices:
+                best_idx = max(nearby_indices, key=lambda i: int(self.df.iloc[i]["MAX_CONTENEDORES"]))
+            else:
+                best_idx = min(cand_indices, key=lambda i: self.geoms_utm[i].distance(pt_utm))
             tramo = self.df.iloc[best_idx]
 
             max_cont = int(tramo["MAX_CONTENEDORES"])
