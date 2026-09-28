@@ -1,24 +1,25 @@
-import pytest
-from unittest.mock import MagicMock, patch
-
-from app.digital_twin.synthetic_data.generators.topology import generate_synthetic_topology
+from app.digital_twin.synthetic_data.generators.topology import (
+    generate_synthetic_topology,
+)
 from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.schemas.map.optimization import OptimizationConfig, SiteUtilizationMetric
-from app.services.map.optimization_service import _solve_greedy, _solve_lp
+from app.services.map.optimization_service import _solve_greedy
 from app.services.map.site_capacity_service import get_site_capacity_service
 import random
 
 
 def test_site_capacity_service_evaluation():
     service = get_site_capacity_service()
-    
+
     # Coordenadas en CABA (Arias 3450)
     max_c, puede = service.evaluate_site(-34.545914, -58.483065, current_containers=1)
     assert max_c > 0
     assert puede is True
 
     # Coordenadas saturadas
-    max_c, puede = service.evaluate_site(-34.545914, -58.483065, current_containers=max_c)
+    max_c, puede = service.evaluate_site(
+        -34.545914, -58.483065, current_containers=max_c
+    )
     assert puede is False
 
 
@@ -74,7 +75,6 @@ def test_redistribution_comparison_with_and_without_capacity_constraints():
 
     donors = [donor]
     receivers = [receiver_saturado]
-    containers_by_site = {1: [101, 102, 103]}
     container_type_map = {101: 1, 102: 1, 103: 1}
     site_info = {1: donor, 2: receiver_saturado}
 
@@ -91,7 +91,11 @@ def test_redistribution_comparison_with_and_without_capacity_constraints():
 
     demand_con = {}
     for r in receivers:
-        cupo_libre = max(0, r.max_containers - r.container_count) if config_con_restricciones.apply_capacity_constraints else 99
+        cupo_libre = (
+            max(0, r.max_containers - r.container_count)
+            if config_con_restricciones.apply_capacity_constraints
+            else 99
+        )
         if cupo_libre > 0:
             demand_con[r.site_id] = min(2, cupo_libre)
 

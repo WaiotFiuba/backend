@@ -52,7 +52,13 @@ def synthetic_restrictions_csv(tmp_path):
             "max_contenedores_calzada": 5,
             "max_contenedores_acera": 5,
             "restricciones_json": json.dumps(
-                [{"tipo": "OCHAVA", "descripcion": "Reserva esquinas", "metros_ocupados": 20.0}]
+                [
+                    {
+                        "tipo": "OCHAVA",
+                        "descripcion": "Reserva esquinas",
+                        "metros_ocupados": 20.0,
+                    }
+                ]
             ),
             "geometry_wkt": "LINESTRING(-58.4000 -34.6000, -58.4000 -34.6010)",
         },
@@ -76,7 +82,13 @@ def synthetic_restrictions_csv(tmp_path):
             "max_contenedores_calzada": 0,
             "max_contenedores_acera": 0,
             "restricciones_json": json.dumps(
-                [{"tipo": "PROHIBICION_ESTACIONAR", "descripcion": "Prohibido", "afecta_calzada": True}]
+                [
+                    {
+                        "tipo": "PROHIBICION_ESTACIONAR",
+                        "descripcion": "Prohibido",
+                        "afecta_calzada": True,
+                    }
+                ]
             ),
             "geometry_wkt": "LINESTRING(-58.4100 -34.6100, -58.4100 -34.6105)",
         },
@@ -219,22 +231,62 @@ def test_sitio_huerfano_fuera_de_cobertura(calculator):
 
 def test_conteo_exacto_sitios_sin_capacidad_esperada(calculator):
     lote_sitios = [
-        {"id": 101, "latitude": -34.6005, "longitude": -58.4000, "contenedores_actuales": 2},  # Con cupo (5 - 2 = 3)
-        {"id": 102, "latitude": -34.6005, "longitude": -58.4000, "contenedores_actuales": 5},  # Al tope (cupo 0)
-        {"id": 103, "latitude": -34.6005, "longitude": -58.4000, "contenedores_actuales": 8},  # Excedido (cupo 0)
-        {"id": 104, "latitude": -34.6102, "longitude": -58.4100, "contenedores_actuales": 0},  # Tramo 0 cap (cupo 0)
-        {"id": 105, "latitude": None, "longitude": None, "contenedores_actuales": 0},          # Sin coords
-        {"id": 106, "latitude": -34.8000, "longitude": -58.8000, "contenedores_actuales": 0},  # Fuera de tramo
+        {
+            "id": 101,
+            "latitude": -34.6005,
+            "longitude": -58.4000,
+            "contenedores_actuales": 2,
+        },  # Con cupo (5 - 2 = 3)
+        {
+            "id": 102,
+            "latitude": -34.6005,
+            "longitude": -58.4000,
+            "contenedores_actuales": 5,
+        },  # Al tope (cupo 0)
+        {
+            "id": 103,
+            "latitude": -34.6005,
+            "longitude": -58.4000,
+            "contenedores_actuales": 8,
+        },  # Excedido (cupo 0)
+        {
+            "id": 104,
+            "latitude": -34.6102,
+            "longitude": -58.4100,
+            "contenedores_actuales": 0,
+        },  # Tramo 0 cap (cupo 0)
+        {
+            "id": 105,
+            "latitude": None,
+            "longitude": None,
+            "contenedores_actuales": 0,
+        },  # Sin coords
+        {
+            "id": 106,
+            "latitude": -34.8000,
+            "longitude": -58.8000,
+            "contenedores_actuales": 0,
+        },  # Fuera de tramo
     ]
 
     resultados = calculator.calcular_capacidad_sitios(lote_sitios)
 
-    sitios_con_cupo = [s for s in resultados if s.get("puede_ingresar_nuevo_contenedor") is True]
-    sitios_sin_cupo_o_inhabilitados = [s for s in resultados if not s.get("puede_ingresar_nuevo_contenedor", False)]
+    sitios_con_cupo = [
+        s for s in resultados if s.get("puede_ingresar_nuevo_contenedor") is True
+    ]
+    sitios_sin_cupo_o_inhabilitados = [
+        s for s in resultados if not s.get("puede_ingresar_nuevo_contenedor", False)
+    ]
 
     assert len(sitios_con_cupo) == 1
     assert sitios_con_cupo[0]["id"] == 101
     assert sitios_con_cupo[0]["cupo_disponible"] == 3
 
     assert len(sitios_sin_cupo_o_inhabilitados) == 5
-    assert {s["id"] for s in sitios_sin_cupo_o_inhabilitados} == {102, 103, 104, 105, 106}
+    assert {s["id"] for s in sitios_sin_cupo_o_inhabilitados} == {
+        102,
+        103,
+        104,
+        105,
+        106,
+    }

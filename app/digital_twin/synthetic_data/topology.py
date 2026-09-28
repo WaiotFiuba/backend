@@ -78,7 +78,9 @@ def topology_from_backend_records(
                 )
             )
             cap_service = get_site_capacity_service()
-            max_c = cap_service.get_capacity_for_coordinates(record.latitude, record.longitude)
+            max_c = cap_service.get_capacity_for_coordinates(
+                record.latitude, record.longitude
+            )
             sites_by_id[site_id] = Site(
                 id=site_id,
                 name=record.site_name or "",

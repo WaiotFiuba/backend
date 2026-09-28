@@ -1,17 +1,15 @@
 import sys
 import os
-import json
 import csv
 import time
 import pandas as pd
-import numpy as np
 import shapely.wkt
-from shapely.geometry import Point, LineString, MultiLineString
+from shapely.geometry import Point
 from shapely.strtree import STRtree
 from shapely.ops import transform
 import pyproj
 
-sys.stdout.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding="utf-8")
 
 LARGO_CONTENEDOR_M = 1.87
 ANCHO_CONTENEDOR_M = 1.50
@@ -20,13 +18,13 @@ SEPARACION_ENTRE_CONT_M = 0.20
 RESERVA_OCHAVA_EXTREMO_M = 10.0
 
 ANCHOS_CALLE_POR_TIPO = {
-    'CALLE': 12.0,
-    'AVENIDA': 26.0,
-    'BOULEVARD': 35.0,
-    'PASAJE': 7.5,
-    'CALLE PEATONAL': 8.0,
-    'PASAJE PÚBLICO': 7.0,
-    'AUTOPISTA': 40.0
+    "CALLE": 12.0,
+    "AVENIDA": 26.0,
+    "BOULEVARD": 35.0,
+    "PASAJE": 7.5,
+    "CALLE PEATONAL": 8.0,
+    "PASAJE PÚBLICO": 7.0,
+    "AUTOPISTA": 40.0,
 }
 
 ANCHO_GARAGE_M = 3.0
@@ -69,42 +67,50 @@ def unir_intervalos(intervalos):
 
 
 def main():
-    print("Iniciando generación de dataset con calles transversales en esquinas/ochavas...")
+    print(
+        "Iniciando generación de dataset con calles transversales en esquinas/ochavas..."
+    )
     start_time = time.time()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    datos_dir = os.path.join(base_dir, 'datos')
+    datos_dir = os.path.join(base_dir, "datos")
 
-    wgs84_to_utm = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32721", always_xy=True).transform
+    wgs84_to_utm = pyproj.Transformer.from_crs(
+        "EPSG:4326", "EPSG:32721", always_xy=True
+    ).transform
 
-    est_path = os.path.join(datos_dir, 'estacionamiento_via_publica.csv')
-    df_est = pd.read_csv(est_path, sep=';', encoding='utf-8')
+    est_path = os.path.join(datos_dir, "estacionamiento_via_publica.csv")
+    df_est = pd.read_csv(est_path, sep=";", encoding="utf-8")
     print(f"Total de tramos viales cargados: {len(df_est)}")
 
-    print("Construyendo índice espacial de la red vial para detección de esquinas transversales...")
+    print(
+        "Construyendo índice espacial de la red vial para detección de esquinas transversales..."
+    )
     all_street_geoms = []
     all_street_names = []
-    
+
     for idx, row in df_est.iterrows():
         try:
-            g = shapely.wkt.loads(row['WKT'])
+            g = shapely.wkt.loads(row["WKT"])
             g_utm = transform(wgs84_to_utm, g)
-            line = g_utm.geoms[0] if g_utm.geom_type == 'MultiLineString' else g_utm
+            line = g_utm.geoms[0] if g_utm.geom_type == "MultiLineString" else g_utm
             all_street_geoms.append(line)
-            all_street_names.append(str(row['calle']).strip().upper())
+            all_street_names.append(str(row["calle"]).strip().upper())
         except Exception:
             all_street_geoms.append(None)
-            all_street_names.append('')
+            all_street_names.append("")
 
     valid_geoms = [g for g in all_street_geoms if g is not None]
-    valid_names = [n for g, n in zip(all_street_geoms, all_street_names) if g is not None]
+    valid_names = [
+        n for g, n in zip(all_street_geoms, all_street_names) if g is not None
+    ]
     tree_calles = STRtree(valid_geoms)
 
-    ciclo_path = os.path.join(datos_dir, 'ciclovias.csv')
+    ciclo_path = os.path.join(datos_dir, "ciclovias.csv")
     ciclo_geoms = []
     if os.path.exists(ciclo_path):
-        df_ciclo = pd.read_csv(ciclo_path, encoding='utf-8')
-        for geom_str in df_ciclo['geometry'].dropna():
+        df_ciclo = pd.read_csv(ciclo_path, encoding="utf-8")
+        for geom_str in df_ciclo["geometry"].dropna():
             try:
                 g = shapely.wkt.loads(geom_str)
                 g_utm = transform(wgs84_to_utm, g)
@@ -113,87 +119,69 @@ def main():
                 pass
     tree_ciclovias = STRtree(ciclo_geoms) if ciclo_geoms else None
 
-    gar_path = os.path.join(datos_dir, 'garajes-comerciales.csv')
+    gar_path = os.path.join(datos_dir, "garajes-comerciales.csv")
     garaje_pts = []
     garaje_alturas = []
     garaje_calles = []
     if os.path.exists(gar_path):
-        df_gar = pd.read_csv(gar_path, sep=',', encoding='utf-8')
+        df_gar = pd.read_csv(gar_path, sep=",", encoding="utf-8")
         for _, row in df_gar.iterrows():
-            pt = Point(row['long'], row['lat'])
+            pt = Point(row["long"], row["lat"])
             pt_utm = transform(wgs84_to_utm, pt)
             garaje_pts.append(pt_utm)
-            garaje_alturas.append(row.get('calle_altura', ''))
-            garaje_calles.append(str(row.get('calle_nombre', '')).strip().upper())
+            garaje_alturas.append(row.get("calle_altura", ""))
+            garaje_calles.append(str(row.get("calle_nombre", "")).strip().upper())
     tree_garajes = STRtree(garaje_pts) if garaje_pts else None
 
-    caj_path = os.path.join(datos_dir, 'cajones-para-carga-y-descarga.csv')
+    caj_path = os.path.join(datos_dir, "cajones-para-carga-y-descarga.csv")
     cajones_pts = []
     cajones_alturas = []
     cajones_calles = []
     if os.path.exists(caj_path):
-        df_caj = pd.read_csv(caj_path, encoding='utf-8')
+        df_caj = pd.read_csv(caj_path, encoding="utf-8")
         for _, row in df_caj.iterrows():
             try:
-                pt = Point(row['long'], row['lat'])
+                pt = Point(row["long"], row["lat"])
                 pt_utm = transform(wgs84_to_utm, pt)
                 cajones_pts.append(pt_utm)
-                cajones_alturas.append(row.get('calle_altura', ''))
-                cajones_calles.append(str(row.get('calle_nombre', '')).strip().upper())
+                cajones_alturas.append(row.get("calle_altura", ""))
+                cajones_calles.append(str(row.get("calle_nombre", "")).strip().upper())
             except Exception:
                 pass
     tree_cajones = STRtree(cajones_pts) if cajones_pts else None
 
-    mob_path = os.path.join(datos_dir, 'mobiliario-urbano.csv')
+    mob_path = os.path.join(datos_dir, "mobiliario-urbano.csv")
     paradas_pts = []
     paradas_alturas = []
     paradas_calles = []
     puestos_pts = []
     puestos_alturas = []
     puestos_calles = []
-    postes_pts = []
 
     if os.path.exists(mob_path):
-        df_mob = pd.read_csv(mob_path, sep=';', encoding='utf-8')
-        df_mob['X_num'] = df_mob['X'].astype(str).str.replace(',', '.').astype(float)
-        df_mob['Y_num'] = df_mob['Y'].astype(str).str.replace(',', '.').astype(float)
-        df_mob = df_mob.dropna(subset=['X_num', 'Y_num'])
+        df_mob = pd.read_csv(mob_path, sep=";", encoding="utf-8")
+        df_mob["X_num"] = df_mob["X"].astype(str).str.replace(",", ".").astype(float)
+        df_mob["Y_num"] = df_mob["Y"].astype(str).str.replace(",", ".").astype(float)
+        df_mob = df_mob.dropna(subset=["X_num", "Y_num"])
 
         for _, row in df_mob.iterrows():
-            elem = str(row['ELEMENTO']).upper()
-            pt = Point(row['X_num'], row['Y_num'])
+            elem = str(row["ELEMENTO"]).upper()
+            pt = Point(row["X_num"], row["Y_num"])
             pt_utm = transform(wgs84_to_utm, pt)
-            alt = row.get('Altura', '')
-            c_nom = str(row.get('calle', '')).strip().upper()
-            
-            if 'REFUGIO' in elem or 'BUS' in elem:
+            alt = row.get("Altura", "")
+            c_nom = str(row.get("calle", "")).strip().upper()
+
+            if "REFUGIO" in elem or "BUS" in elem:
                 paradas_pts.append(pt_utm)
                 paradas_alturas.append(alt)
                 paradas_calles.append(c_nom)
-            elif 'PUESTO' in elem:
+            elif "PUESTO" in elem:
                 puestos_pts.append(pt_utm)
                 puestos_alturas.append(alt)
                 puestos_calles.append(c_nom)
-            else:
-                postes_pts.append(pt_utm)
 
     tree_paradas = STRtree(paradas_pts) if paradas_pts else None
     tree_puestos = STRtree(puestos_pts) if puestos_pts else None
-    tree_postes = STRtree(postes_pts) if postes_pts else None
-
-    cont_path = os.path.join(base_dir, 'db', 'datos', 'contenedores_negros.json')
-    cont_pts = []
-    if os.path.exists(cont_path):
-        with open(cont_path, 'r', encoding='utf-8') as f:
-            cont_data = json.load(f)
-        for feat in cont_data.get('features', []):
-            try:
-                coords = feat['geometry']['coordinates']
-                pt_utm = Point(wgs84_to_utm(coords[0], coords[1]))
-                cont_pts.append(pt_utm)
-            except Exception:
-                pass
-    tree_contenedores = STRtree(cont_pts) if cont_pts else None
 
     print("Procesando tramos, identificando esquinas transversales y restricciones...")
     registros_unificados = []
@@ -207,62 +195,66 @@ def main():
         if longitud_total < 5.0:
             continue
 
-        calle_nombre = str(row['calle']).strip()
+        calle_nombre = str(row["calle"]).strip()
         calle_nombre_upper = calle_nombre.upper()
-        
-        altura_str = str(row['altura']) if pd.notna(row['altura']) else ''
-        altura_desde = ''
-        altura_hasta = ''
-        if '-' in altura_str:
-            partes = altura_str.split('-')
-            try:
-                altura_desde = int(partes[0].strip())
-                altura_hasta = int(partes[1].strip())
-            except Exception:
-                pass
 
-        lado_raw = str(row['lado']).strip().upper() if pd.notna(row['lado']) else 'DESCONOCIDO'
-        if 'IZQ' in lado_raw:
-            acera_lado = 'IZQUIERDO'
-        elif 'DER' in lado_raw:
-            acera_lado = 'DERECHO'
-        elif 'AMB' in lado_raw:
-            acera_lado = 'AMBOS'
+        lado_raw = (
+            str(row["lado"]).strip().upper() if pd.notna(row["lado"]) else "DESCONOCIDO"
+        )
+        if "IZQ" in lado_raw:
+            acera_lado = "IZQUIERDO"
+        elif "DER" in lado_raw:
+            acera_lado = "DERECHO"
+        elif "AMB" in lado_raw:
+            acera_lado = "AMBOS"
         else:
             acera_lado = lado_raw
 
-        tipo_via = str(row['tipo_calle']).upper() if pd.notna(row['tipo_calle']) else 'CALLE'
-        ancho_calle_m = ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0)
+        tipo_via = (
+            str(row["tipo_calle"]).upper() if pd.notna(row["tipo_calle"]) else "CALLE"
+        )
 
-        regla_gen = str(row['regla_general']).upper() if pd.notna(row['regla_general']) else ''
-        normativa = str(row['normativa']).upper() if pd.notna(row['normativa']) else ''
+        regla_gen = (
+            str(row["regla_general"]).upper() if pd.notna(row["regla_general"]) else ""
+        )
+        normativa = str(row["normativa"]).upper() if pd.notna(row["normativa"]) else ""
 
         coords = list(geom_utm.coords)
         pt_inicio = Point(coords[0])
         pt_fin = Point(coords[-1])
 
         cand_ini_idx = tree_calles.query(pt_inicio.buffer(15.0))
-        cand_ini_valid = [i for i in cand_ini_idx if valid_names[i] != calle_nombre_upper and valid_geoms[i].distance(pt_inicio) <= 15.0]
+        cand_ini_valid = [
+            i
+            for i in cand_ini_idx
+            if valid_names[i] != calle_nombre_upper
+            and valid_geoms[i].distance(pt_inicio) <= 15.0
+        ]
         calles_trans_ini = sorted(list(set(valid_names[i] for i in cand_ini_valid)))
-        cruce_inicio_str = ', '.join(calles_trans_ini) if calles_trans_ini else 'Continuación arteria inicio'
 
         cand_fin_idx = tree_calles.query(pt_fin.buffer(15.0))
-        cand_fin_valid = [i for i in cand_fin_idx if valid_names[i] != calle_nombre_upper and valid_geoms[i].distance(pt_fin) <= 15.0]
+        cand_fin_valid = [
+            i
+            for i in cand_fin_idx
+            if valid_names[i] != calle_nombre_upper
+            and valid_geoms[i].distance(pt_fin) <= 15.0
+        ]
         calles_trans_fin = sorted(list(set(valid_names[i] for i in cand_fin_valid)))
-        cruce_fin_str = ', '.join(calles_trans_fin) if calles_trans_fin else 'Continuación arteria fin'
 
         tiene_esquina_ini = len(calles_trans_ini) > 0
         tiene_esquina_fin = len(calles_trans_fin) > 0
 
-        if tiene_esquina_ini and tiene_esquina_fin and set(calles_trans_ini) == set(calles_trans_fin):
+        if (
+            tiene_esquina_ini
+            and tiene_esquina_fin
+            and set(calles_trans_ini) == set(calles_trans_fin)
+        ):
             d_ini = min(valid_geoms[i].distance(pt_inicio) for i in cand_ini_valid)
             d_fin = min(valid_geoms[i].distance(pt_fin) for i in cand_fin_valid)
             if d_ini <= d_fin:
                 tiene_esquina_fin = False
-                cruce_fin_str = 'Continuación arteria fin'
             else:
                 tiene_esquina_ini = False
-                cruce_inicio_str = 'Continuación arteria inicio'
 
         intervalos_bloqueados = []
 
@@ -271,27 +263,41 @@ def main():
             intervalos_bloqueados.append((0.0, bloq_ini))
 
         if tiene_esquina_fin:
-            bloq_fin_desde = max(0.0, round(longitud_total - RESERVA_OCHAVA_EXTREMO_M, 2))
+            bloq_fin_desde = max(
+                0.0, round(longitud_total - RESERVA_OCHAVA_EXTREMO_M, 2)
+            )
             intervalos_bloqueados.append((bloq_fin_desde, longitud_total))
 
         if tree_garajes is not None:
             cand_gar = tree_garajes.query(geom_utm.buffer(12.0))
             for g_idx in cand_gar:
                 g_calle = garaje_calles[g_idx]
-                if g_calle and g_calle != calle_nombre_upper and g_calle not in calle_nombre_upper and calle_nombre_upper not in g_calle:
+                if (
+                    g_calle
+                    and g_calle != calle_nombre_upper
+                    and g_calle not in calle_nombre_upper
+                    and calle_nombre_upper not in g_calle
+                ):
                     continue
                 g_pt = garaje_pts[g_idx]
                 if geom_utm.distance(g_pt) <= 10.0:
                     s = geom_utm.project(g_pt)
                     ini = max(0.0, s - BUFFER_GARAGE_CONTRA_M)
-                    fin = min(longitud_total, s + ANCHO_GARAGE_M + BUFFER_GARAGE_FAVOR_M)
+                    fin = min(
+                        longitud_total, s + ANCHO_GARAGE_M + BUFFER_GARAGE_FAVOR_M
+                    )
                     intervalos_bloqueados.append((ini, fin))
 
         if tree_paradas is not None:
             cand_par = tree_paradas.query(geom_utm.buffer(12.0))
             for p_idx in cand_par:
                 p_calle = paradas_calles[p_idx]
-                if p_calle and p_calle != calle_nombre_upper and p_calle not in calle_nombre_upper and calle_nombre_upper not in p_calle:
+                if (
+                    p_calle
+                    and p_calle != calle_nombre_upper
+                    and p_calle not in calle_nombre_upper
+                    and calle_nombre_upper not in p_calle
+                ):
                     continue
                 p_pt = paradas_pts[p_idx]
                 if geom_utm.distance(p_pt) <= 10.0:
@@ -304,7 +310,12 @@ def main():
             cand_pst = tree_puestos.query(geom_utm.buffer(12.0))
             for pst_idx in cand_pst:
                 pst_calle = puestos_calles[pst_idx]
-                if pst_calle and pst_calle != calle_nombre_upper and pst_calle not in calle_nombre_upper and calle_nombre_upper not in pst_calle:
+                if (
+                    pst_calle
+                    and pst_calle != calle_nombre_upper
+                    and pst_calle not in calle_nombre_upper
+                    and calle_nombre_upper not in pst_calle
+                ):
                     continue
                 pst_pt = puestos_pts[pst_idx]
                 if geom_utm.distance(pst_pt) <= 10.0:
@@ -317,7 +328,12 @@ def main():
             cand_caj = tree_cajones.query(geom_utm.buffer(12.0))
             for c_idx in cand_caj:
                 c_calle = cajones_calles[c_idx]
-                if c_calle and c_calle != calle_nombre_upper and c_calle not in calle_nombre_upper and calle_nombre_upper not in c_calle:
+                if (
+                    c_calle
+                    and c_calle != calle_nombre_upper
+                    and c_calle not in calle_nombre_upper
+                    and calle_nombre_upper not in c_calle
+                ):
                     continue
                 c_pt = cajones_pts[c_idx]
                 if geom_utm.distance(c_pt) <= 10.0:
@@ -336,26 +352,29 @@ def main():
 
         # En CABA las ciclovías corren principalmente por el margen izquierdo.
         # Si este tramo corresponde a la acera DERECHA, la ciclovía izquierda NO anula la calzada derecha.
-        ciclovia_afecta_este_lado = tiene_ciclovia and (acera_lado != 'DERECHO')
+        ciclovia_afecta_este_lado = tiene_ciclovia and (acera_lado != "DERECHO")
 
-        if normativa != '':
-            prohibido_estacionar = ('PROHIBIDO' in normativa)
+        if normativa != "":
+            prohibido_estacionar = "PROHIBIDO" in normativa
         else:
-            prohibido_estacionar = ('PROHIBIDO' in regla_gen)
+            prohibido_estacionar = "PROHIBIDO" in regla_gen
 
-        es_peatonal = ('PEATONAL' in tipo_via or 'PASAJE' in tipo_via)
+        es_peatonal = "PEATONAL" in tipo_via or "PASAJE" in tipo_via
 
-        permite_calzada = (not prohibido_estacionar) and (not ciclovia_afecta_este_lado) and (not es_peatonal)
+        permite_calzada = (
+            (not prohibido_estacionar)
+            and (not ciclovia_afecta_este_lado)
+            and (not es_peatonal)
+        )
 
         # Resolución 1/SSHU/19 - Ubicación en Acera (Excepción):
         # Solo se permite subirlos a la acera en avenidas o calles donde esté estrictamente prohibido estacionar
         # las 24 horas, o cuando las condiciones técnicas de la calzada impidan la recolección.
-        permite_acera = (not permite_calzada)
+        permite_acera = not permite_calzada
 
         intervalos_bloq_unificados = unir_intervalos(intervalos_bloqueados)
         longitud_bloqueada = sum(fin - ini for ini, fin in intervalos_bloq_unificados)
         longitud_bloqueada = min(longitud_total, round(longitud_bloqueada, 2))
-        longitud_disponible = max(0.0, round(longitud_total - longitud_bloqueada, 2))
 
         intervalos_libres = []
         cursor = 0.0
@@ -365,13 +384,6 @@ def main():
             cursor = max(cursor, b_fin)
         if cursor < longitud_total:
             intervalos_libres.append((cursor, longitud_total))
-
-        contenedores_instalados = 0
-        if tree_contenedores is not None:
-            cand_cnt = tree_contenedores.query(geom_utm.buffer(8.0))
-            for c_i in cand_cnt:
-                if geom_utm.distance(cont_pts[c_i]) <= 6.0:
-                    contenedores_instalados += 1
 
         # CÁLCULO DE CAPACIDAD BAJO RESOLUCIÓN CONJUNTA N° 1/SSHU/19:
         # 1. Calzada: Límite estricto de 4 metros lineales = MÁXIMO 2 CONTENEDORES DE 3.200L
@@ -392,14 +404,15 @@ def main():
         # Capacidad física reglamentaria total del tramo (valores factibles: 0, 1 o 2)
         max_contenedores = max(cap_calzada, cap_acera)
 
-        registros_unificados.append({
-            'MAX_CONTENEDORES': max_contenedores,
-            'geometry_wkt': str(row['WKT'])
-        })
+        registros_unificados.append(
+            {"MAX_CONTENEDORES": max_contenedores, "geometry_wkt": str(row["WKT"])}
+        )
 
     df_salida = pd.DataFrame(registros_unificados)
-    salida_path = os.path.join(datos_dir, 'restricciones_contenedores.csv')
-    df_salida.to_csv(salida_path, sep=';', index=False, encoding='utf-8', quoting=csv.QUOTE_ALL)
+    salida_path = os.path.join(datos_dir, "restricciones_contenedores.csv")
+    df_salida.to_csv(
+        salida_path, sep=";", index=False, encoding="utf-8", quoting=csv.QUOTE_ALL
+    )
 
     elapsed = round(time.time() - start_time, 2)
     print(f"\nArchivo regenerado con éxito en {elapsed} segundos.")
@@ -407,5 +420,5 @@ def main():
     print(f"Total de registros: {len(df_salida)}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
