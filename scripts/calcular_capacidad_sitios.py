@@ -66,21 +66,21 @@ class StandaloneSiteCapacityCalculator:
 
             max_cont = int(tramo["MAX_CONTENEDORES"])
             site["MAX_CONTENEDORES"] = max_cont
-            site["segment_id"] = int(tramo["segment_id"])
-            site["municipio"] = str(tramo["municipio"])
-            site["calle_nombre"] = str(tramo["calle_nombre"])
-            site["altura_desde"] = tramo["altura_desde"] if pd.notna(tramo["altura_desde"]) else ""
-            site["altura_hasta"] = tramo["altura_hasta"] if pd.notna(tramo["altura_hasta"]) else ""
+            site["segment_id"] = int(tramo["segment_id"]) if "segment_id" in tramo else best_idx
+            site["municipio"] = str(tramo.get("municipio", "CABA"))
+            site["calle_nombre"] = str(tramo.get("calle_nombre", ""))
+            site["altura_desde"] = tramo.get("altura_desde", "") if pd.notna(tramo.get("altura_desde")) else ""
+            site["altura_hasta"] = tramo.get("altura_hasta", "") if pd.notna(tramo.get("altura_hasta")) else ""
             site["esquina_inicio"] = str(tramo.get("esquina_inicio", ""))
             site["esquina_fin"] = str(tramo.get("esquina_fin", ""))
-            site["acera_lado"] = str(tramo["acera_lado"])
-            site["tipo_via"] = str(tramo["tipo_via"])
+            site["acera_lado"] = str(tramo.get("acera_lado", ""))
+            site["tipo_via"] = str(tramo.get("tipo_via", "CALLE"))
             site["ancho_calle_m"] = float(tramo.get("ancho_calle_m", 12.0))
-            site["permite_calzada"] = (str(tramo["permite_calzada"]).upper() == "SI")
-            site["permite_acera"] = (str(tramo["permite_acera"]).upper() == "SI")
-            site["longitud_total_m"] = float(tramo["longitud_total_m"])
-            site["espacio_bloqueado_m"] = float(tramo["espacio_bloqueado_m"])
-            site["espacio_disponible_m"] = float(tramo["espacio_disponible_m"])
+            site["permite_calzada"] = (str(tramo.get("permite_calzada", "SI")).upper() == "SI")
+            site["permite_acera"] = (str(tramo.get("permite_acera", "NO")).upper() == "SI")
+            site["longitud_total_m"] = float(tramo.get("longitud_total_m", 100.0))
+            site["espacio_bloqueado_m"] = float(tramo.get("espacio_bloqueado_m", 20.0))
+            site["espacio_disponible_m"] = float(tramo.get("espacio_disponible_m", 80.0))
             
             if pd.notna(tramo.get("restricciones_json")):
                 try:

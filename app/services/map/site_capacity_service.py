@@ -18,73 +18,92 @@ class SiteCapacityService:
             csv_path = os.path.join(base_dir, "datos", "restricciones_contenedores.csv")
 
         self.csv_path = csv_path
-        self._tree: Optional[STRtree] = None
-        self._geoms_utm: list[Any] = []
-        self._max_containers_list: list[int] = []
-        self._wgs84_to_utm = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32721", always_xy=True).transform
-        self._initialized = False
+        self._indice_espacial_tramos: Optional[STRtree] = None
+        self._geometrias_tramos_utm: list[Any] = []
+        self._capacidades_maximas_tramos: list[int] = []
+        self._conversor_wgs84_a_utm = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32721", always_xy=True).transform
+        self._datos_cargados = False
 
         if os.path.exists(self.csv_path):
             self._load_data()
 
     def _load_data(self) -> None:
         try:
-            df = pd.read_csv(self.csv_path, sep=";", encoding="utf-8")
-            wkt_col = "geometry_wkt" if "geometry_wkt" in df.columns else "WKT"
-            
-            self._geoms_utm = []
-            self._max_containers_list = []
-            
-            for _, row in df.iterrows():
-                wkt_str = row[wkt_col]
+            dataframe_restricciones = pd.read_csv(self.csv_path, sep=";", encoding="utf-8")
+            columna_geometria = "geometry_wkt" if "geometry_wkt" in dataframe_restricciones.columns else "WKT"
+
+            self._geometrias_tramos_utm = []
+            self._capacidades_maximas_tramos = []
+
+            for _, fila in dataframe_restricciones.iterrows():
+                geometria_wkt_texto = fila[columna_geometria]
                 try:
-                    g = shapely.wkt.loads(wkt_str)
-                    g_utm = transform(self._wgs84_to_utm, g)
-                    self._geoms_utm.append(g_utm)
-                    self._max_containers_list.append(int(row.get("MAX_CONTENEDORES", 2)))
+                    geometria_cruda = shapely.wkt.loads(geometria_wkt_texto)
+                    geometria_tramo_utm = transform(self._conversor_wgs84_a_utm, geometria_cruda)
+                    capacidad_maxima_tramo = int(fila.get("MAX_CONTENEDORES", 2))
+
+                    self._geometrias_tramos_utm.append(geometria_tramo_utm)
+                    self._capacidades_maximas_tramos.append(capacidad_maxima_tramo)
                 except Exception:
                     continue
 
-            if self._geoms_utm:
-                self._tree = STRtree(self._geoms_utm)
-                self._initialized = True
+            if self._geometrias_tramos_utm:
+                self._indice_espacial_tramos = STRtree(self._geometrias_tramos_utm)
+                self._datos_cargados = True
         except Exception:
-            self._initialized = False
+            self._datos_cargados = False
 
     def evaluate_site(
-        self, latitude: float | None, longitude: float | None, current_containers: int = 0, default_cap: int = 2
+        self,
+        latitude: float | None,
+        longitude: float | None,
+        current_containers: int = 0,
+        default_cap: int = 2,
     ) -> Tuple[int, bool]:
-        if latitude is None or longitude is None or not self._initialized or self._tree is None:
-            max_containers = default_cap
-            return max_containers, max_containers > current_containers
+        if latitude is None or longitude is None or not self._datos_cargados or self._indice_espacial_tramos is None:
+            capacidad_maxima = default_cap
+            return capacidad_maxima, capacidad_maxima > current_containers
 
         try:
-            x_utm, y_utm = self._wgs84_to_utm(longitude, latitude)
-            pt_utm = Point(x_utm, y_utm)
-            cand_indices = self._tree.query(pt_utm.buffer(35.0))
+            coord_x_utm, coord_y_utm = self._conversor_wgs84_a_utm(longitude, latitude)
+            punto_sitio_utm = Point(coord_x_utm, coord_y_utm)
+            
+            # Buscar tramos viales dentro de un radio de tolerancia de 35 metros
+            indices_tramos_candidatos = self._indice_espacial_tramos.query(punto_sitio_utm.buffer(35.0))
 
-            if len(cand_indices) == 0:
-                max_containers = default_cap
+            if len(indices_tramos_candidatos) == 0:
+                capacidad_maxima_permitida = default_cap
             else:
-                # En una esquina o cuadra, existen tramos para ambas márgenes (izq/der) e intersecciones.
-                # La capacidad del sitio es la máxima de los tramos contiguos dentro de 25 metros.
-                nearby = [i for i in cand_indices if self._geoms_utm[i].distance(pt_utm) <= 25.0]
-                if nearby:
-                    max_containers = max(self._max_containers_list[i] for i in nearby)
-                else:
-                    best_idx = min(cand_indices, key=lambda i: self._geoms_utm[i].distance(pt_utm))
-                    max_containers = self._max_containers_list[best_idx]
-        except Exception:
-            max_containers = default_cap
+                # En una esquina existen tramos para ambas márgenes e intersecciones contiguas (<= 25m).
+                # Tomamos la capacidad del tramo habilitado más favorable en la esquina.
+                indices_tramos_contiguos = [
+                    idx for idx in indices_tramos_candidatos
+                    if self._geometrias_tramos_utm[idx].distance(punto_sitio_utm) <= 25.0
+                ]
 
-        puede_ingresar = max_containers > current_containers
-        return max_containers, puede_ingresar
+                if indices_tramos_contiguos:
+                    capacidad_maxima_permitida = max(
+                        self._capacidades_maximas_tramos[idx] for idx in indices_tramos_contiguos
+                    )
+                else:
+                    indice_tramo_mas_cercano = min(
+                        indices_tramos_candidatos,
+                        key=lambda idx: self._geometrias_tramos_utm[idx].distance(punto_sitio_utm),
+                    )
+                    capacidad_maxima_permitida = self._capacidades_maximas_tramos[indice_tramo_mas_cercano]
+        except Exception:
+            capacidad_maxima_permitida = default_cap
+
+        tiene_cupo_disponible = capacidad_maxima_permitida > current_containers
+        return capacidad_maxima_permitida, tiene_cupo_disponible
 
     def get_capacity_for_coordinates(
         self, latitude: float | None, longitude: float | None, default_cap: int = 2
     ) -> int:
-        cap, _ = self.evaluate_site(latitude, longitude, current_containers=0, default_cap=default_cap)
-        return cap
+        capacidad_maxima, _ = self.evaluate_site(
+            latitude, longitude, current_containers=0, default_cap=default_cap
+        )
+        return capacidad_maxima
 
 
 @lru_cache(maxsize=1)

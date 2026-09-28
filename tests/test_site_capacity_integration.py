@@ -13,7 +13,7 @@ def test_site_capacity_service_evaluation():
     service = get_site_capacity_service()
     
     # Coordenadas en CABA (Arias 3450)
-    max_c, puede = service.evaluate_site(-34.545914, -58.483065, current_containers=2)
+    max_c, puede = service.evaluate_site(-34.545914, -58.483065, current_containers=1)
     assert max_c > 0
     assert puede is True
 

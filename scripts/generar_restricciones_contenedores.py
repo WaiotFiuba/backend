@@ -264,42 +264,15 @@ def main():
                 tiene_esquina_ini = False
                 cruce_inicio_str = 'Continuación arteria inicio'
 
-        restricciones = []
         intervalos_bloqueados = []
-        intervalos_ochava = []
-        metros_ochava = 0.0
 
         if tiene_esquina_ini:
             bloq_ini = min(RESERVA_OCHAVA_EXTREMO_M, longitud_total)
-            intervalos_ochava.append({
-                "ubicacion": f"Esquina inicio con calle {cruce_inicio_str}",
-                "interseccion_calle": cruce_inicio_str,
-                "desde_metro": 0.0,
-                "hasta_metro": bloq_ini
-            })
             intervalos_bloqueados.append((0.0, bloq_ini))
-            metros_ochava += bloq_ini
 
         if tiene_esquina_fin:
             bloq_fin_desde = max(0.0, round(longitud_total - RESERVA_OCHAVA_EXTREMO_M, 2))
-            intervalos_ochava.append({
-                "ubicacion": f"Esquina fin con calle {cruce_fin_str}",
-                "interseccion_calle": cruce_fin_str,
-                "desde_metro": bloq_fin_desde,
-                "hasta_metro": longitud_total
-            })
             intervalos_bloqueados.append((bloq_fin_desde, longitud_total))
-            metros_ochava += round(longitud_total - bloq_fin_desde, 2)
-
-        if intervalos_ochava:
-            restricciones.append({
-                "tipo": "OCHAVA",
-                "descripcion": "Reserva de visibilidad en esquinas (chaflán) y sendas peatonales",
-                "esquina_inicio": cruce_inicio_str,
-                "esquina_fin": cruce_fin_str,
-                "intervalos_metros": intervalos_ochava,
-                "metros_ocupados": round(metros_ochava, 2)
-            })
 
         if tree_garajes is not None:
             cand_gar = tree_garajes.query(geom_utm.buffer(12.0))
@@ -313,14 +286,6 @@ def main():
                     ini = max(0.0, s - BUFFER_GARAGE_CONTRA_M)
                     fin = min(longitud_total, s + ANCHO_GARAGE_M + BUFFER_GARAGE_FAVOR_M)
                     intervalos_bloqueados.append((ini, fin))
-                    alt_gar = garaje_alturas[g_idx]
-                    restricciones.append({
-                        "tipo": "GARAJE",
-                        "descripcion": "Acceso vehicular comercial con cono de visibilidad (5m contra tránsito y 1m a favor)",
-                        "ubicacion_en_cuadra": f"Altura {alt_gar}" if alt_gar else f"A {round(s, 1)}m de esquina {cruce_inicio_str}",
-                        "intervalo_metros": {"desde_metro": round(ini, 2), "hasta_metro": round(fin, 2)},
-                        "metros_ocupados": round(fin - ini, 2)
-                    })
 
         if tree_paradas is not None:
             cand_par = tree_paradas.query(geom_utm.buffer(12.0))
@@ -334,14 +299,6 @@ def main():
                     ini = max(0.0, s - (BLOQUEO_PARADA_M / 2.0))
                     fin = min(longitud_total, s + (BLOQUEO_PARADA_M / 2.0))
                     intervalos_bloqueados.append((ini, fin))
-                    alt_par = paradas_alturas[p_idx]
-                    restricciones.append({
-                        "tipo": "PARADA_TRANSPORTE",
-                        "descripcion": "Parada de transporte público / Refugio / Cajón amarillo",
-                        "ubicacion_en_cuadra": f"Altura {alt_par}" if alt_par else f"A {round(s, 1)}m de esquina {cruce_inicio_str}",
-                        "intervalo_metros": {"desde_metro": round(ini, 2), "hasta_metro": round(fin, 2)},
-                        "metros_ocupados": round(fin - ini, 2)
-                    })
 
         if tree_puestos is not None:
             cand_pst = tree_puestos.query(geom_utm.buffer(12.0))
@@ -355,14 +312,6 @@ def main():
                     ini = max(0.0, s - (BLOQUEO_PUESTO_M / 2.0))
                     fin = min(longitud_total, s + (BLOQUEO_PUESTO_M / 2.0))
                     intervalos_bloqueados.append((ini, fin))
-                    alt_pst = puestos_alturas[pst_idx]
-                    restricciones.append({
-                        "tipo": "MOBILIARIO_FIJO",
-                        "descripcion": "Puesto de diarios / flores fijo en acera",
-                        "ubicacion_en_cuadra": f"Altura {alt_pst}" if alt_pst else f"A {round(s, 1)}m de esquina {cruce_inicio_str}",
-                        "intervalo_metros": {"desde_metro": round(ini, 2), "hasta_metro": round(fin, 2)},
-                        "metros_ocupados": round(fin - ini, 2)
-                    })
 
         if tree_cajones is not None:
             cand_caj = tree_cajones.query(geom_utm.buffer(12.0))
@@ -376,15 +325,6 @@ def main():
                     ini = max(0.0, s - 5.0)
                     fin = min(longitud_total, s + 5.0)
                     intervalos_bloqueados.append((ini, fin))
-                    alt_caj = cajones_alturas[c_idx]
-                    restricciones.append({
-                        "tipo": "CARGA_Y_DESCARGA",
-                        "descripcion": "Espacio exclusivo delimitado para carga y descarga comercial (10m)",
-                        "ubicacion_en_cuadra": f"Altura {alt_caj}" if alt_caj else f"A {round(s, 1)}m de esquina {cruce_inicio_str}",
-                        "intervalo_metros": {"desde_metro": round(ini, 2), "hasta_metro": round(fin, 2)},
-                        "metros_ocupados": round(fin - ini, 2),
-                        "afecta_calzada": True
-                    })
 
         tiene_ciclovia = False
         if tree_ciclovias is not None:
@@ -398,40 +338,12 @@ def main():
         # Si este tramo corresponde a la acera DERECHA, la ciclovía izquierda NO anula la calzada derecha.
         ciclovia_afecta_este_lado = tiene_ciclovia and (acera_lado != 'DERECHO')
 
-        if tiene_ciclovia:
-            restricciones.append({
-                "tipo": "CICLOVIA",
-                "descripcion": f"Carril exclusivo de ciclovía/bicisenda en calzada entre {cruce_inicio_str} y {cruce_fin_str}",
-                "ubicacion_en_cuadra": "Margen izquierdo de la calzada" if acera_lado == 'IZQUIERDO' else "Toda la cuadra",
-                "intervalo_metros": {"desde_metro": 0.0, "hasta_metro": longitud_total},
-                "afecta_calzada": ciclovia_afecta_este_lado
-            })
-
         if normativa != '':
             prohibido_estacionar = ('PROHIBIDO' in normativa)
-            detalle_normativo = normativa
         else:
             prohibido_estacionar = ('PROHIBIDO' in regla_gen)
-            detalle_normativo = regla_gen
-
-        if prohibido_estacionar:
-            restricciones.append({
-                "tipo": "PROHIBICION_ESTACIONAR",
-                "descripcion": f"Normativa restrictiva de estacionamiento en calzada ({detalle_normativo})",
-                "ubicacion_en_cuadra": f"Toda la cuadra (entre {cruce_inicio_str} y {cruce_fin_str})",
-                "intervalo_metros": {"desde_metro": 0.0, "hasta_metro": longitud_total},
-                "afecta_calzada": True
-            })
 
         es_peatonal = ('PEATONAL' in tipo_via or 'PASAJE' in tipo_via)
-        if es_peatonal:
-            restricciones.append({
-                "tipo": "CALLE_PEATONAL_O_PASAJE",
-                "descripcion": f"Arteria angosta o peatonal exclusiva ({tipo_via})",
-                "ubicacion_en_cuadra": "Toda la cuadra",
-                "intervalo_metros": {"desde_metro": 0.0, "hasta_metro": longitud_total},
-                "afecta_calzada": True
-            })
 
         permite_calzada = (not prohibido_estacionar) and (not ciclovia_afecta_este_lado) and (not es_peatonal)
 
@@ -481,26 +393,7 @@ def main():
         max_contenedores = max(cap_calzada, cap_acera)
 
         registros_unificados.append({
-            'segment_id': row['id'],
-            'municipio': 'CABA',
-            'calle_nombre': calle_nombre,
-            'altura_desde': altura_desde,
-            'altura_hasta': altura_hasta,
-            'esquina_inicio': cruce_inicio_str,
-            'esquina_fin': cruce_fin_str,
-            'acera_lado': acera_lado,
-            'tipo_via': tipo_via,
-            'ancho_calle_m': ancho_calle_m,
-            'permite_calzada': 'SI' if permite_calzada else 'NO',
-            'permite_acera': 'SI' if permite_acera else 'NO',
-            'longitud_total_m': longitud_total,
-            'espacio_bloqueado_m': longitud_bloqueada,
-            'espacio_disponible_m': longitud_disponible,
             'MAX_CONTENEDORES': max_contenedores,
-            'contenedores_instalados': contenedores_instalados,
-            'max_contenedores_calzada': cap_calzada,
-            'max_contenedores_acera': cap_acera,
-            'restricciones_json': json.dumps(restricciones, ensure_ascii=False),
             'geometry_wkt': str(row['WKT'])
         })
 
