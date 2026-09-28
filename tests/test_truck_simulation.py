@@ -407,8 +407,9 @@ class TestTruckSimulation(unittest.TestCase):
         # reparte las paradas de cada ruta dinámicamente entre las horas de
         # collection_hours. Alcanza con que el sitio esté en la ruta.
         for route in sim.truck_fleet.routes.values():
-            if "158" in route.site_ids:
-                route.site_ids = [s for s in route.site_ids if s != "158"]
+            route.site_ids = [
+                s for s in route.site_ids if str(s).split("|")[-1] not in ("158", "328")
+            ]
         if sim.truck_fleet and "RODRIGO_BUENO" in sim.truck_fleet.routes:
             sim.truck_fleet.routes["RODRIGO_BUENO"].site_ids = ["158"]
 

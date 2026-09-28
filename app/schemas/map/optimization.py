@@ -48,7 +48,7 @@ class SiteUtilizationMetric(BaseModel):
     latitude: float
     longitude: float
     container_count: int
-    max_containers: int = 2
+    max_containers: int | None = None
     puede_ingresar: bool = True
     waste_type_id: int | None = None
     waste_type_name: str | None = None

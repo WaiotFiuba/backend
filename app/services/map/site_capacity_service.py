@@ -67,19 +67,23 @@ class SiteCapacityService:
         except Exception:
             self._datos_cargados = False
 
+    @property
+    def is_active(self) -> bool:
+        """Indica si el dataset de restricciones y red vial está cargado y disponible."""
+        return self._datos_cargados and self._indice_espacial_tramos is not None
+
     def evaluate_site(
         self,
         latitude: float | None,
         longitude: float | None,
         current_containers: int = 0,
         default_cap: int = 2,
-    ) -> Tuple[int, bool]:
-        if (
-            latitude is None
-            or longitude is None
-            or not self._datos_cargados
-            or self._indice_espacial_tramos is None
-        ):
+    ) -> Tuple[int | None, bool]:
+        if not self.is_active:
+            # Si el archivo no existe o no se cargó, no se limita la capacidad en absoluto
+            return None, True
+
+        if latitude is None or longitude is None:
             capacidad_maxima = default_cap
             return capacidad_maxima, capacidad_maxima > current_containers
 
@@ -127,7 +131,9 @@ class SiteCapacityService:
 
     def get_capacity_for_coordinates(
         self, latitude: float | None, longitude: float | None, default_cap: int = 2
-    ) -> int:
+    ) -> int | None:
+        if not self.is_active:
+            return None
         capacidad_maxima, _ = self.evaluate_site(
             latitude, longitude, current_containers=0, default_cap=default_cap
         )

@@ -220,7 +220,7 @@ async def compute_site_utilization_metrics(
                 longitude=row.longitude,
                 container_count=container_count,
                 max_containers=max_cap,
-                puede_ingresar=max_cap > container_count,
+                puede_ingresar=puede_ingresar,
                 waste_type_id=row.waste_type_id,
                 waste_type_name=row.waste_type_name,
                 container_type_id=row.container_type_id,
@@ -377,8 +377,11 @@ async def generate_redistribution_plan(
                 * (r.utilization_score / config.target_utilization - 1)
             ),
         )
-        if getattr(config, "apply_capacity_constraints", True):
-            max_cap = getattr(r, "max_containers", 2)
+        if (
+            getattr(config, "apply_capacity_constraints", True)
+            and getattr(r, "max_containers", None) is not None
+        ):
+            max_cap = r.max_containers
             cupo_libre = max(0, max_cap - r.container_count)
             if cupo_libre <= 0:
                 continue

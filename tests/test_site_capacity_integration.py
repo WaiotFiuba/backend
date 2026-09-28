@@ -140,3 +140,15 @@ def test_redistribution_comparison_with_and_without_capacity_constraints():
     # Sin restricciones: Le asigna 2 contenedores al sitio saturado
     assert len(moves_sin) == 2
     assert all(m.to_site_id == 2 for m in moves_sin)
+
+
+def test_site_capacity_service_inactive_when_file_missing(tmp_path):
+    from app.services.map.site_capacity_service import SiteCapacityService
+
+    inexistent_csv = str(tmp_path / "inexistent.csv")
+    svc = SiteCapacityService(csv_path=inexistent_csv)
+
+    assert svc.is_active is False
+    cap, puede = svc.evaluate_site(-34.5459, -58.4830, current_containers=5)
+    assert cap is None
+    assert puede is True

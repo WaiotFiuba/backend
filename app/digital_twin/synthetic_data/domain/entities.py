@@ -62,7 +62,7 @@ class Site(BaseModel):
     longitude: float
     demand_base: float
     address: str | None = None
-    max_containers: int = 2
+    max_containers: int | None = None
     puede_ingresar: bool = True
 
     def to_record(self) -> dict[str, object]:
