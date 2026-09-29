@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -283,47 +283,59 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
 
 async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
-    active = await _active_session(db)
-    overrides = {}
-    if active:
-        overrides = {
-            item.neighborhood: effective_multiplier(
-                item.multiplier_start,
-                item.multiplier_target,
-                active.simulated_time,
-                item.transition_started_at,
-                item.transition_ends_at,
-            )
-            for item in await _zone_overrides(db, active.id)
-        }
-    rows = (
-        await db.execute(
-            select(NeighborhoodDemographic)
-            .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
-            .options(
-                joinedload(NeighborhoodDemographic.neighborhood).joinedload(
-                    Barrio.comuna
+    try:
+
+        def check_barrios_exists(sync_conn):
+            inspector = inspect(sync_conn)
+            return inspector.has_table("barrios")
+
+        has_barrios = await db.run_sync(check_barrios_exists)
+        if not has_barrios:
+            return []
+
+        active = await _active_session(db)
+        overrides = {}
+        if active:
+            overrides = {
+                item.neighborhood: effective_multiplier(
+                    item.multiplier_start,
+                    item.multiplier_target,
+                    active.simulated_time,
+                    item.transition_started_at,
+                    item.transition_ends_at,
                 )
+                for item in await _zone_overrides(db, active.id)
+            }
+        rows = (
+            await db.execute(
+                select(NeighborhoodDemographic)
+                .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
+                .options(
+                    joinedload(NeighborhoodDemographic.neighborhood).joinedload(
+                        Barrio.comuna
+                    )
+                )
+                .order_by(Barrio.nombre)
             )
-            .order_by(Barrio.nombre)
-        )
-    ).scalars()
-    return [
-        ZoneDemandRead(
-            neighborhood=row.neighborhood.nombre,
-            commune=str(row.neighborhood.comuna.comuna)
-            if row.neighborhood.comuna
-            else None,
-            population=row.population,
-            year=row.year,
-            source=row.source,
-            area_km2=row.area_km2,
-            density_per_km2=row.density_per_km2,
-            density_factor=row.density_factor,
-            multiplier_effective=overrides.get(row.neighborhood.nombre, 1.0),
-        )
-        for row in rows
-    ]
+        ).scalars()
+        return [
+            ZoneDemandRead(
+                neighborhood=row.neighborhood.nombre,
+                commune=str(row.neighborhood.comuna.comuna)
+                if row.neighborhood.comuna
+                else None,
+                population=row.population,
+                year=row.year,
+                source=row.source,
+                area_km2=row.area_km2,
+                density_per_km2=row.density_per_km2,
+                density_factor=row.density_factor,
+                multiplier_effective=overrides.get(row.neighborhood.nombre, 1.0),
+            )
+            for row in rows
+        ]
+    except Exception:
+        return []
 
 
 def effective_multiplier(
@@ -431,6 +443,17 @@ async def _zone_overrides(
 async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
     if not names:
         return
+
+    def check_barrios_exists(sync_conn):
+        inspector = inspect(sync_conn)
+        return inspector.has_table("barrios")
+
+    has_barrios = await db.run_sync(check_barrios_exists)
+    if not has_barrios:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown_neighborhoods": names},
+        )
     existing = set(
         (
             await db.execute(select(Barrio.nombre).where(Barrio.nombre.in_(names)))

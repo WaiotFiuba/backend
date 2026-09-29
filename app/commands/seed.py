@@ -18,19 +18,25 @@ async def main():
     try:
         await seed_map_data(recluster=recluster)
         print("Siembra de datos finalizada exitosamente.")
-        from app.services.simulation.collection_schedule_service import (
-            save_collection_schedule,
-        )
+        try:
+            from app.services.simulation.collection_schedule_service import (
+                save_collection_schedule,
+            )
 
-        print("Generando cronograma de recolección para todas las rutas...")
-        save_collection_schedule()
-        print("Cronograma generado y guardado exitosamente.")
+            print("Generando cronograma de recolección para todas las rutas...")
+            save_collection_schedule()
+            print("Cronograma generado y guardado exitosamente.")
+        except Exception as e:
+            print(f"[INFO] Cronograma de recolección omitido: {e}")
 
-        from app.commands.process_land_use import process_land_use_async
+        try:
+            from app.commands.process_land_use import process_land_use_async
 
-        print("Procesando usos del suelo y perfiles por radio censal...")
-        await process_land_use_async()
-        print("Usos del suelo y perfiles procesados exitosamente.")
+            print("Procesando usos del suelo y perfiles por radio censal...")
+            await process_land_use_async()
+            print("Usos del suelo y perfiles procesados exitosamente.")
+        except Exception as e:
+            print(f"[INFO] Usos del suelo / radios censales omitidos: {e}")
     except Exception as e:
         print(f"Error durante la siembra de datos: {e}")
         sys.exit(1)
