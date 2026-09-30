@@ -11,7 +11,6 @@ from app.models.map.waste_type import WasteType
 from app.schemas.map.container import (
     ContainerChanges,
     ContainerCluster,
-    ContainerMapSnapshot,
     ContainersMapOutputSchema,
 )
 
@@ -160,30 +159,6 @@ async def get_containers_in_bbox(
     result = await db.execute(query)
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]
-
-
-async def get_container_map_snapshot(
-    db: AsyncSession,
-    lat_min: float,
-    lat_max: float,
-    lng_min: float,
-    lng_max: float,
-    zoom: int,
-    limit: int = 500,
-) -> ContainerMapSnapshot:
-    cursor = await _latest_change_cursor(db)
-    items = await get_containers_clustered(
-        db,
-        lat_min=lat_min,
-        lat_max=lat_max,
-        lng_min=lng_min,
-        lng_max=lng_max,
-        zoom=zoom,
-        limit=limit,
-    )
-    if items and isinstance(items[0], ContainerCluster):
-        return ContainerMapSnapshot(cursor=cursor, containers=[], clusters=items)
-    return ContainerMapSnapshot(cursor=cursor, containers=items, clusters=[])
 
 
 async def get_container_changes(

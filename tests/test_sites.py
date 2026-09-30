@@ -24,7 +24,6 @@ from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
-    get_site_map_snapshot,
     get_sites_clustered,
 )
 
@@ -427,13 +426,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             site_max = await get_site_by_id(session, site_id=1, level_aggregation="max")
             self.assertEqual(site_max.current_level, 80)
 
-            # 3. Snapshot de sitios
-            snapshot = await get_site_map_snapshot(session, level_aggregation="avg")
-            self.assertEqual(snapshot.total, 1)
-            self.assertEqual(snapshot.latest_cursor, 10)
-            self.assertEqual(snapshot.sites[0].current_level, 50)
-
-            # 4. Changes de sitios
+            # 3. Changes de sitios
             changes = await get_site_changes(session, after=0, level_aggregation="avg")
             self.assertEqual(len(changes.sites), 1)
             self.assertEqual(changes.latest_cursor, 10)
@@ -532,7 +525,17 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 available=True,
                 container_type=ct,
             )
-            session.add(c)
+            c2 = Container(
+                id=2,
+                site_id=1,
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                current_level=55,
+                available=True,
+                container_type=ct,
+            )
+            session.add_all([c, c2])
             await session.commit()
 
             # Zoom alto (>= 18): Devuelve lista de SiteMapOutputSchema
@@ -547,9 +550,10 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(res_high_zoom), 1)
             self.assertEqual(res_high_zoom[0].id, 1)
-            self.assertEqual(res_high_zoom[0].current_level, 45)
+            self.assertEqual(res_high_zoom[0].container_count, 2)
+            self.assertEqual(res_high_zoom[0].current_level, 50)
 
-            # Zoom bajo (< 18): Devuelve lista de SiteCluster
+            # Zoom bajo (< 18): Devuelve lista de SiteCluster con conteo de contenedores
             res_low_zoom = await get_sites_clustered(
                 db=session,
                 lat_min=-34.61,
@@ -560,8 +564,8 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 level_aggregation="avg",
             )
             self.assertEqual(len(res_low_zoom), 1)
-            self.assertEqual(res_low_zoom[0].count, 1)
-            self.assertEqual(res_low_zoom[0].avg_level, 45.0)
+            self.assertEqual(res_low_zoom[0].count, 2)
+            self.assertEqual(res_low_zoom[0].avg_level, 50.0)
 
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient
@@ -649,16 +653,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("cluster_id", data_cluster[0])
                 self.assertEqual(data_cluster[0]["count"], 1)
 
-                # 2. Test /map/sites/bbox/snapshot
-                res_snap = await client.get(
-                    "/map/sites/bbox/snapshot?level_aggregation=avg"
-                )
-                self.assertEqual(res_snap.status_code, 200)
-                data_snap = res_snap.json()
-                self.assertEqual(data_snap["total"], 1)
-                self.assertEqual(data_snap["latest_cursor"], 5)
-
-                # 3. Test /map/sites/changes
+                # 2. Test /map/sites/changes
                 res_changes = await client.get(
                     "/map/sites/changes?after=0&level_aggregation=avg"
                 )
