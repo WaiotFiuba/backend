@@ -80,6 +80,7 @@ class TestMapConfigEndpoint(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("center", data)
                 self.assertIn("default_zoom", data)
                 self.assertIsNone(data["bounds"])
+                self.assertIn("city_name", data)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
 
