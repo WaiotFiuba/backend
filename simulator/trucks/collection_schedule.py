@@ -7,15 +7,10 @@ from pathlib import Path
 
 logger = logging.getLogger("waiot.collection_schedule")
 
+backend_root = Path(__file__).resolve().parent.parent.parent
 CANDIDATE_PATHS = [
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "datos"
-    / "simulator"
-    / "routes"
-    / "collection_schedule.json",
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "datos"
-    / "collection_schedule.json",
+    backend_root / "datos" / "simulator" / "routes" / "collection_schedule.json",
+    backend_root / "datos" / "collection_schedule.json",
     Path("/app/datos/simulator/routes/collection_schedule.json"),
     Path("/app/datos/collection_schedule.json"),
     Path("datos/simulator/routes/collection_schedule.json"),
@@ -36,11 +31,12 @@ def generate_all_schedules() -> dict:
         load_routes_from_csv,
     )
 
-    base = Path(__file__).resolve().parent.parent.parent.parent
+    base = Path(__file__).resolve().parent.parent.parent
     json_candidates = [
         base / "datos" / "digital_twin" / "contenedores_negros.json",
         base / "datos" / "digital_twin" / "containers.json",
-        base / "db" / "datos" / "contenedores_negros.json",
+        Path("/app/datos/digital_twin/contenedores_negros.json"),
+        Path("/app/datos/digital_twin/containers.json"),
         base / "datos" / "contenedores_negros.json",
     ]
     json_path = next((p for p in json_candidates if p.exists()), json_candidates[0])

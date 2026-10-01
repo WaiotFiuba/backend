@@ -105,21 +105,16 @@ class DensityProcessor:
         if custom_path and Path(custom_path).exists():
             return Path(custom_path)
 
+        backend_root = Path(__file__).resolve().parent.parent
         candidates = [
-            Path(__file__).resolve().parents[3]
-            / "datos"
-            / "simulator"
-            / "demography"
-            / "radios_caba_filtrado.csv",
-            Path(__file__).resolve().parents[2]
+            backend_root
             / "datos"
             / "simulator"
             / "demography"
             / "radios_caba_filtrado.csv",
             Path("/app/datos/simulator/demography/radios_caba_filtrado.csv"),
             Path("datos/simulator/demography/radios_caba_filtrado.csv"),
-            Path(__file__).resolve().parents[3] / "datos" / "radios_caba_filtrado.csv",
-            Path(__file__).resolve().parents[2] / "datos" / "radios_caba_filtrado.csv",
+            backend_root / "datos" / "radios_caba_filtrado.csv",
             Path("/app/datos/radios_caba_filtrado.csv"),
             Path("datos/radios_caba_filtrado.csv"),
         ]

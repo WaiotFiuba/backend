@@ -36,7 +36,7 @@ from shapely.strtree import STRtree
 
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent.parent.parent
 
 TITULOS_REGEX = re.compile(
     r"\b(AV|AVENIDA|CALLE|PASAJE|PJE|AUT|AUTOPISTA|BV|BOULEVARD|PQUE|PARQUE|DR|DRA|DOCTOR|DOCTORA|"

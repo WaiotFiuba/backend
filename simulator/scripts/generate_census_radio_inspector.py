@@ -19,7 +19,7 @@ from shapely import wkt
 from shapely.geometry import mapping
 from simulator.density_processor import get_density_processor
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

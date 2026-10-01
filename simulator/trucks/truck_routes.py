@@ -55,12 +55,8 @@ def build_rodrigo_bueno_route() -> TruckRoute:
     import json
     import math
 
-    json_path = (
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "db"
-        / "datos"
-        / "contenedores_negros.json"
-    )
+    backend_root = Path(__file__).resolve().parent.parent.parent
+    json_path = backend_root / "datos" / "digital_twin" / "contenedores_negros.json"
     rb_containers = []
     if json_path.exists():
         try:
@@ -175,7 +171,8 @@ def load_routes_from_csv(
         return routes
 
     if csv_path is None:
-        base_datos = Path(__file__).resolve().parent.parent.parent.parent / "datos"
+        backend_root = Path(__file__).resolve().parent.parent.parent
+        base_datos = backend_root / "datos"
         candidates = [
             base_datos
             / "simulator"
@@ -299,7 +296,8 @@ def load_green_routes_from_csv(
         return _CACHED_GREEN_ROUTES
 
     if csv_path is None:
-        base_datos = Path(__file__).resolve().parent.parent.parent.parent / "datos"
+        backend_root = Path(__file__).resolve().parent.parent.parent
+        base_datos = backend_root / "datos"
         candidates = [
             base_datos
             / "simulator"
@@ -347,7 +345,7 @@ def _prepopulate_waypoints(
         get_depot_for_zone,
     )
 
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    project_root = Path(__file__).resolve().parent.parent.parent
     candidates = []
     for filename in container_data_files:
         candidates.extend(

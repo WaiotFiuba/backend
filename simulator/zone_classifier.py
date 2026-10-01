@@ -203,11 +203,15 @@ class ZoneClassifier:
         self.calibration_target: float = 1.0
         self.calibration_tolerance_pct: float = 10.0
 
+        backend_root = Path(__file__).resolve().parent.parent
+
         yaml_path = self._resolve_path(
             zone_profiles_yaml,
             [
                 Path(__file__).resolve().parent / "config" / "zone_profiles.yaml",
-                Path(__file__).resolve().parents[1] / "config" / "zone_profiles.yaml",
+                backend_root / "simulator" / "config" / "zone_profiles.yaml",
+                Path("/app/simulator/config/zone_profiles.yaml"),
+                Path("simulator/config/zone_profiles.yaml"),
             ],
         )
         if yaml_path:
@@ -216,20 +220,14 @@ class ZoneClassifier:
         radio_csv = self._resolve_path(
             land_use_radio_csv,
             [
-                Path(__file__).resolve().parents[3]
-                / "datos"
-                / "simulator"
-                / "land_use"
-                / "land_use_by_radio.csv",
-                Path(__file__).resolve().parents[2]
+                backend_root
                 / "datos"
                 / "simulator"
                 / "land_use"
                 / "land_use_by_radio.csv",
                 Path("/app/datos/simulator/land_use/land_use_by_radio.csv"),
                 Path("datos/simulator/land_use/land_use_by_radio.csv"),
-                Path(__file__).resolve().parents[3] / "datos" / "land_use_by_radio.csv",
-                Path(__file__).resolve().parents[2] / "datos" / "land_use_by_radio.csv",
+                backend_root / "datos" / "land_use_by_radio.csv",
                 Path("/app/datos/land_use_by_radio.csv"),
                 Path("datos/land_use_by_radio.csv"),
             ],
@@ -240,24 +238,14 @@ class ZoneClassifier:
         barrio_csv = self._resolve_path(
             land_use_barrio_csv,
             [
-                Path(__file__).resolve().parents[3]
-                / "datos"
-                / "simulator"
-                / "land_use"
-                / "land_use_by_barrio.csv",
-                Path(__file__).resolve().parents[2]
+                backend_root
                 / "datos"
                 / "simulator"
                 / "land_use"
                 / "land_use_by_barrio.csv",
                 Path("/app/datos/simulator/land_use/land_use_by_barrio.csv"),
                 Path("datos/simulator/land_use/land_use_by_barrio.csv"),
-                Path(__file__).resolve().parents[3]
-                / "datos"
-                / "land_use_by_barrio.csv",
-                Path(__file__).resolve().parents[2]
-                / "datos"
-                / "land_use_by_barrio.csv",
+                backend_root / "datos" / "land_use_by_barrio.csv",
                 Path("/app/datos/land_use_by_barrio.csv"),
                 Path("datos/land_use_by_barrio.csv"),
             ],
