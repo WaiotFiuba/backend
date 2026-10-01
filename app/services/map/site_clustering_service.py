@@ -251,7 +251,7 @@ def _split_by_distance(
     if len(containers) <= 1:
         return [containers]
 
-    from app.digital_twin.synthetic_data.generators.street_pairing import (
+    from app.services.map.street_pairing import (
         parse_street_address,
     )
 

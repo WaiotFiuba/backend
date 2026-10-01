@@ -198,7 +198,7 @@ SIMULATOR_CONTROL_MISS_TOLERANCE=5
 Ejecutar:
 
 ```bash
-uv run python -m app.digital_twin.synthetic_data.worker
+uv run python -m simulator.worker
 ```
 
 El worker queda esperando simulaciones activas en la API hosteada. Cuando el

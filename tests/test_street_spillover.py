@@ -3,21 +3,21 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from app.digital_twin.synthetic_data.domain.entities import (
+from simulator.domain.entities import (
     Container,
     Device,
     Site,
 )
-from app.digital_twin.synthetic_data.generators.street_pairing import (
+from app.services.map.street_pairing import (
     build_opposing_sites_map,
     normalize_street_name,
     parse_street_address,
 )
-from app.digital_twin.synthetic_data.simulation.engine import (
+from simulator.simulation.engine import (
     SyntheticDataSimulator,
 )
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-from app.digital_twin.synthetic_data.topology import SimulationTopology
+from simulator.simulation.scenario import ScenarioConfig
+from simulator.topology import SimulationTopology
 
 
 class TestStreetPairingAndSpillover(unittest.TestCase):

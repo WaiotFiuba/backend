@@ -19,7 +19,7 @@ async def main():
         await seed_map_data(recluster=recluster)
         print("Siembra de datos finalizada exitosamente.")
         try:
-            from app.services.simulation.collection_schedule_service import (
+            from simulator.trucks.collection_schedule import (
                 save_collection_schedule,
             )
 
@@ -30,7 +30,9 @@ async def main():
             print(f"[INFO] Cronograma de recolección omitido: {e}")
 
         try:
-            from app.commands.process_land_use import process_land_use_async
+            from simulator.demography.commands.process_land_use import (
+                process_land_use_async,
+            )
 
             print("Procesando usos del suelo y perfiles por radio censal...")
             await process_land_use_async()

@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import Numeric, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
+from simulator.simulation.scenario import scenario_from_mapping
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
@@ -22,7 +22,7 @@ from app.schemas.map.site import (
     SiteMapOutputSchema,
 )
 from app.services.map.container_service import _zoom_to_grid_size
-from app.services.simulation_control_service import get_active_simulation_session
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:

@@ -330,11 +330,13 @@ async def seed_map_data(recluster: bool = False) -> None:
 def _resolve_seed_data_dir() -> Path | None:
     project_root = Path(__file__).resolve().parents[2]
     candidates = (
+        project_root / "datos" / "digital_twin",
         project_root / "datos",
         project_root / "db" / "datos",
     )
     expected_files = (
         "contenedores_negros.json",
+        "containers.json",
         "contenedores_verdes.json",
         "waste_types.json",
         "container_types.json",

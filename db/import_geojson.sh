@@ -53,7 +53,7 @@ done
 IMPORT_DIR="/datos"
 if [ ! -d "$IMPORT_DIR" ]; then
     # Alternativa local si se ejecuta fuera del contenedor montado
-    IMPORT_DIR="$(dirname "$0")/datos"
+    IMPORT_DIR="$(dirname "$0")/../datos/digital_twin"
 fi
 
 if [ ! -d "$IMPORT_DIR" ]; then

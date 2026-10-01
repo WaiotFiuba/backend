@@ -3,17 +3,17 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from app.digital_twin.synthetic_data.simulation.truck_depots import (
+from simulator.trucks.truck_depots import (
     DEPOTS_BY_ZONE,
     TRANSFER_STATIONS,
     get_depot_for_zone,
     get_nearest_transfer_station,
 )
-from app.digital_twin.synthetic_data.simulation.truck_engine import (
+from simulator.trucks.truck_engine import (
     TruckFleetSimulator,
     TruckStatus,
 )
-from app.services.simulation.truck_route_service import (
+from simulator.trucks.truck_routes import (
     RouteSegment,
     TruckRoute,
     _fix_enie,
@@ -364,11 +364,11 @@ class TestTruckSimulation(unittest.TestCase):
         self.assertEqual(events[0]["container_id"], "contenedores_verdes|1")
 
     def test_scheduled_collection_matching_site_aliases(self):
-        from app.digital_twin.synthetic_data.simulation.engine import (
+        from simulator.simulation.engine import (
             SyntheticDataSimulator,
         )
-        from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-        from app.digital_twin.synthetic_data.topology import (
+        from simulator.simulation.scenario import ScenarioConfig
+        from simulator.topology import (
             Container,
             Device,
             SimulationTopology,
@@ -407,8 +407,12 @@ class TestTruckSimulation(unittest.TestCase):
         # reparte las paradas de cada ruta dinámicamente entre las horas de
         # collection_hours. Alcanza con que el sitio esté en la ruta.
         for route in sim.truck_fleet.routes.values():
-            if "158" in route.site_ids:
-                route.site_ids = [s for s in route.site_ids if s != "158"]
+            route.site_ids = [
+                s
+                for s in route.site_ids
+                if str(s).split("|")[-1] not in ("158", "328")
+                and str(s) not in ("158", "328")
+            ]
         if sim.truck_fleet and "RODRIGO_BUENO" in sim.truck_fleet.routes:
             sim.truck_fleet.routes["RODRIGO_BUENO"].site_ids = ["158"]
 

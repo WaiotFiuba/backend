@@ -17,13 +17,14 @@ venv/
 !.env.example
 !.env.production.example
 
-# Datos
-db/datos/*.json
-db/datos/*.csv
-db/datos/*.geojson
-db/datos/*.txt
-db/datos/*.xls
-db/datos/*.xlsx
+# Datos locales
+datos/digital_twin/*.json
+datos/digital_twin/*.geojson
+datos/digital_twin/*.csv
+datos/digital_twin/*.txt
+datos/digital_twin/*.xls
+datos/digital_twin/*.xlsx
+db/datos/
 
 # Tests
 .pytest_cache/

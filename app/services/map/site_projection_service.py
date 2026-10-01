@@ -29,7 +29,7 @@ from app.services.map.site_projection_models import (
     ForecastRequest,
     get_forecaster,
 )
-from app.services.simulation_control_service import get_active_simulation_session
+from app.services.simulation_session_service import get_active_simulation_session
 
 LevelAggregation = Literal["avg", "max"]
 

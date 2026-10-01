@@ -3,20 +3,20 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-from app.digital_twin.synthetic_data.topology import (
+from simulator.simulation.scenario import ScenarioConfig
+from simulator.topology import (
     Container,
     Device,
     SimulationTopology,
     Site,
 )
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.truck_engine import TruckFleetSimulator
-from app.services.simulation.collection_schedule_service import (
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.trucks.truck_engine import TruckFleetSimulator
+from simulator.trucks.collection_schedule import (
     get_sites_to_collect,
     load_collection_schedule,
 )
-from app.services.simulation.truck_route_service import TruckRoute
+from simulator.trucks.truck_routes import TruckRoute
 
 
 class TestCollectionSchedulerSimulation(unittest.TestCase):

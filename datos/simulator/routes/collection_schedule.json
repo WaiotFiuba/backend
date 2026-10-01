@@ -1,0 +1,12 @@
+{
+  "RODRIGO_BUENO": {
+    "route_id": "RODRIGO_BUENO",
+    "truck_id": "TRUCK-RODRIGO_BUENO",
+    "truck_capacity_kg": 15000.0,
+    "zone": 1,
+    "shift_start": "21:00",
+    "shift_end": "06:00",
+    "total_stops": 0,
+    "stops": []
+  }
+}

@@ -23,7 +23,7 @@ from app.schemas.digital_twin import (
     ZoneDemandRead,
 )
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
-from app.services.simulation_control_service import (
+from app.services.simulation_session_service import (
     create_saved_configuration,
     create_simulation,
     delete_saved_configuration,
@@ -181,7 +181,7 @@ async def delete_configuration_endpoint(
 @router.get("/depots")
 async def get_depots_endpoint() -> dict:
     """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
-    from app.digital_twin.synthetic_data.simulation.truck_depots import (
+    from simulator.trucks.truck_depots import (
         DEPOTS_BY_ZONE,
         TRANSFER_STATIONS,
     )
@@ -215,7 +215,7 @@ async def get_depots_endpoint() -> dict:
 @router.get("/trucks/active")
 async def get_active_trucks_endpoint() -> list[dict]:
     """Retorna el estado de la flota de camiones recolectores en tiempo real."""
-    from app.digital_twin.synthetic_data.simulation.truck_engine import (
+    from simulator.trucks.truck_engine import (
         get_latest_truck_snapshot,
     )
 
@@ -226,7 +226,7 @@ async def get_active_trucks_endpoint() -> list[dict]:
 async def get_route_details_endpoint(route_id: str) -> dict:
     """Retorna los tramos y waypoints de un circuito de recolección."""
     from fastapi import HTTPException
-    from app.services.simulation.truck_route_service import load_all_collection_routes
+    from simulator.trucks.truck_routes import load_all_collection_routes
 
     routes = load_all_collection_routes()
     clean_id = route_id.split(".")[0].strip()
@@ -241,7 +241,7 @@ async def get_route_details_endpoint(route_id: str) -> dict:
         and clean_id != "RODRIGO_BUENO"
     ):
         try:
-            from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
+            from simulator.trucks.drpp_solver import optimize_circuit_route
 
             sol = optimize_circuit_route(clean_id)
             route.total_distance_m = sol.total_distance_m
@@ -295,7 +295,7 @@ async def worker_update_progress(
     db: MapDbDep,
 ) -> SimulationRead:
     if payload.trucks is not None:
-        from app.digital_twin.synthetic_data.simulation.truck_engine import (
+        from simulator.trucks.truck_engine import (
             set_latest_truck_snapshot,
         )
 

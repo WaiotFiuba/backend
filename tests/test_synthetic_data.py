@@ -7,35 +7,35 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
-from app.digital_twin.synthetic_data.exporters.files import export_simulation
-from app.digital_twin.synthetic_data.loaders.backend_http import (
+from simulator.exporters.files import export_simulation
+from simulator.loaders.backend_http import (
     BackendConnectionError,
     load_topology_from_backend_api,
 )
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import (
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.simulation.scenario import (
     ScenarioConfig,
     scenario_from_mapping,
 )
-from app.digital_twin.synthetic_data.topology import (
+from simulator.topology import (
     BackendContainerRecord,
     topology_from_backend_api,
     topology_from_backend_records,
 )
-from app.digital_twin.synthetic_data.transport.backend_http import (
+from simulator.transport.backend_http import (
     DeliveryReport,
     StreamingInterrupted,
     send_measurements_batch,
     send_result_batch,
     stream_result,
 )
-from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
+from simulator.transport.delivery_pipeline import (
     deliver_tick_measurements,
 )
-from app.digital_twin.synthetic_data.worker import (
+from simulator.worker import (
     _remaining_tick_delay,
 )
-from app.digital_twin.synthetic_data.validation.checks import validate_result
+from simulator.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
 from app.schemas.digital_twin import (
@@ -293,7 +293,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "app.digital_twin.synthetic_data.loaders.backend_http.urlopen",
+            "simulator.loaders.backend_http.urlopen",
             side_effect=URLError("[Errno 111] Connection refused"),
         ):
             with self.assertRaises(BackendConnectionError) as context:
@@ -320,7 +320,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         ]
 
         with patch(
-            "app.digital_twin.synthetic_data.loaders.backend_http.urlopen",
+            "simulator.loaders.backend_http.urlopen",
             side_effect=responses,
         ) as urlopen_mock:
             topology = load_topology_from_backend_api("http://backend", page_size=1)
@@ -493,11 +493,11 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.digital_twin.synthetic_data.worker._wait_until_runnable",
+                "simulator.worker._wait_until_runnable",
                 runnable,
             ),
             patch(
-                "app.digital_twin.synthetic_data.transport.delivery_pipeline.send_measurements_batch",
+                "simulator.transport.delivery_pipeline.send_measurements_batch",
                 return_value=DeliveryReport(
                     sent=2,
                     updated=2,
