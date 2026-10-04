@@ -370,7 +370,12 @@ def main():
         # Resolución 1/SSHU/19 - Ubicación en Acera (Excepción):
         # Solo se permite subirlos a la acera en avenidas o calles donde esté estrictamente prohibido estacionar
         # las 24 horas, o cuando las condiciones técnicas de la calzada impidan la recolección.
-        permite_acera = not permite_calzada
+        # NUNCA en calles peatonales o pasajes donde el camión no opera o no hay vereda reglamentaria.
+        es_via_apta_acera = (
+            tipo_via in ["AVENIDA", "BOULEVARD"]
+            or (tipo_via == "CALLE" and ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0) >= 10.0)
+        )
+        permite_acera = (not permite_calzada) and (not es_peatonal) and es_via_apta_acera
 
         intervalos_bloq_unificados = unir_intervalos(intervalos_bloqueados)
         longitud_bloqueada = sum(fin - ini for ini, fin in intervalos_bloq_unificados)
@@ -405,7 +410,22 @@ def main():
         max_contenedores = max(cap_calzada, cap_acera)
 
         registros_unificados.append(
-            {"MAX_CONTENEDORES": max_contenedores, "geometry_wkt": str(row["WKT"])}
+            {
+                "segment_id": idx,
+                "calle_nombre": calle_nombre,
+                "tipo_via": tipo_via,
+                "acera_lado": acera_lado,
+                "ancho_calle_m": ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0),
+                "permite_calzada": "SI" if permite_calzada else "NO",
+                "permite_acera": "SI" if permite_acera else "NO",
+                "longitud_total_m": longitud_total,
+                "espacio_bloqueado_m": longitud_bloqueada,
+                "espacio_disponible_m": round(
+                    max(0.0, longitud_total - longitud_bloqueada), 2
+                ),
+                "MAX_CONTENEDORES": max_contenedores,
+                "geometry_wkt": str(row["WKT"]),
+            }
         )
 
     df_salida = pd.DataFrame(registros_unificados)

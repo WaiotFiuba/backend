@@ -44,43 +44,56 @@ class StandaloneSiteCapacityCalculator:
             site = dict(s)
             lat = site.get("latitude")
             lon = site.get("longitude")
+            raw_cont = site.get("current_containers_count")
+            if raw_cont is None:
+                raw_cont = site.get("contenedores_actuales")
+            cont_actuales = int(raw_cont) if raw_cont is not None else 1
+
             if lat is None or lon is None:
-                site["MAX_CONTENEDORES"] = 0
-                site["capacidad_status"] = "SIN_COORDENADAS"
-                sitios_procesados.append(site)
                 continue
 
             x_utm, y_utm = self.wgs84_to_utm(lon, lat)
             pt_utm = Point(x_utm, y_utm)
             cand_indices = self.tree.query(pt_utm.buffer(35.0))
 
-            if len(cand_indices) == 0:
-                site["MAX_CONTENEDORES"] = 0
+            valid_candidates = [
+                (i, self.geoms_utm[i].distance(pt_utm))
+                for i in cand_indices
+                if self.geoms_utm[i].distance(pt_utm) <= 35.0
+            ]
+
+            if len(valid_candidates) == 0:
+                site["MAX_CONTENEDORES"] = max(1, cont_actuales)
                 site["cupo_disponible"] = 0
                 site["puede_ingresar_nuevo_contenedor"] = False
+                site["puede_colocar_mas"] = False
                 site["capacidad_status"] = "SIN_TRAMO_CERCANO"
                 sitios_procesados.append(site)
                 continue
 
             # Considerar tramos contiguos a la esquina/cuadra (<= 25m) para tomar el lado habilitado
-            nearby_indices = [
-                i for i in cand_indices if self.geoms_utm[i].distance(pt_utm) <= 25.0
-            ]
+            nearby_indices = [i for i, dist in valid_candidates if dist <= 25.0]
             if nearby_indices:
                 best_idx = max(
                     nearby_indices,
                     key=lambda i: int(self.df.iloc[i]["MAX_CONTENEDORES"]),
                 )
             else:
-                best_idx = min(
-                    cand_indices, key=lambda i: self.geoms_utm[i].distance(pt_utm)
-                )
+                best_idx = min(valid_candidates, key=lambda x: x[1])[0]
+
             tramo = self.df.iloc[best_idx]
 
-            max_cont = int(tramo["MAX_CONTENEDORES"])
+            max_cont_tramo = int(tramo["MAX_CONTENEDORES"])
+            if max_cont_tramo <= 0:
+                max_cont = max(1, cont_actuales)
+                cupo = 0
+            else:
+                max_cont = max(1, max_cont_tramo)
+                cupo = max(0, max_cont - cont_actuales)
+
             site["MAX_CONTENEDORES"] = max_cont
             site["segment_id"] = (
-                int(tramo["segment_id"]) if "segment_id" in tramo else best_idx
+                int(tramo["segment_id"]) if "segment_id" in tramo else int(best_idx)
             )
             site["municipio"] = str(tramo.get("municipio", "CABA"))
             site["calle_nombre"] = str(tramo.get("calle_nombre", ""))
@@ -119,11 +132,9 @@ class StandaloneSiteCapacityCalculator:
             else:
                 site["restricciones"] = []
 
-            cont_actuales = site.get(
-                "current_containers_count", site.get("contenedores_actuales", 0)
-            )
-            site["cupo_disponible"] = max(0, max_cont - cont_actuales)
-            site["puede_ingresar_nuevo_contenedor"] = (max_cont - cont_actuales) > 0
+            site["cupo_disponible"] = int(cupo)
+            site["puede_ingresar_nuevo_contenedor"] = bool(cupo > 0)
+            site["puede_colocar_mas"] = bool(cupo > 0)
 
             sitios_procesados.append(site)
 

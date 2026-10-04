@@ -152,3 +152,40 @@ def test_site_capacity_service_inactive_when_file_missing(tmp_path):
     cap, puede = svc.evaluate_site(-34.5459, -58.4830, current_containers=5)
     assert cap is None
     assert puede is True
+
+
+def test_standalone_capacity_json_serializability():
+    import json
+    from scripts.calcular_capacidad_sitios import StandaloneSiteCapacityCalculator
+
+    calc = StandaloneSiteCapacityCalculator()
+    sitios = [
+        {
+            "id": 1,
+            "name": "Sitio Arias 3450",
+            "latitude": -34.545914,
+            "longitude": -58.483065,
+            "contenedores_actuales": 2,
+        },
+        {
+            "id": 2,
+            "name": "Sitio Vacio",
+            "latitude": -34.545914,
+            "longitude": -58.483065,
+            "contenedores_actuales": 0,
+        },
+    ]
+
+    resultado = calc.calcular_capacidad_sitios(sitios)
+    # Debe serializar a JSON sin error (sin int64 de numpy no serializable)
+    json_str = json.dumps(resultado)
+    assert json_str is not None
+
+    # Sitio con 2 de 2 contenedores -> no puede colocar más
+    assert resultado[0]["puede_colocar_mas"] is False
+    assert resultado[0]["cupo_disponible"] == 0
+
+    # Sitio con 0 de 2 contenedores -> sí puede colocar más
+    assert resultado[1]["puede_colocar_mas"] is True
+    assert resultado[1]["cupo_disponible"] == 2
+

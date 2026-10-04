@@ -188,6 +188,31 @@ async def compute_site_utilization_metrics(
         sid = row.id
         container_count = int(row.container_count or 0)
         if container_count == 0:
+            max_cap, puede_ingresar = capacity_service.evaluate_site(
+                row.latitude, row.longitude, container_count
+            )
+            site_metrics.append(
+                SiteUtilizationMetric(
+                    site_id=sid,
+                    site_name=row.name,
+                    latitude=row.latitude,
+                    longitude=row.longitude,
+                    container_count=0,
+                    max_containers=max_cap,
+                    puede_ingresar=puede_ingresar,
+                    waste_type_id=row.waste_type_id,
+                    waste_type_name=row.waste_type_name,
+                    container_type_id=row.container_type_id,
+                    container_type_name=ct_names.get(row.container_type_id),
+                    avg_fill_level=0.0,
+                    peak_fill_rate=0.0,
+                    overflow_frequency=0,
+                    time_to_full_hours=None,
+                    utilization_score=0.0,
+                    category="idle",
+                )
+            )
+            category_counts["idle"] += 1
             continue
 
         dl_metrics = metrics_by_site.get(sid, {})
@@ -369,14 +394,15 @@ async def generate_redistribution_plan(
     demand: dict[int, int] = {}
     for r in receivers:
         if r.container_count <= 0:
-            continue
-        needed = max(
-            1,
-            math.ceil(
-                r.container_count
-                * (r.utilization_score / config.target_utilization - 1)
-            ),
-        )
+            needed = 1
+        else:
+            needed = max(
+                1,
+                math.ceil(
+                    r.container_count
+                    * (r.utilization_score / config.target_utilization - 1)
+                ),
+            )
         if (
             getattr(config, "apply_capacity_constraints", True)
             and getattr(r, "max_containers", None) is not None

@@ -186,7 +186,7 @@ def test_sitio_en_tramo_sin_capacidad_total(calculator):
 
     assert res["segment_id"] == 1002
     assert res["calle_nombre"] == "PASAJE_INHABILITADO"
-    assert res["MAX_CONTENEDORES"] == 0
+    assert res["MAX_CONTENEDORES"] == 1
     assert res["cupo_disponible"] == 0
     assert res["puede_ingresar_nuevo_contenedor"] is False
 
@@ -203,10 +203,8 @@ def test_sitio_sin_coordenadas(calculator):
     ]
 
     resultados = calculator.calcular_capacidad_sitios(sitios)
-    res = resultados[0]
-
-    assert res["MAX_CONTENEDORES"] == 0
-    assert res["capacidad_status"] == "SIN_COORDENADAS"
+    # Al no tener coordenadas es un error y se omite
+    assert len(resultados) == 0
 
 
 def test_sitio_huerfano_fuera_de_cobertura(calculator):
@@ -223,7 +221,7 @@ def test_sitio_huerfano_fuera_de_cobertura(calculator):
     resultados = calculator.calcular_capacidad_sitios(sitios)
     res = resultados[0]
 
-    assert res["MAX_CONTENEDORES"] == 0
+    assert res["MAX_CONTENEDORES"] == 1
     assert res["cupo_disponible"] == 0
     assert res["puede_ingresar_nuevo_contenedor"] is False
     assert res["capacidad_status"] == "SIN_TRAMO_CERCANO"
@@ -260,7 +258,7 @@ def test_conteo_exacto_sitios_sin_capacidad_esperada(calculator):
             "latitude": None,
             "longitude": None,
             "contenedores_actuales": 0,
-        },  # Sin coords
+        },  # Sin coords (se omite)
         {
             "id": 106,
             "latitude": -34.8000,
@@ -282,11 +280,10 @@ def test_conteo_exacto_sitios_sin_capacidad_esperada(calculator):
     assert sitios_con_cupo[0]["id"] == 101
     assert sitios_con_cupo[0]["cupo_disponible"] == 3
 
-    assert len(sitios_sin_cupo_o_inhabilitados) == 5
+    assert len(sitios_sin_cupo_o_inhabilitados) == 4
     assert {s["id"] for s in sitios_sin_cupo_o_inhabilitados} == {
         102,
         103,
         104,
-        105,
         106,
     }
