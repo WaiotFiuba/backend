@@ -371,11 +371,12 @@ def main():
         # Solo se permite subirlos a la acera en avenidas o calles donde esté estrictamente prohibido estacionar
         # las 24 horas, o cuando las condiciones técnicas de la calzada impidan la recolección.
         # NUNCA en calles peatonales o pasajes donde el camión no opera o no hay vereda reglamentaria.
-        es_via_apta_acera = (
-            tipo_via in ["AVENIDA", "BOULEVARD"]
-            or (tipo_via == "CALLE" and ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0) >= 10.0)
+        es_via_apta_acera = tipo_via in ["AVENIDA", "BOULEVARD"] or (
+            tipo_via == "CALLE" and ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0) >= 10.0
         )
-        permite_acera = (not permite_calzada) and (not es_peatonal) and es_via_apta_acera
+        permite_acera = (
+            (not permite_calzada) and (not es_peatonal) and es_via_apta_acera
+        )
 
         intervalos_bloq_unificados = unir_intervalos(intervalos_bloqueados)
         longitud_bloqueada = sum(fin - ini for ini, fin in intervalos_bloq_unificados)

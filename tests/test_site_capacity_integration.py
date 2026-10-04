@@ -188,4 +188,3 @@ def test_standalone_capacity_json_serializability():
     # Sitio con 0 de 2 contenedores -> sí puede colocar más
     assert resultado[1]["puede_colocar_mas"] is True
     assert resultado[1]["cupo_disponible"] == 2
-
