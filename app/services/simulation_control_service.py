@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.simulation_status import ACTIVE_STATUSES, SimulationStatus
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
@@ -24,8 +25,6 @@ from app.schemas.digital_twin import (
     ZoneDemandRead,
 )
 from app.services.digital_twin_ingest_service import reset_database_container_levels
-
-ACTIVE_STATUSES = ("pending", "running", "paused", "stopping")
 
 
 async def create_simulation(
@@ -46,7 +45,7 @@ async def create_simulation(
         .all()
     )
     for s in active_sessions:
-        s.status = "completed"
+        s.status = SimulationStatus.COMPLETED
         s.finished_at = datetime.now(UTC)
         s.error_message = "Detenida por inicio de nueva simulacion."
     if active_sessions:
@@ -72,7 +71,7 @@ async def create_simulation(
     )
     scenario = _scenario_record(config)
     session = SimulationSession(
-        status="pending",
+        status=SimulationStatus.PENDING,
         scenario=scenario,
         speedup=payload.speedup,
         global_demand_current=payload.global_demand_multiplier,
@@ -155,9 +154,16 @@ async def set_simulation_status(
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
     allowed = {
-        "pause": ({"running"}, "paused"),
-        "resume": ({"paused"}, "running"),
-        "stop": ({"pending", "running", "paused"}, "stopping"),
+        "pause": ({SimulationStatus.RUNNING}, SimulationStatus.PAUSED),
+        "resume": ({SimulationStatus.PAUSED}, SimulationStatus.RUNNING),
+        "stop": (
+            {
+                SimulationStatus.PENDING,
+                SimulationStatus.RUNNING,
+                SimulationStatus.PAUSED,
+            },
+            SimulationStatus.STOPPING,
+        ),
     }
     valid_from, target = allowed[action]
     if session.status not in valid_from:
@@ -165,8 +171,8 @@ async def set_simulation_status(
             status_code=409,
             detail=f"No se puede ejecutar {action} desde estado {session.status}.",
         )
-    if action == "stop" and session.status == "pending":
-        session.status = "completed"
+    if action == "stop" and session.status == SimulationStatus.PENDING:
+        session.status = SimulationStatus.COMPLETED
         session.finished_at = datetime.now(UTC)
     else:
         session.status = target
@@ -224,14 +230,14 @@ async def update_simulation_progress(
     measurements_sent: int = 0,
     collections_generated: int = 0,
     alarms_generated: int = 0,
-    status: str | None = None,
+    status: SimulationStatus | None = None,
 ) -> SimulationRead:
     session = await db.get(SimulationSession, simulation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
     if status is not None:
         session.status = status
-        if status == "running" and session.started_at is None:
+        if status == SimulationStatus.RUNNING and session.started_at is None:
             session.started_at = datetime.now(UTC)
     if simulated_time is not None:
         session.simulated_time = simulated_time
@@ -249,7 +255,7 @@ async def update_simulation_progress(
 async def finish_simulation_session(
     db: AsyncSession,
     simulation_id: int,
-    status: str,
+    status: SimulationStatus,
     error_message: str | None = None,
 ) -> SimulationRead:
     session = await db.get(SimulationSession, simulation_id)
@@ -267,11 +273,9 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
     result = await db.execute(
         update(SimulationSession)
-        .where(
-            SimulationSession.status.in_(("running", "paused", "stopping", "pending"))
-        )
+        .where(SimulationSession.status.in_(ACTIVE_STATUSES))
         .values(
-            status="failed",
+            status=SimulationStatus.FAILED,
             error_message="El worker se reinicio durante la simulacion.",
             finished_at=datetime.now(UTC),
         )

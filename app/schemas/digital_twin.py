@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.core.simulation_status import SimulationStatus
+
 
 class TelemetryValues(BaseModel):
     fill_level_pct: float = Field(ge=0, le=100)
@@ -66,12 +68,12 @@ class SimulationProgressUpdate(BaseModel):
     measurements_sent: int = 0
     collections_generated: int = 0
     alarms_generated: int = 0
-    status: str | None = None
+    status: SimulationStatus | None = None
     trucks: list[dict] | None = None
 
 
 class SimulationFinish(BaseModel):
-    status: Literal["completed", "failed"]
+    status: Literal[SimulationStatus.COMPLETED, SimulationStatus.FAILED]
     error_message: str | None = None
 
 
@@ -83,7 +85,7 @@ class SimulationZoneState(BaseModel):
 
 class SimulationRead(BaseModel):
     id: int
-    status: Literal["pending", "running", "paused", "stopping", "completed", "failed"]
+    status: SimulationStatus
     scenario: dict[str, object]
     speedup: float
     global_demand_current: float
