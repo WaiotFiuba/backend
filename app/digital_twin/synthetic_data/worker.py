@@ -1,9 +1,6 @@
 import asyncio
-import functools
 import itertools
 import logging
-import unicodedata
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import get_settings
@@ -14,6 +11,7 @@ from app.digital_twin.synthetic_data.domain.entities import (
 from app.digital_twin.synthetic_data.loaders.backend_http import (
     load_topology_from_backend_api,
 )
+from app.digital_twin.synthetic_data.simulation.controls import ControlSnapshot
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.digital_twin.synthetic_data.transport.session_client import (
@@ -24,22 +22,6 @@ from app.digital_twin.synthetic_data.transport.telemetry_sender import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-@functools.lru_cache(maxsize=256)
-def _norm_zone_name(s: str | None) -> str:
-    if not s:
-        return ""
-    n = unicodedata.normalize("NFKD", str(s).strip().casefold())
-    return "".join(c for c in n if not unicodedata.combining(c))
-
-
-@dataclass(frozen=True)
-class ControlSnapshot:
-    speedup: float
-    global_current: float
-    global_target: float
-    zones: tuple[tuple[str, float, float], ...]
 
 
 async def run_worker() -> None:
@@ -123,59 +105,21 @@ async def _run_session(
             )
             simulated_time = _as_utc(simulated_time)
 
-            overrides = session_state.zone_overrides
-            controls = ControlSnapshot(
-                speedup=session_state.speedup,
-                global_current=session_state.global_demand_current,
-                global_target=session_state.global_demand_target,
-                zones=tuple(
-                    sorted(
-                        (
-                            item.neighborhood
-                            if hasattr(item, "neighborhood")
-                            else item["neighborhood"],
-                            item.multiplier_current
-                            if hasattr(item, "multiplier_current")
-                            else item["multiplier_current"],
-                            item.multiplier_target
-                            if hasattr(item, "multiplier_target")
-                            else item["multiplier_target"],
-                        )
-                        for item in overrides
-                    )
-                ),
-            )
-
-            if _control_targets(controls) != _control_targets(previous_controls):
+            controls = ControlSnapshot.from_session(session_state)
+            if previous_controls is None or (
+                controls.targets() != previous_controls.targets()
+            ):
                 _log_control_change(simulation_id, previous_controls, controls)
             previous_controls = controls
 
             tick_started = asyncio.get_running_loop().time()
-
-            has_zone_overrides = any(current != 1.0 for _, current, _ in controls.zones)
-            if has_zone_overrides:
-                zone_multipliers = {
-                    _norm_zone_name(name): current
-                    for name, current, _target in controls.zones
-                }
-                zone_multipliers.update(
-                    {name: current for name, current, _target in controls.zones}
-                )
-
-                def zone_fn(zone: str) -> float:
-                    return zone_multipliers.get(
-                        zone,
-                        zone_multipliers.get(_norm_zone_name(zone), 1.0),
-                    )
-            else:
-                zone_fn = None
 
             tick = simulator.run_tick(
                 simulated_time,
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=zone_fn,
+                zone_multiplier=controls.zone_multiplier_fn(),
             )
 
             # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
@@ -389,18 +333,6 @@ def _log_control_change(
         current.global_current,
         current.global_target,
         current.zones,
-    )
-
-
-def _control_targets(
-    controls: ControlSnapshot | None,
-) -> tuple[float, float, tuple[tuple[str, float], ...]] | None:
-    if controls is None:
-        return None
-    return (
-        controls.speedup,
-        controls.global_target,
-        tuple((name, target) for name, _current, target in controls.zones),
     )
 
 
