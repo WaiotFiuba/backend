@@ -7,6 +7,7 @@ services:
       - .env
     volumes:
       - ./app:/app/app
+      - ./simulator:/app/simulator
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./db:/app/db
@@ -44,7 +45,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
-      - ./db/datos:/datos
+      - ./datos/digital_twin:/datos
       - ./db:/app/db
       - ./db/00_enable_postgis.sql:/docker-entrypoint-initdb.d/00_enable_postgis.sql
       - ./db/import_geojson.sh:/docker-entrypoint-initdb.d/20_import_geojson.sh
@@ -72,11 +73,12 @@ services:
       SIMULATOR_BACKEND_URL: http://api:8000
     volumes:
       - ./app:/app/app
+      - ./simulator:/app/simulator
       - ./datos:/app/datos
       - ./db:/app/db
     command: >
       sh -c "
-      exec uv run python -m app.digital_twin.synthetic_data.worker
+      exec uv run python -m simulator.worker
       "
     depends_on:
       api:

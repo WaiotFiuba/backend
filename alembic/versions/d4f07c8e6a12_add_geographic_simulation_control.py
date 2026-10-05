@@ -18,6 +18,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    has_barrios = inspector.has_table("barrios")
+
+    fk_constraints = []
+    if has_barrios:
+        fk_constraints.append(
+            sa.ForeignKeyConstraint(
+                ["neighborhood_id"], ["barrios.id"], ondelete="CASCADE"
+            )
+        )
+
     op.create_table(
         "neighborhood_demographics",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
@@ -41,9 +53,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.ForeignKeyConstraint(
-            ["neighborhood_id"], ["barrios.id"], ondelete="CASCADE"
-        ),
+        *fk_constraints,
         sa.UniqueConstraint("neighborhood_id"),
     )
     op.create_table(

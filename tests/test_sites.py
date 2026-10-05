@@ -24,7 +24,6 @@ from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
-    get_site_map_snapshot,
     get_sites_clustered,
 )
 
@@ -99,6 +98,34 @@ class TestStreetSpatialIndex(unittest.TestCase):
         self.assertEqual(len(clusters), 2)
         self.assertEqual([c.id for c in clusters[0]], [1, 2])
         self.assertEqual([c.id for c in clusters[1]], [3])
+
+    def test_spatial_cluster_universal_geodetic(self):
+        from app.services.map.site_clustering_service import (
+            _get_meters_per_degree,
+            _spatial_cluster,
+        )
+
+        # Madrid: lat ~ 40.4, lon ~ -3.7
+        # Cos(40.4 deg) ~ 0.7615 -> meters_lon ~ 84770 m/deg
+        m_lat, m_lon = _get_meters_per_degree(40.4168)
+        self.assertAlmostEqual(m_lat, 111320.0, delta=10.0)
+        self.assertGreater(m_lon, 80000.0)
+        self.assertLess(m_lon, 90000.0)
+
+        # Dos contenedores a ~10 metros en longitud en Madrid
+        delta_lon_10m = 10.0 / m_lon
+        c1 = Container(id=1, latitude=40.4168, longitude=-3.7038)
+        c2 = Container(id=2, latitude=40.4168, longitude=-3.7038 + delta_lon_10m)
+        # Contenedor lejano a ~100 metros en latitud
+        delta_lat_100m = 100.0 / m_lat
+        c3 = Container(id=3, latitude=40.4168 + delta_lat_100m, longitude=-3.7038)
+
+        clusters = _spatial_cluster([c1, c2, c3], distance_threshold_m=20.0)
+        self.assertEqual(len(clusters), 2)
+        ids_c0 = {c.id for c in clusters[0]}
+        ids_c1 = {c.id for c in clusters[1]}
+        self.assertTrue({1, 2} in (ids_c0, ids_c1))
+        self.assertTrue({3} in (ids_c0, ids_c1))
 
 
 class TestSiteServices(unittest.IsolatedAsyncioTestCase):
@@ -273,6 +300,74 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res_c2.site_id, site_humedo.id)
             self.assertEqual(res_c3.site_id, sites[1].id)
 
+    async def test_cluster_and_create_sites_tier3_madrid(self):
+        """Verifica clustering de Nivel 3 (sin archivo de calles) en una ciudad distinta (Madrid)."""
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="Residuo General", color="#555555")
+            ct = ContainerType(
+                id=1, name="Contenedor Estandar", height_cm=140, volume_m3=3.0
+            )
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+
+            # Madrid: lat ~ 40.4168, lon ~ -3.7038
+            # 8 metros al este: delta_lon = 8 / (111320 * cos(40.4168)) ~ 8 / 84770 ~ 0.000094
+            # 60 metros al norte: delta_lat = 60 / 111139 ~ 0.00054
+            c1 = Container(
+                id=10,
+                serie_id="MAD-1",
+                address="Gran Via 1",
+                latitude=40.4168,
+                longitude=-3.7038,
+                geom=WKTElement("POINT(-3.7038 40.4168)", srid=4326),
+                current_level=20,
+                available=True,
+                container_type=ct,
+            )
+            c2 = Container(
+                id=11,
+                serie_id="MAD-2",
+                address="Gran Via 3",
+                latitude=40.4168,
+                longitude=-3.7038 + 0.000094,
+                geom=WKTElement(f"POINT({-3.7038 + 0.000094} 40.4168)", srid=4326),
+                current_level=40,
+                available=True,
+                container_type=ct,
+            )
+            c3 = Container(
+                id=12,
+                serie_id="MAD-3",
+                address="Gran Via 20",
+                latitude=40.4168 + 0.00054,
+                longitude=-3.7038,
+                geom=WKTElement(f"POINT({-3.7038} {40.4168 + 0.00054})", srid=4326),
+                current_level=80,
+                available=True,
+                container_type=ct,
+            )
+            session.add_all([c1, c2, c3])
+            await session.commit()
+
+            # Clustering Tier 3: calles_path=None
+            sites_count = await cluster_and_create_sites(
+                session,
+                calles_path=None,
+                distance_threshold_m=20.0,
+                clear_existing=True,
+            )
+            self.assertEqual(
+                sites_count, 2, "Deben crearse 2 sitios por proximidad metrica pura"
+            )
+
+            res_c1 = await session.get(Container, 10)
+            res_c2 = await session.get(Container, 11)
+            res_c3 = await session.get(Container, 12)
+            self.assertIsNotNone(res_c1.site_id)
+            self.assertEqual(res_c1.site_id, res_c2.site_id)
+            self.assertNotEqual(res_c1.site_id, res_c3.site_id)
+
     async def test_site_service_level_aggregation_avg_and_max(self):
         async with self.session_maker() as session:
             # Setup de tipos
@@ -331,13 +426,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             site_max = await get_site_by_id(session, site_id=1, level_aggregation="max")
             self.assertEqual(site_max.current_level, 80)
 
-            # 3. Snapshot de sitios
-            snapshot = await get_site_map_snapshot(session, level_aggregation="avg")
-            self.assertEqual(snapshot.total, 1)
-            self.assertEqual(snapshot.latest_cursor, 10)
-            self.assertEqual(snapshot.sites[0].current_level, 50)
-
-            # 4. Changes de sitios
+            # 3. Changes de sitios
             changes = await get_site_changes(session, after=0, level_aggregation="avg")
             self.assertEqual(len(changes.sites), 1)
             self.assertEqual(changes.latest_cursor, 10)
@@ -436,7 +525,17 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 available=True,
                 container_type=ct,
             )
-            session.add(c)
+            c2 = Container(
+                id=2,
+                site_id=1,
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                current_level=55,
+                available=True,
+                container_type=ct,
+            )
+            session.add_all([c, c2])
             await session.commit()
 
             # Zoom alto (>= 18): Devuelve lista de SiteMapOutputSchema
@@ -451,9 +550,10 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(res_high_zoom), 1)
             self.assertEqual(res_high_zoom[0].id, 1)
-            self.assertEqual(res_high_zoom[0].current_level, 45)
+            self.assertEqual(res_high_zoom[0].container_count, 2)
+            self.assertEqual(res_high_zoom[0].current_level, 50)
 
-            # Zoom bajo (< 18): Devuelve lista de SiteCluster
+            # Zoom bajo (< 18): Devuelve lista de SiteCluster con conteo de contenedores
             res_low_zoom = await get_sites_clustered(
                 db=session,
                 lat_min=-34.61,
@@ -464,8 +564,8 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 level_aggregation="avg",
             )
             self.assertEqual(len(res_low_zoom), 1)
-            self.assertEqual(res_low_zoom[0].count, 1)
-            self.assertEqual(res_low_zoom[0].avg_level, 45.0)
+            self.assertEqual(res_low_zoom[0].count, 2)
+            self.assertEqual(res_low_zoom[0].avg_level, 50.0)
 
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient
@@ -553,16 +653,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("cluster_id", data_cluster[0])
                 self.assertEqual(data_cluster[0]["count"], 1)
 
-                # 2. Test /map/sites/bbox/snapshot
-                res_snap = await client.get(
-                    "/map/sites/bbox/snapshot?level_aggregation=avg"
-                )
-                self.assertEqual(res_snap.status_code, 200)
-                data_snap = res_snap.json()
-                self.assertEqual(data_snap["total"], 1)
-                self.assertEqual(data_snap["latest_cursor"], 5)
-
-                # 3. Test /map/sites/changes
+                # 2. Test /map/sites/changes
                 res_changes = await client.get(
                     "/map/sites/changes?after=0&level_aggregation=avg"
                 )
@@ -580,3 +671,37 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(data_single["containers"]), 1)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
+
+    async def test_clustering_skipped_when_containers_have_site_id(self):
+        """Verifica que si los contenedores ya tienen sitio asignado, unassigned_count es 0."""
+        from sqlalchemy import func
+
+        async with self.session_maker() as session:
+            site = Site(
+                id=1,
+                name="Sitio Predefinido",
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+            )
+            session.add(site)
+            await session.flush()
+
+            c1 = Container(
+                id=1,
+                serie_id="C-1",
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                available=True,
+                site_id=site.id,
+            )
+            session.add(c1)
+            await session.commit()
+
+            unassigned = (
+                await session.execute(
+                    select(func.count(Container.id)).where(Container.site_id.is_(None))
+                )
+            ).scalar()
+            self.assertEqual(unassigned, 0)

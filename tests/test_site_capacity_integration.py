@@ -1,11 +1,6 @@
-from app.digital_twin.synthetic_data.generators.topology import (
-    generate_synthetic_topology,
-)
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
 from app.schemas.map.optimization import OptimizationConfig, SiteUtilizationMetric
 from app.services.map.optimization_service import _solve_greedy
 from app.services.map.site_capacity_service import get_site_capacity_service
-import random
 
 
 def test_site_capacity_service_evaluation():
@@ -21,19 +16,6 @@ def test_site_capacity_service_evaluation():
         -34.545914, -58.483065, current_containers=max_c
     )
     assert puede is False
-
-
-def test_simulation_topology_assigns_max_containers():
-    rng = random.Random(42)
-    config = ScenarioConfig()
-    topology = generate_synthetic_topology(config, rng)
-
-    assert len(topology.sites) > 0
-    for site in topology.sites:
-        assert hasattr(site, "max_containers")
-        assert site.max_containers > 0
-        assert hasattr(site, "puede_ingresar")
-        assert isinstance(site.puede_ingresar, bool)
 
 
 def test_redistribution_comparison_with_and_without_capacity_constraints():

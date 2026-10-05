@@ -46,12 +46,6 @@ class ContainerCluster(BaseModel):
     avg_level: int = 0
 
 
-class ContainerMapSnapshot(BaseModel):
-    cursor: int
-    containers: list[ContainersMapOutputSchema]
-    clusters: list[ContainerCluster]
-
-
 class ContainerChanges(BaseModel):
     cursor: int
     containers: list[ContainersMapOutputSchema]

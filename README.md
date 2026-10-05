@@ -57,7 +57,7 @@ streaming y ejecutar una simulación incremental controlable desde la API. Tambi
 adapta la demanda según población, densidad y barrio.
 
 La documentación completa está en
-[`app/digital_twin/synthetic_data/README.md`](app/digital_twin/synthetic_data/README.md).
+[`simulator/README.md`](simulator/README.md).
 
 ### Sincronización incremental del mapa
 

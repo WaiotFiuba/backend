@@ -73,7 +73,7 @@ def main():
     start_time = time.time()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    datos_dir = os.path.join(base_dir, "datos")
+    datos_dir = os.path.join(base_dir, "datos", "digital_twin")
 
     wgs84_to_utm = pyproj.Transformer.from_crs(
         "EPSG:4326", "EPSG:32721", always_xy=True

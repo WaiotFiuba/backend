@@ -2,15 +2,15 @@ from datetime import datetime
 
 import pytest
 
-from app.digital_twin.synthetic_data.domain.entities import (
+from simulator.domain.entities import (
     Container,
     Device,
     Site,
 )
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-from app.digital_twin.synthetic_data.topology import SimulationTopology
-from app.digital_twin.synthetic_data.zone_classifier import (
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.simulation.scenario import ScenarioConfig
+from simulator.topology import SimulationTopology
+from simulator.zone_classifier import (
     DEFAULT_PROFILE,
     get_zone_classifier,
 )

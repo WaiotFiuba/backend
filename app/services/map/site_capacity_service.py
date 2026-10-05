@@ -19,7 +19,9 @@ class SiteCapacityService:
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 )
             )
-            csv_path = os.path.join(base_dir, "datos", "restricciones_contenedores.csv")
+            csv_path = os.path.join(
+                base_dir, "datos", "digital_twin", "restricciones_contenedores.csv"
+            )
 
         self.csv_path = csv_path
         self._indice_espacial_tramos: Optional[STRtree] = None

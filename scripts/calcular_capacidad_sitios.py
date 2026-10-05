@@ -15,7 +15,9 @@ class StandaloneSiteCapacityCalculator:
     def __init__(self, csv_path: Optional[str] = None):
         if csv_path is None:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            csv_path = os.path.join(base_dir, "datos", "restricciones_contenedores.csv")
+            csv_path = os.path.join(
+                base_dir, "datos", "digital_twin", "restricciones_contenedores.csv"
+            )
 
         self.csv_path = csv_path
         if not os.path.exists(self.csv_path):

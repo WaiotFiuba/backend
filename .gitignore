@@ -17,17 +17,25 @@ venv/
 !.env.example
 !.env.production.example
 
-# Datos
-db/datos/*.json
-db/datos/*.csv
-db/datos/*.geojson
-db/datos/*.txt
-db/datos/*.xls
-db/datos/*.xlsx
+# Datos locales
+datos/digital_twin/*.json
+datos/digital_twin/*.geojson
+datos/digital_twin/*.csv
+!datos/digital_twin/restricciones_contenedores.csv
+!datos/digital_twin/cajones-para-carga-y-descarga.csv
+!datos/digital_twin/callejero.csv
+!datos/digital_twin/ciclovias.csv
+!datos/digital_twin/estacionamiento_via_publica.csv
+!datos/digital_twin/garajes-comerciales.csv
+!datos/digital_twin/mobiliario-urbano.csv
+datos/digital_twin/*.txt
+datos/digital_twin/*.xls
+datos/digital_twin/*.xlsx
 datos/README*
 datos/PE-RES-MAYEPGC-MDUYTGC-SSHU-1-19-ANX*
 datos/backup_crudos/
 datos/*.pdf
+db/datos/
 
 # Tests
 .pytest_cache/

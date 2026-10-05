@@ -5,17 +5,17 @@ from shapely.geometry import box
 from shapely.ops import transform as shapely_transform
 
 from app.core.config import get_settings
-from app.digital_twin.synthetic_data.density_processor import (
+from simulator.density_processor import (
     CensusRadio,
     DensityProcessor,
     _buffer_polygon_meters,
     _to_metric,
     get_density_processor,
 )
-from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-from app.digital_twin.synthetic_data.topology import (
+from simulator.domain.entities import Container, Device, Site
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.simulation.scenario import ScenarioConfig
+from simulator.topology import (
     BackendContainerRecord,
     SimulationTopology,
     topology_from_backend_records,

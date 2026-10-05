@@ -11,7 +11,6 @@ from app.schemas.map.site import (
     SiteCluster,
     SiteLevelHistory,
     SiteMapOutputSchema,
-    SiteMapSnapshot,
 )
 from app.schemas.map.site_projection import SiteProjectionResponse
 from app.services.map.site_projection_models import DEFAULT_MODEL_KEY
@@ -20,7 +19,6 @@ from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
-    get_site_map_snapshot,
     get_sites_clustered,
 )
 
@@ -60,18 +58,6 @@ async def get_sites_by_bbox(
         distribution=distribution,
         waste_filter=waste_filter,
     )
-
-
-@router.get(
-    "/bbox/snapshot",
-    response_model=SiteMapSnapshot,
-    summary="Obtener snapshot inicial completo de sitios y cursor",
-)
-async def get_all_sites_snapshot(
-    db: MapDbDep,
-    level_aggregation: Literal["avg", "max"] = Query("avg"),
-) -> SiteMapSnapshot:
-    return await get_site_map_snapshot(db=db, level_aggregation=level_aggregation)
 
 
 @router.get(

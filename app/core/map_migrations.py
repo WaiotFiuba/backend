@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.commands.import_neighborhood_demographics import (
@@ -11,6 +11,7 @@ from app.commands.import_neighborhood_demographics import (
 from app.core.map_database import MapSessionLocal
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
+from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 
 HUMEDO_WASTE_TYPE = "RSU Fracción Húmeda"
@@ -293,9 +294,17 @@ async def seed_map_data(recluster: bool = False) -> None:
                 "[INFO] No se envió nada a la base de datos porque no hubo registros nuevos válidos."
             )
 
-        if imported_count > 0 or recluster or not has_existing_sites:
+        # Si los contenedores ya vinieron con sitio asignado en el archivo, se saltea el clustering
+        res_unassigned = await session.execute(
+            select(func.count(Container.id)).where(Container.site_id.is_(None))
+        )
+        unassigned_count = res_unassigned.scalar() or 0
+
+        if (unassigned_count > 0 or recluster) and (
+            not has_existing_sites or recluster
+        ):
             print(
-                "\n[5/6] Ejecutando agrupamiento de contenedores en Sitios (Sites)..."
+                f"\n[5/6] {unassigned_count} contenedores sin sitio. Ejecutando clustering..."
             )
             from app.services.map.site_clustering_service import (
                 cluster_and_create_sites,
@@ -304,13 +313,15 @@ async def seed_map_data(recluster: bool = False) -> None:
             calles_file = datos_dir / "calles.geojson"
             sites_count = await cluster_and_create_sites(
                 session,
-                calles_path=calles_file,
+                calles_path=calles_file if calles_file.exists() else None,
                 distance_threshold_m=20.0,
                 clear_existing=True,
             )
             print(f"[OK] Agrupamiento finalizado: {sites_count} sitios creados.")
-        elif has_existing_containers:
-            print("[INFO] Los sitios ya se encuentran registrados en la DB.")
+        else:
+            print(
+                "[INFO] Todos los contenedores ya cuentan con un sitio asignado. Saltando clustering."
+            )
 
     await _seed_neighborhood_demographics(datos_dir)
     print("\n--- SCRIPT DE SIEMBRA FINALIZADO ---")
@@ -319,11 +330,13 @@ async def seed_map_data(recluster: bool = False) -> None:
 def _resolve_seed_data_dir() -> Path | None:
     project_root = Path(__file__).resolve().parents[2]
     candidates = (
+        project_root / "datos" / "digital_twin",
         project_root / "datos",
         project_root / "db" / "datos",
     )
     expected_files = (
         "contenedores_negros.json",
+        "containers.json",
         "contenedores_verdes.json",
         "waste_types.json",
         "container_types.json",
@@ -349,6 +362,7 @@ async def _seed_container_sources(session, datos_dir: Path, cached_types: dict) 
         ).scalars()
     )
     imported_total = 0
+    predefined_sites: dict[str, Site] = {}
 
     imported_total += await _seed_container_source(
         session=session,
@@ -358,6 +372,7 @@ async def _seed_container_sources(session, datos_dir: Path, cached_types: dict) 
         description_label="Húmedo",
         existing_serie_ids=existing_serie_ids,
         cached_types=cached_types,
+        predefined_sites=predefined_sites,
     )
     imported_total += await _seed_container_source(
         session=session,
@@ -367,6 +382,7 @@ async def _seed_container_sources(session, datos_dir: Path, cached_types: dict) 
         description_label="Seco",
         existing_serie_ids=existing_serie_ids,
         cached_types=cached_types,
+        predefined_sites=predefined_sites,
     )
 
     return imported_total
@@ -380,6 +396,7 @@ async def _seed_container_source(
     description_label: str,
     existing_serie_ids: set[str],
     cached_types: dict[str, ContainerType],
+    predefined_sites: dict[str, Site] | None = None,
 ) -> int:
     cont_file = datos_dir / filename
     if not cont_file.exists():
@@ -395,6 +412,9 @@ async def _seed_container_source(
     print(
         f"[INFO] {cont_file.name}: se encontraron {total_features} elementos (features) para procesar."
     )
+
+    if predefined_sites is None:
+        predefined_sites = {}
 
     stats = {"success": 0, "no_id": 0, "duplicate": 0, "bad_geom": 0}
     for index, feature in enumerate(features):
@@ -427,6 +447,24 @@ async def _seed_container_source(
                 "Revisá db/datos/container_types.json y volvé a ejecutar la siembra."
             )
 
+        # Si el contenedor ya viene con sitio preagrupado en el archivo
+        site_ref = props.get("site_id") or props.get("id_sitio")
+        site_obj = None
+        if site_ref is not None:
+            site_key = str(site_ref)
+            if site_key not in predefined_sites:
+                site_obj = Site(
+                    name=props.get("site_name") or f"Sitio {site_key}",
+                    address=props.get("DireccionNormalizada"),
+                    latitude=lat,
+                    longitude=lon,
+                    geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
+                )
+                session.add(site_obj)
+                predefined_sites[site_key] = site_obj
+            else:
+                site_obj = predefined_sites[site_key]
+
         container = Container(
             serie_id=serie_id,
             address=props.get("DireccionNormalizada"),
@@ -437,6 +475,7 @@ async def _seed_container_source(
             geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
             available=True,
             container_type=container_type,
+            site=site_obj,
         )
         session.add(container)
         stats["success"] += 1
