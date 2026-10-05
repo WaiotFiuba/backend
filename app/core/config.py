@@ -28,11 +28,9 @@ class Settings(BaseSettings):
     enable_map_db: bool = False
     simulator_backend_url: str = "http://api:8000"
     simulator_poll_seconds: float = 2.0
-    simulator_batch_size: int = 100000  # cubre un batch combinado (maxsize=2 ticks) sin fragmentarse en 2 requests
+    simulator_batch_size: int = 100000  # mediciones por request; si supera la cantidad de contenedores, cada tick va en un solo request
     simulator_container_limit: int | None = None
     simulator_control_miss_tolerance: int = 5
-    simulator_delivery_queue_maxsize: int = 2
-    simulator_delivery_drain_timeout: float = 30.0
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
     )

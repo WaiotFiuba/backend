@@ -22,15 +22,13 @@ from app.digital_twin.synthetic_data.topology import (
     topology_from_backend_api,
     topology_from_backend_records,
 )
-from app.digital_twin.synthetic_data.transport.backend_http import (
+from app.digital_twin.synthetic_data.transport.telemetry_sender import (
     DeliveryReport,
     StreamingInterrupted,
+    deliver_tick_measurements,
     send_measurements_batch,
     send_result_batch,
     stream_result,
-)
-from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
-    deliver_tick_measurements,
 )
 from app.digital_twin.synthetic_data.worker import (
     _remaining_tick_delay,
@@ -497,7 +495,7 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                 runnable,
             ),
             patch(
-                "app.digital_twin.synthetic_data.transport.delivery_pipeline.send_measurements_batch",
+                "app.digital_twin.synthetic_data.transport.telemetry_sender.send_measurements_batch",
                 return_value=DeliveryReport(
                     sent=2,
                     updated=2,

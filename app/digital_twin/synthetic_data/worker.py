@@ -1,14 +1,10 @@
 import asyncio
 import functools
 import itertools
-import json
 import logging
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
 from app.digital_twin.synthetic_data.domain.entities import SimulationSession
@@ -17,8 +13,10 @@ from app.digital_twin.synthetic_data.loaders.backend_http import (
 )
 from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
 from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
-from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
-    DeliveryPipeline,
+from app.digital_twin.synthetic_data.transport.session_client import (
+    SimulationSessionClient,
+)
+from app.digital_twin.synthetic_data.transport.telemetry_sender import (
     deliver_tick_measurements,
 )
 from app.services.simulation_control_service import (
@@ -45,56 +43,13 @@ class ControlSnapshot:
     zones: tuple[tuple[str, float, float], ...]
 
 
-def _http_get_json(url: str, timeout: float = 10.0) -> dict | None:
-    req = Request(url, headers={"Accept": "application/json"})
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            data = resp.read().decode("utf-8")
-            return json.loads(data) if data else None
-    except HTTPError as e:
-        if e.code == 404:
-            return None
-        logger.warning("Error HTTP GET %s: %s", url, e)
-        return None
-    except (URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
-        logger.debug("Esperando conexion HTTP GET %s: %s", url, e)
-        return None
-
-
-def _http_post_json(
-    url: str, payload: dict | None = None, method: str = "POST", timeout: float = 30.0
-) -> dict | None:
-    data_bytes = (
-        json.dumps(payload, default=str).encode("utf-8") if payload is not None else b""
-    )
-    req = Request(
-        url,
-        data=data_bytes,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method=method,
-    )
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            data = resp.read().decode("utf-8")
-            return json.loads(data) if data else None
-    except HTTPError as e:
-        if e.code == 404:
-            return None
-        logger.warning("Error HTTP %s %s: %s", method, url, e)
-        return None
-    except (URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
-        logger.debug("Esperando conexion HTTP %s %s: %s", method, url, e)
-        return None
-
-
 async def run_worker() -> None:
     settings = get_settings()
+    client = SimulationSessionClient(settings.simulator_backend_url)
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
     first_wait = True
     while True:
-        success = await _mark_interrupted_sessions_failed(
-            settings.simulator_backend_url
-        )
+        success = await client.fail_interrupted_sessions()
         if success:
             logger.info("Conectado con éxito a la API. Esperando simulaciones...")
             break
@@ -108,7 +63,7 @@ async def run_worker() -> None:
 
     while True:
         try:
-            active_session = await _fetch_active_session(settings.simulator_backend_url)
+            active_session = await client.fetch_active_session()
 
         except Exception:
             logger.exception("No se pudo consultar la siguiente simulacion activa.")
@@ -123,50 +78,15 @@ async def run_worker() -> None:
             await asyncio.sleep(settings.simulator_poll_seconds)
             continue
 
-        await _run_session(active_session)
+        await _run_session(client, active_session)
 
 
-async def _fetch_active_session(backend_url: str) -> SimulationSession | None:
-    url = urljoin(backend_url.rstrip("/") + "/", "digital-twin/worker/active-session")
-    data = await asyncio.to_thread(_http_get_json, url)
-    if data is None:
-        return None
-    return SimulationSession.model_validate(data)
-
-
-async def _mark_interrupted_sessions_failed(backend_url: str) -> bool:
-    url = urljoin(backend_url.rstrip("/") + "/", "digital-twin/worker/fail-interrupted")
-    res = await asyncio.to_thread(_http_post_json, url, {})
-    return res is not None
-
-
-async def _finish_session(
-    backend_url: str, simulation_id: int, status: str, error_message: str | None = None
+async def _run_session(
+    client: SimulationSessionClient, session: SimulationSession
 ) -> None:
-    url = urljoin(
-        backend_url.rstrip("/") + "/",
-        f"digital-twin/worker/simulations/{simulation_id}/finish",
-    )
-    await asyncio.to_thread(
-        _http_post_json, url, {"status": status, "error_message": error_message}
-    )
-
-
-async def _update_progress(
-    backend_url: str, simulation_id: int, progress: dict
-) -> dict | None:
-    url = urljoin(
-        backend_url.rstrip("/") + "/",
-        f"digital-twin/worker/simulations/{simulation_id}/progress",
-    )
-    return await asyncio.to_thread(_http_post_json, url, progress, method="PATCH")
-
-
-async def _run_session(session: SimulationSession) -> None:
     settings = get_settings()
     simulation_id = session.id
     logger.info("Iniciando simulacion %s.", simulation_id)
-    pipeline: DeliveryPipeline | None = None
     try:
         config = scenario_from_mapping(session.scenario)
         topology = await asyncio.to_thread(
@@ -185,21 +105,7 @@ async def _run_session(session: SimulationSession) -> None:
         simulator.initialize()
 
         # Marcar la sesión como running en el backend tras completar la carga e inicialización
-        await _update_progress(
-            settings.simulator_backend_url,
-            simulation_id,
-            {"status": "running"},
-        )
-
-        total_periods_val = config.periods if config.periods > 0 else 0
-        pipeline = DeliveryPipeline(
-            simulation_id,
-            settings.simulator_backend_url,
-            total_periods_val,
-            batch_size=settings.simulator_batch_size,
-            maxsize=settings.simulator_delivery_queue_maxsize,
-        )
-        pipeline.start()
+        await client.update_progress(simulation_id, {"status": "running"})
 
         previous_controls: ControlSnapshot | None = None
 
@@ -207,9 +113,7 @@ async def _run_session(session: SimulationSession) -> None:
             range(config.periods) if config.periods > 0 else itertools.count()
         )
         for period in period_iterator:
-            session_state = await _wait_until_runnable(
-                settings.simulator_backend_url, simulation_id
-            )
+            session_state = await _wait_until_runnable(client, simulation_id)
             if session_state is None:
                 break
 
@@ -294,8 +198,7 @@ async def _run_session(session: SimulationSession) -> None:
                 if getattr(simulator, "truck_fleet", None)
                 else []
             )
-            await _update_progress(
-                settings.simulator_backend_url,
+            await client.update_progress(
                 simulation_id,
                 {
                     "simulated_time": simulated_time.isoformat(),
@@ -331,7 +234,7 @@ async def _run_session(session: SimulationSession) -> None:
             )
 
             if not await _wait_between_ticks(
-                settings.simulator_backend_url,
+                client,
                 simulation_id,
                 remaining_delay,
                 simulator=simulator,
@@ -340,33 +243,24 @@ async def _run_session(session: SimulationSession) -> None:
             ):
                 break
         else:
-            await _finish_session(
-                settings.simulator_backend_url, simulation_id, "completed"
-            )
+            await client.finish_session(simulation_id, "completed")
             logger.info("Simulacion %s completada.", simulation_id)
-        await pipeline.aclose(timeout=settings.simulator_delivery_drain_timeout)
     except asyncio.CancelledError:
-        if pipeline is not None:
-            pipeline.cancel()
-        await _finish_session(
-            settings.simulator_backend_url, simulation_id, "failed", "Worker cancelado."
-        )
+        await client.finish_session(simulation_id, "failed", "Worker cancelado.")
         raise
     except Exception as exc:
         logger.exception("La simulacion %s fallo.", simulation_id)
-        if pipeline is not None:
-            await pipeline.aclose(timeout=settings.simulator_delivery_drain_timeout)
-        await _finish_session(
-            settings.simulator_backend_url, simulation_id, "failed", str(exc)
-        )
+        await client.finish_session(simulation_id, "failed", str(exc))
 
 
-async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | None:
+async def _wait_until_runnable(
+    client: SimulationSessionClient, simulation_id: int
+) -> dict | None:
     settings = get_settings()
     paused_logged = False
     missed_polls = 0
     while True:
-        session = await _fetch_active_session(backend_url)
+        session = await client.fetch_active_session()
         if session is None:
             missed_polls += 1
             if missed_polls >= settings.simulator_control_miss_tolerance:
@@ -393,13 +287,11 @@ async def _wait_until_runnable(backend_url: str, simulation_id: int) -> dict | N
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
             )
-            await _finish_session(backend_url, simulation_id, "completed")
+            await client.finish_session(simulation_id, "completed")
             return None
         if status in ("running", "pending"):
             if status == "pending":
-                await _update_progress(
-                    backend_url, simulation_id, {"status": "running"}
-                )
+                await client.update_progress(simulation_id, {"status": "running"})
                 session.status = "running"
             if paused_logged:
                 logger.info("Simulacion %s reanudada.", simulation_id)
@@ -422,7 +314,7 @@ def _remaining_tick_delay(
 
 
 async def _wait_between_ticks(
-    backend_url: str,
+    client: SimulationSessionClient,
     simulation_id: int,
     delay_seconds: float,
     simulator: object | None = None,
@@ -440,7 +332,7 @@ async def _wait_between_ticks(
         elapsed = asyncio.get_running_loop().time() - started
         remaining = max(0.0, remaining - elapsed)
 
-        session = await _fetch_active_session(backend_url)
+        session = await client.fetch_active_session()
         if session is None:
             missed_polls += 1
             if missed_polls >= settings.simulator_control_miss_tolerance:
@@ -466,11 +358,11 @@ async def _wait_between_ticks(
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
             )
-            await _finish_session(backend_url, simulation_id, "completed")
+            await client.finish_session(simulation_id, "completed")
             return False
         if (
             status == "paused"
-            and await _wait_until_runnable(backend_url, simulation_id) is None
+            and await _wait_until_runnable(client, simulation_id) is None
         ):
             return False
     return True

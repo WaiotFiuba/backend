@@ -148,7 +148,7 @@ def main() -> None:
 
 
 def _deliver_to_backend(args, result) -> dict[str, object]:
-    from app.digital_twin.synthetic_data.transport.backend_http import (
+    from app.digital_twin.synthetic_data.transport.telemetry_sender import (
         BackendDeliveryError,
         StreamingInterrupted,
         send_result_batch,
