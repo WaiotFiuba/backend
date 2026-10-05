@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import get_settings
-from app.digital_twin.synthetic_data.domain.entities import SimulationSession
+from app.digital_twin.synthetic_data.domain.entities import (
+    SimulationSession,
+    SimulationStatus,
+)
 from app.digital_twin.synthetic_data.loaders.backend_http import (
     load_topology_from_backend_api,
 )
@@ -18,10 +21,6 @@ from app.digital_twin.synthetic_data.transport.session_client import (
 )
 from app.digital_twin.synthetic_data.transport.telemetry_sender import (
     deliver_tick_measurements,
-)
-from app.services.simulation_control_service import (
-    ACTIVE_STATUSES,
-    effective_multiplier,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,9 +70,9 @@ async def run_worker() -> None:
             continue
 
         if active_session is None or active_session.status not in (
-            "pending",
-            "running",
-            "paused",
+            SimulationStatus.PENDING,
+            SimulationStatus.RUNNING,
+            SimulationStatus.PAUSED,
         ):
             await asyncio.sleep(settings.simulator_poll_seconds)
             continue
@@ -105,7 +104,9 @@ async def _run_session(
         simulator.initialize()
 
         # Marcar la sesión como running en el backend tras completar la carga e inicialización
-        await client.update_progress(simulation_id, {"status": "running"})
+        await client.update_progress(
+            simulation_id, {"status": SimulationStatus.RUNNING}
+        )
 
         previous_controls: ControlSnapshot | None = None
 
@@ -122,18 +123,10 @@ async def _run_session(
             )
             simulated_time = _as_utc(simulated_time)
 
-            global_multiplier = effective_multiplier(
-                session_state.global_demand_current,
-                session_state.global_demand_target,
-                simulated_time,
-                _parse_iso(session_state.started_at),
-                _parse_iso(session_state.finished_at),
-            )
-
             overrides = session_state.zone_overrides
             controls = ControlSnapshot(
                 speedup=session_state.speedup,
-                global_current=global_multiplier,
+                global_current=session_state.global_demand_current,
                 global_target=session_state.global_demand_target,
                 zones=tuple(
                     sorted(
@@ -243,14 +236,16 @@ async def _run_session(
             ):
                 break
         else:
-            await client.finish_session(simulation_id, "completed")
+            await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
             logger.info("Simulacion %s completada.", simulation_id)
     except asyncio.CancelledError:
-        await client.finish_session(simulation_id, "failed", "Worker cancelado.")
+        await client.finish_session(
+            simulation_id, SimulationStatus.FAILED, "Worker cancelado."
+        )
         raise
     except Exception as exc:
         logger.exception("La simulacion %s fallo.", simulation_id)
-        await client.finish_session(simulation_id, "failed", str(exc))
+        await client.finish_session(simulation_id, SimulationStatus.FAILED, str(exc))
 
 
 async def _wait_until_runnable(
@@ -283,22 +278,23 @@ async def _wait_until_runnable(
             return None
         missed_polls = 0
         status = session.status
-        if status == "stopping":
+        if status == SimulationStatus.STOPPING:
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
             )
-            await client.finish_session(simulation_id, "completed")
+            await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
             return None
-        if status in ("running", "pending"):
-            if status == "pending":
-                await client.update_progress(simulation_id, {"status": "running"})
-                session.status = "running"
+        if status in (SimulationStatus.RUNNING, SimulationStatus.PENDING):
+            if status == SimulationStatus.PENDING:
+                await client.update_progress(
+                    simulation_id, {"status": SimulationStatus.RUNNING}
+                )
             if paused_logged:
                 logger.info("Simulacion %s reanudada.", simulation_id)
             return session
-        if status not in ACTIVE_STATUSES:
+        if status.is_finished:
             return None
-        if status == "paused" and not paused_logged:
+        if status == SimulationStatus.PAUSED and not paused_logged:
             logger.info("Simulacion %s pausada.", simulation_id)
             paused_logged = True
         await asyncio.sleep(settings.simulator_poll_seconds)
@@ -354,29 +350,18 @@ async def _wait_between_ticks(
             return False
         missed_polls = 0
         status = session.status
-        if status == "stopping":
+        if status == SimulationStatus.STOPPING:
             logger.info(
                 "Simulacion %s detenida por solicitud de control.", simulation_id
             )
-            await client.finish_session(simulation_id, "completed")
+            await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
             return False
         if (
-            status == "paused"
+            status == SimulationStatus.PAUSED
             and await _wait_until_runnable(client, simulation_id) is None
         ):
             return False
     return True
-
-
-def _parse_iso(value: str | datetime | None) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return _as_utc(value)
-    try:
-        return _as_utc(datetime.fromisoformat(str(value)))
-    except (ValueError, TypeError):
-        return None
 
 
 def _log_control_change(

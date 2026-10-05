@@ -7,7 +7,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from app.digital_twin.synthetic_data.domain.entities import SimulationSession
+from app.digital_twin.synthetic_data.domain.entities import (
+    SimulationSession,
+    SimulationStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,10 @@ class SimulationSessionClient:
         )
 
     async def finish_session(
-        self, simulation_id: int, status: str, error_message: str | None = None
+        self,
+        simulation_id: int,
+        status: SimulationStatus,
+        error_message: str | None = None,
     ) -> None:
         await asyncio.to_thread(
             _request_json,
