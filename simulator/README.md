@@ -310,7 +310,7 @@ La especificación interactiva está disponible en `http://localhost:8000/docs`.
 
 | Variable | Default | Uso |
 | --- | --- | --- |
-| `SIMULATOR_BACKEND_URL` | `http://api:8000` | URL interna utilizada por el worker |
+| `BACKEND_URL` | `http://api:8000` | URL interna utilizada por el worker |
 | `SIMULATOR_POLL_SECONDS` | `2` | Frecuencia de consulta de sesión y controles |
 | `SIMULATOR_BATCH_SIZE` | `250` | Mediciones enviadas por request |
 | `SIMULATOR_CONTAINER_LIMIT` | sin límite | Cantidad máxima de contenedores que el worker carga en la topología |

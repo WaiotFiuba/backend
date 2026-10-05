@@ -70,7 +70,7 @@ services:
     env_file:
       - .env
     environment:
-      SIMULATOR_BACKEND_URL: http://api:8000
+      BACKEND_URL: http://api:8000
     volumes:
       - ./app:/app/app
       - ./simulator:/app/simulator

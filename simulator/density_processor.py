@@ -13,7 +13,7 @@ from shapely.geometry import Point
 from shapely.ops import transform as shapely_transform
 from shapely.strtree import STRtree
 
-from app.core.config import get_settings
+from simulator.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

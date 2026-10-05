@@ -3,7 +3,7 @@ import itertools
 import logging
 from datetime import UTC, datetime, timedelta
 
-from app.core.config import get_settings
+from simulator.config.settings import get_settings
 from simulator.domain.entities import (
     SimulationSession,
     SimulationStatus,
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 async def run_worker() -> None:
     settings = get_settings()
-    client = SimulationSessionClient(settings.simulator_backend_url)
+    client = SimulationSessionClient(settings.backend_url)
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
     first_wait = True
     while True:
@@ -37,7 +37,7 @@ async def run_worker() -> None:
         if first_wait:
             logger.info(
                 "Esperando a que el backend de la API finalice su inicialización en %s...",
-                settings.simulator_backend_url,
+                settings.backend_url,
             )
             first_wait = False
         await asyncio.sleep(settings.simulator_poll_seconds)
@@ -72,7 +72,7 @@ async def _run_session(
         config = scenario_from_mapping(session.scenario)
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
-            settings.simulator_backend_url,
+            settings.backend_url,
             "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
             settings.simulator_container_limit,
         )
@@ -125,7 +125,7 @@ async def _run_session(
             # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
             await deliver_tick_measurements(
                 tick.measurements,
-                settings.simulator_backend_url,
+                settings.backend_url,
                 settings.simulator_batch_size,
             )
 
