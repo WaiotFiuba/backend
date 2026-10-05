@@ -32,6 +32,8 @@ class SiteMapOutputSchema(BaseModel):
     waste_type_name: str | None = None
     waste_type_color: str | None = None
     container_count: int = 0
+    max_containers: int | None = None
+    puede_ingresar: bool | None = None
     last_reading: datetime | None = None
     last_pickup: datetime | None = None
     updated_at: datetime

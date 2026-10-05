@@ -23,6 +23,7 @@ from app.models.map.data_level import DataLevel
 from app.models.map.optimization import RedistributionPlan as RedistributionPlanModel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
+from app.services.map.site_capacity_service import get_site_capacity_service
 from app.schemas.map.optimization import (
     OptimizationConfig,
     OptimizationMetricsResponse,
@@ -181,11 +182,37 @@ async def compute_site_utilization_metrics(
     # Construir métricas por sitio
     site_metrics: list[SiteUtilizationMetric] = []
     category_counts: dict[str, int] = defaultdict(int)
+    capacity_service = get_site_capacity_service()
 
     for row in site_rows:
         sid = row.id
         container_count = int(row.container_count or 0)
         if container_count == 0:
+            max_cap, puede_ingresar = capacity_service.evaluate_site(
+                row.latitude, row.longitude, container_count
+            )
+            site_metrics.append(
+                SiteUtilizationMetric(
+                    site_id=sid,
+                    site_name=row.name,
+                    latitude=row.latitude,
+                    longitude=row.longitude,
+                    container_count=0,
+                    max_containers=max_cap,
+                    puede_ingresar=puede_ingresar,
+                    waste_type_id=row.waste_type_id,
+                    waste_type_name=row.waste_type_name,
+                    container_type_id=row.container_type_id,
+                    container_type_name=ct_names.get(row.container_type_id),
+                    avg_fill_level=0.0,
+                    peak_fill_rate=0.0,
+                    overflow_frequency=0,
+                    time_to_full_hours=None,
+                    utilization_score=0.0,
+                    category="idle",
+                )
+            )
+            category_counts["idle"] += 1
             continue
 
         dl_metrics = metrics_by_site.get(sid, {})
@@ -206,6 +233,10 @@ async def compute_site_utilization_metrics(
         category = _classify(utilization_score)
         category_counts[category] += 1
 
+        max_cap, puede_ingresar = capacity_service.evaluate_site(
+            row.latitude, row.longitude, container_count
+        )
+
         site_metrics.append(
             SiteUtilizationMetric(
                 site_id=sid,
@@ -213,6 +244,8 @@ async def compute_site_utilization_metrics(
                 latitude=row.latitude,
                 longitude=row.longitude,
                 container_count=container_count,
+                max_containers=max_cap,
+                puede_ingresar=puede_ingresar,
                 waste_type_id=row.waste_type_id,
                 waste_type_name=row.waste_type_name,
                 container_type_id=row.container_type_id,
@@ -361,15 +394,29 @@ async def generate_redistribution_plan(
     demand: dict[int, int] = {}
     for r in receivers:
         if r.container_count <= 0:
-            continue
-        d = max(
-            1,
-            math.ceil(
-                r.container_count
-                * (r.utilization_score / config.target_utilization - 1)
-            ),
-        )
-        demand[r.site_id] = d
+            needed = 1
+        else:
+            needed = max(
+                1,
+                math.ceil(
+                    r.container_count
+                    * (r.utilization_score / config.target_utilization - 1)
+                ),
+            )
+        if (
+            getattr(config, "apply_capacity_constraints", True)
+            and getattr(r, "max_containers", None) is not None
+        ):
+            max_cap = r.max_containers
+            cupo_libre = max(0, max_cap - r.container_count)
+            if cupo_libre <= 0:
+                continue
+            d = min(needed, cupo_libre)
+        else:
+            d = needed
+
+        if d > 0:
+            demand[r.site_id] = d
 
     # 5. Resolver con el algoritmo elegido
     if config.algorithm == "lp":
