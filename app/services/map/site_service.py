@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import Numeric, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
+from simulator.simulation.scenario import scenario_from_mapping
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
@@ -20,10 +20,9 @@ from app.schemas.map.site import (
     SiteLevelHistory,
     SiteLevelHistoryPoint,
     SiteMapOutputSchema,
-    SiteMapSnapshot,
 )
 from app.services.map.container_service import _zoom_to_grid_size
-from app.services.simulation_control_service import get_active_simulation_session
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -251,19 +250,23 @@ async def get_sites_clustered(
             _build_site_map_output(r, containers_by_site.get(r.id, [])) for r in rows
         ]
 
-    # Nivel de zoom bajo (< 16): Clusters espaciales agregados
+    # Nivel de zoom bajo (< 17): Clusters espaciales agregados
     # Agrupamos por grilla espacial pero calculamos el CENTROIDE REAL de los sitios
     grid_lat = func.round(cast(Site.latitude / grid_size, Numeric), 0) * grid_size
     grid_lng = func.round(cast(Site.longitude / grid_size, Numeric), 0) * grid_size
+
+    calc_cluster_level = (
+        func.coalesce(func.max(c_level), 0)
+        if level_aggregation == "max"
+        else func.coalesce(func.round(cast(func.avg(c_level), Numeric), 0), 0)
+    )
 
     stmt_cluster = (
         select(
             func.avg(Site.latitude).label("cluster_lat"),
             func.avg(Site.longitude).label("cluster_lng"),
-            func.count(func.distinct(Site.id)).label("site_count"),
-            func.coalesce(func.round(cast(func.avg(c_level), Numeric), 0), 0).label(
-                "avg_level"
-            ),
+            func.count(c_id).label("container_count"),
+            calc_cluster_level.label("avg_level"),
             func.coalesce(func.max(c_level), 0).label("max_level"),
             func.coalesce(func.sum(case((c_available.is_(True), 1), else_=0)), 0).label(
                 "available_count"
@@ -293,51 +296,13 @@ async def get_sites_clustered(
             cluster_id=f"site_cluster_{float(r.cluster_lat):.5f}_{float(r.cluster_lng):.5f}",
             latitude=float(r.cluster_lat),
             longitude=float(r.cluster_lng),
-            count=int(r.site_count),
+            count=int(r.container_count),
             avg_level=float(r.avg_level),
             max_level=float(r.max_level),
             available_count=int(r.available_count),
         )
         for r in cluster_rows
     ]
-
-
-async def get_site_map_snapshot(
-    db: AsyncSession,
-    level_aggregation: Literal["avg", "max"] = "avg",
-) -> SiteMapSnapshot:
-    latest_cursor = await get_latest_cursor(db)
-
-    stmt = (
-        select(
-            Site.id,
-            Site.name,
-            Site.address,
-            Site.latitude,
-            Site.longitude,
-            Site.load_side_category,
-            Site.waste_type_id,
-            Site.updated_at,
-            WasteType.name.label("waste_type_name"),
-            WasteType.color.label("waste_type_color"),
-            _level_expr(level_aggregation).label("current_level"),
-            func.count(Container.id).label("container_count"),
-            func.max(Container.last_reading).label("last_reading"),
-            func.max(Container.last_pickup).label("last_pickup"),
-            func.coalesce(func.bool_or(Container.available), True).label("available"),
-        )
-        .outerjoin(Container, Container.site_id == Site.id)
-        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
-        .where(Site.deleted_at.is_(None))
-        .group_by(Site.id, WasteType.name, WasteType.color)
-        .order_by(Site.id)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    sites = [_build_site_map_output(r) for r in rows]
-
-    return SiteMapSnapshot(sites=sites, latest_cursor=latest_cursor, total=len(sites))
 
 
 async def get_site_changes(

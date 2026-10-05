@@ -52,12 +52,6 @@ class SiteCluster(BaseModel):
     available_count: int
 
 
-class SiteMapSnapshot(BaseModel):
-    sites: list[SiteMapOutputSchema]
-    latest_cursor: int
-    total: int
-
-
 class SiteChanges(BaseModel):
     sites: list[SiteMapOutputSchema]
     latest_cursor: int

@@ -19,7 +19,9 @@ class SiteCapacityService:
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 )
             )
-            csv_path = os.path.join(base_dir, "datos", "restricciones_contenedores.csv")
+            csv_path = os.path.join(
+                base_dir, "datos", "digital_twin", "restricciones_contenedores.csv"
+            )
 
         self.csv_path = csv_path
         self._indice_espacial_tramos: Optional[STRtree] = None
@@ -76,16 +78,17 @@ class SiteCapacityService:
         self,
         latitude: float | None,
         longitude: float | None,
-        current_containers: int = 0,
-        default_cap: int = 2,
+        current_containers: int = 1,
+        default_cap: int = 1,
     ) -> Tuple[int | None, bool]:
         if not self.is_active:
             # Si el archivo no existe o no se cargó, no se limita la capacidad en absoluto
             return None, True
 
+        cont_actuales = max(1, current_containers)
+
         if latitude is None or longitude is None:
-            capacidad_maxima = default_cap
-            return capacidad_maxima, capacidad_maxima > current_containers
+            return None, False
 
         try:
             coord_x_utm, coord_y_utm = self._conversor_wgs84_a_utm(longitude, latitude)
@@ -96,38 +99,39 @@ class SiteCapacityService:
                 punto_sitio_utm.buffer(35.0)
             )
 
-            if len(indices_tramos_candidatos) == 0:
-                capacidad_maxima_permitida = default_cap
+            # Validar distancia euclidiana real <= 35m
+            candidatos_validos = [
+                (idx, self._geometrias_tramos_utm[idx].distance(punto_sitio_utm))
+                for idx in indices_tramos_candidatos
+                if self._geometrias_tramos_utm[idx].distance(punto_sitio_utm) <= 35.0
+            ]
+
+            if not candidatos_validos:
+                return cont_actuales, False
+
+            # En una esquina existen tramos para ambas márgenes e intersecciones contiguas (<= 25m).
+            # Tomamos la capacidad del tramo habilitado más favorable en la esquina.
+            contiguos = [idx for idx, dist in candidatos_validos if dist <= 25.0]
+
+            if contiguos:
+                capacidad_tramo = max(
+                    self._capacidades_maximas_tramos[idx] for idx in contiguos
+                )
             else:
-                # En una esquina existen tramos para ambas márgenes e intersecciones contiguas (<= 25m).
-                # Tomamos la capacidad del tramo habilitado más favorable en la esquina.
-                indices_tramos_contiguos = [
-                    idx
-                    for idx in indices_tramos_candidatos
-                    if self._geometrias_tramos_utm[idx].distance(punto_sitio_utm)
-                    <= 25.0
-                ]
+                idx_mas_cercano = min(candidatos_validos, key=lambda x: x[1])[0]
+                capacidad_tramo = self._capacidades_maximas_tramos[idx_mas_cercano]
 
-                if indices_tramos_contiguos:
-                    capacidad_maxima_permitida = max(
-                        self._capacidades_maximas_tramos[idx]
-                        for idx in indices_tramos_contiguos
-                    )
-                else:
-                    indice_tramo_mas_cercano = min(
-                        indices_tramos_candidatos,
-                        key=lambda idx: self._geometrias_tramos_utm[idx].distance(
-                            punto_sitio_utm
-                        ),
-                    )
-                    capacidad_maxima_permitida = self._capacidades_maximas_tramos[
-                        indice_tramo_mas_cercano
-                    ]
+            if capacidad_tramo <= 0:
+                capacidad_maxima = cont_actuales
+                tiene_cupo = False
+            else:
+                capacidad_maxima = max(1, capacidad_tramo)
+                tiene_cupo = capacidad_maxima > current_containers
+
+            return capacidad_maxima, tiene_cupo
+
         except Exception:
-            capacidad_maxima_permitida = default_cap
-
-        tiene_cupo_disponible = capacidad_maxima_permitida > current_containers
-        return capacidad_maxima_permitida, tiene_cupo_disponible
+            return cont_actuales, False
 
     def get_capacity_for_coordinates(
         self, latitude: float | None, longitude: float | None, default_cap: int = 2

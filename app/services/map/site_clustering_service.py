@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -176,21 +177,30 @@ class StreetSpatialIndex:
         return self.infer_load_side_batch([lon], [lat])[0]
 
 
+def _get_meters_per_degree(avg_lat: float) -> tuple[float, float]:
+    """Retorna (meters_per_lat, meters_per_lon) calculados geodésicamente para cualquier latitud."""
+    meters_per_lat = 111320.0
+    meters_per_lon = 111320.0 * max(0.01, math.cos(math.radians(avg_lat)))
+    return meters_per_lat, meters_per_lon
+
+
 def _spatial_cluster(
     containers: list[Container], distance_threshold_m: float = 20.0
 ) -> list[list[Container]]:
     """
     Agrupamiento espacial por proximidad métrica mediante Spatial Grid Hashing (O(N)).
-    1 grado latitud ~ 111.000m en CABA.
-    1 grado longitud ~ 91.400m en CABA.
+    Calcula distancias geodésicas dinámicas según la latitud media (válido para cualquier ciudad).
     """
     if not containers:
         return []
     if len(containers) == 1:
         return [containers]
 
-    cell_lat_deg = distance_threshold_m / 111000.0
-    cell_lon_deg = distance_threshold_m / 91400.0
+    avg_lat = sum(c.latitude for c in containers) / len(containers)
+    meters_per_lat, meters_per_lon = _get_meters_per_degree(avg_lat)
+
+    cell_lat_deg = distance_threshold_m / meters_per_lat
+    cell_lon_deg = distance_threshold_m / meters_per_lon
 
     grid: dict[tuple[int, int], list[Container]] = {}
     for c in containers:
@@ -217,8 +227,8 @@ def _spatial_cluster(
                 neighbor_cell = (gx + dx, gy + dy)
                 for other in grid.get(neighbor_cell, []):
                     if other.id not in visited:
-                        dy_m = (c.latitude - other.latitude) * 111000.0
-                        dx_m = (c.longitude - other.longitude) * 91400.0
+                        dy_m = (c.latitude - other.latitude) * meters_per_lat
+                        dx_m = (c.longitude - other.longitude) * meters_per_lon
                         dist_sq = dx_m * dx_m + dy_m * dy_m
                         if dist_sq <= threshold_sq:
                             current_cluster.append(other)
@@ -241,9 +251,12 @@ def _split_by_distance(
     if len(containers) <= 1:
         return [containers]
 
-    from app.digital_twin.synthetic_data.generators.street_pairing import (
+    from app.services.map.street_pairing import (
         parse_street_address,
     )
+
+    avg_lat = sum(c.latitude for c in containers) / len(containers)
+    meters_per_lat, meters_per_lon = _get_meters_per_degree(avg_lat)
 
     # Extraer números de calle si están disponibles
     numbers = []
@@ -271,8 +284,8 @@ def _split_by_distance(
             for j in range(n):
                 if not visited[j]:
                     c_other = containers[j]
-                    dy_m = (c_curr.latitude - c_other.latitude) * 111000.0
-                    dx_m = (c_curr.longitude - c_other.longitude) * 91400.0
+                    dy_m = (c_curr.latitude - c_other.latitude) * meters_per_lat
+                    dx_m = (c_curr.longitude - c_other.longitude) * meters_per_lon
                     dist_sq = dx_m * dx_m + dy_m * dy_m
 
                     # Verificar distancia espacial (<= 100m)
@@ -317,16 +330,23 @@ async def cluster_and_create_sites(
     Agrupa todos los contenedores por cercanía física real (<= distance_threshold_m)
     y por tipo de residuo/contenedor, creando los Sitios físicos correspondientes.
     """
-    if calles_path is None:
-        calles_path = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "db"
-            / "datos"
-            / "calles.geojson"
-        )
+    has_streets = False
+    if calles_path:
+        cp = Path(calles_path)
+        if cp.exists() and cp.is_file():
+            has_streets = True
+            calles_path = cp
 
-    print(f" -> Construyendo índice espacial de calles desde {calles_path}...")
-    street_index = StreetSpatialIndex.from_geojson(calles_path)
+    if has_streets:
+        print(
+            f" -> [Nivel 2] Construyendo índice espacial de calles desde {calles_path}..."
+        )
+        street_index = StreetSpatialIndex.from_geojson(calles_path)
+    else:
+        street_index = None
+        print(
+            f" -> [Nivel 3] Sin archivo de calles. Ejecutando clustering métrico universal (<= {distance_threshold_m}m)..."
+        )
 
     # 1. Cargar todos los contenedores con sus tipos de contenedor y residuo
     print(" -> Consultando contenedores de la base de datos...")
@@ -357,26 +377,33 @@ async def cluster_and_create_sites(
     all_cluster_items: list[tuple[int | None, str, list[Container]]] = []
 
     for (w_id, ct_id), c_list in groups_by_type.items():
-        first_c = c_list[0]
-        is_bilateral = _is_bilateral_container_type(first_c.container_type)
+        if street_index is not None:
+            first_c = c_list[0]
+            is_bilateral = _is_bilateral_container_type(first_c.container_type)
 
-        c_lons = [c.longitude for c in c_list]
-        c_lats = [c.latitude for c in c_list]
-        seg_indices = street_index.get_street_segment_indices_batch(c_lons, c_lats)
-        sides = street_index.infer_load_side_batch(c_lons, c_lats)
+            c_lons = [c.longitude for c in c_list]
+            c_lats = [c.latitude for c in c_list]
+            seg_indices = street_index.get_street_segment_indices_batch(c_lons, c_lats)
+            sides = street_index.infer_load_side_batch(c_lons, c_lats)
 
-        cuadra_subgroups: dict[tuple[int, str], list[Container]] = {}
-        for c, seg_idx, side in zip(c_list, seg_indices, sides):
-            is_ave = street_index.is_avenida_segment(seg_idx)
-            # Contenedores bilaterales en calles comunes: no importa el lado de la acera (BILATERAL)
-            # En avenidas (por doble flujo o bulevar) o para carga lateral: se separan por acera (IZQUIERDA/DERECHA)
-            final_side = "BILATERAL" if (is_bilateral and not is_ave) else side
-            cuadra_subgroups.setdefault((seg_idx, final_side), []).append(c)
+            cuadra_subgroups: dict[tuple[int, str], list[Container]] = {}
+            for c, seg_idx, side in zip(c_list, seg_indices, sides):
+                is_ave = street_index.is_avenida_segment(seg_idx)
+                final_side = "BILATERAL" if (is_bilateral and not is_ave) else side
+                cuadra_subgroups.setdefault((seg_idx, final_side), []).append(c)
 
-        for (seg_idx, side), sub_cluster in cuadra_subgroups.items():
-            # Si entre contenedores hay más de 100m de distancia, se dividen en sitios diferentes
-            for split_cluster in _split_by_distance(sub_cluster, max_distance_m=100.0):
-                all_cluster_items.append((w_id, side, split_cluster))
+            for (seg_idx, side), sub_cluster in cuadra_subgroups.items():
+                for split_cluster in _split_by_distance(
+                    sub_cluster, max_distance_m=100.0
+                ):
+                    all_cluster_items.append((w_id, side, split_cluster))
+        else:
+            # Nivel 3: Agrupamiento métrico puro por proximidad espacial
+            metric_clusters = _spatial_cluster(
+                c_list, distance_threshold_m=distance_threshold_m
+            )
+            for split_cluster in metric_clusters:
+                all_cluster_items.append((w_id, "DESCONOCIDO", split_cluster))
 
     if not all_cluster_items:
         return 0

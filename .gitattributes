@@ -1,0 +1,26 @@
+# Enforce LF line endings for all text files across all operating systems
+* text=auto eol=lf
+
+# Explicit text files
+*.py text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.json text eol=lf
+*.geojson text eol=lf
+*.csv text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.env* text eol=lf
+Dockerfile* text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary

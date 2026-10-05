@@ -4,8 +4,8 @@ from functools import lru_cache
 
 from shapely.geometry import mapping
 
-from app.digital_twin.synthetic_data.density_processor import get_density_processor
-from app.digital_twin.synthetic_data.zone_classifier import get_zone_classifier
+from simulator.density_processor import get_density_processor
+from simulator.zone_classifier import get_zone_classifier
 
 
 @lru_cache
