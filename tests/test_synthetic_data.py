@@ -8,10 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
 from simulator.exporters.files import export_simulation
-from simulator.loaders.backend_http import (
-    BackendConnectionError,
-    load_topology_from_backend_api,
-)
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import (
     ScenarioConfig,
@@ -29,6 +25,10 @@ from simulator.transport.telemetry_sender import (
     send_measurements_batch,
     send_result_batch,
     stream_result,
+)
+from simulator.transport.topology_client import (
+    BackendConnectionError,
+    load_topology_from_backend_api,
 )
 from simulator.worker import (
     _remaining_tick_delay,
@@ -291,7 +291,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "simulator.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=URLError("[Errno 111] Connection refused"),
         ):
             with self.assertRaises(BackendConnectionError) as context:
@@ -318,7 +318,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         ]
 
         with patch(
-            "simulator.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=responses,
         ) as urlopen_mock:
             topology = load_topology_from_backend_api("http://backend", page_size=1)

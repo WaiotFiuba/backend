@@ -186,7 +186,7 @@ def _load_backend_topology(
     limit: int | None,
     token: str | None,
 ):
-    from simulator.loaders.backend_http import (
+    from simulator.transport.topology_client import (
         BackendConnectionError,
         load_topology_from_backend_api,
     )

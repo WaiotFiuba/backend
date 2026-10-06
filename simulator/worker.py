@@ -11,9 +11,6 @@ from simulator.domain.entities import (
     SimulationStatus,
 )
 from simulator.exporters.zone_profiles import build_zone_profiles_geojson
-from simulator.loaders.backend_http import (
-    load_topology_from_backend_api,
-)
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import scenario_from_mapping, scenario_to_record
@@ -22,6 +19,9 @@ from simulator.transport.session_client import (
 )
 from simulator.transport.telemetry_sender import (
     deliver_tick_measurements,
+)
+from simulator.transport.topology_client import (
+    load_topology_from_backend_api,
 )
 from simulator.zone_classifier import reload_zone_classifier
 
