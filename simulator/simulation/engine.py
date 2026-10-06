@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
-from simulator.zone_classifier import get_zone_classifier
+from simulator.zone_classifier import ZoneProfile, get_zone_classifier
 from simulator.domain.entities import (
     Alarm,
     CollectionEvent,
@@ -51,6 +51,37 @@ class SimulationState:
     reading_offsets: dict[str, int]
     stuck_distances: dict[str, float]
     opposing_site_by_site_id: dict[str, str]
+
+
+def _calibration_factor(profiles: list[ZoneProfile]) -> float:
+    """Factor fijo que lleva la media semanal de zone_mult a target_zone_mult
+    (zone_profiles.yaml) si se sale de target ± tolerance_pct; si no, 1.
+
+    La curva horaria y semanal de cada perfil tiene media 1 en la semana
+    (ZoneProfile.temporal_normalization_factor), así que la media semanal de
+    zone_mult es la media de los demand_multiplier. Se calcula una vez por
+    simulación: normalizar la media de cada tick aplanaba la curva horaria de
+    toda la ciudad (la madrugada generaba lo mismo que la noche).
+    """
+    zone_classifier = get_zone_classifier()
+    if not profiles:
+        return 1.0
+    weekly_mean = sum(p.demand_multiplier for p in profiles) / len(profiles)
+    target = zone_classifier.calibration_target
+    tol = zone_classifier.calibration_tolerance_pct / 100.0
+    lower, upper = target * (1.0 - tol), target * (1.0 + tol)
+    factor = 1.0
+    if weekly_mean > 0.0 and not (lower <= weekly_mean <= upper):
+        factor = target / weekly_mean
+    logger.info(
+        "Calibración global: media semanal de zone_mult=%.4f, rango [%.4f, %.4f], "
+        "factor=%.4f.",
+        weekly_mean,
+        lower,
+        upper,
+        factor,
+    )
+    return factor
 
 
 class SyntheticDataSimulator:
@@ -252,6 +283,7 @@ class SyntheticDataSimulator:
             state._cached_heights = np.array(heights, dtype=np.float64)
             state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
             state._cached_zone_profiles = zone_profiles
+            state._cached_calibration_factor = _calibration_factor(zone_profiles)
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
             state._cached_id_to_index = id_to_idx
@@ -285,7 +317,6 @@ class SyntheticDataSimulator:
 
         # Base automática: cada sitio usa su ZoneProfile cacheado (zone_type +
         # curva horaria/semanal propia), evaluado con la hora/día de este tick.
-        zone_classifier = get_zone_classifier()
         zone_mults = np.array(
             [
                 profile.effective_multiplier(timestamp.hour, timestamp.weekday())
@@ -294,24 +325,9 @@ class SyntheticDataSimulator:
             dtype=np.float64,
         )
 
-        # Calibración global: si la media se sale del rango target ± tolerance_pct
-        # (zone_profiles.yaml), renormaliza para que el volumen agregado tienda a
-        # target_zone_mult × 1.5 kg/habitante/día (fuente CEAMSE/INDEC).
-        current_mean = float(zone_mults.mean())
-        target = zone_classifier.calibration_target
-        tol = zone_classifier.calibration_tolerance_pct / 100.0
-        lower = target * (1.0 - tol)
-        upper = target * (1.0 + tol)
-        if current_mean > 0.0 and not (lower <= current_mean <= upper):
-            logger.warning(
-                "zone_mults media=%.4f fuera del rango [%.4f, %.4f]. "
-                "Normalizando al target=%.4f.",
-                current_mean,
-                lower,
-                upper,
-                target,
-            )
-            zone_mults = zone_mults * (target / current_mean)
+        # Calibración global: factor fijo de toda la simulación (ver
+        # _calibration_factor), para no aplanar la curva horaria de la ciudad.
+        zone_mults = zone_mults * state._cached_calibration_factor
 
         if zone_multiplier:
             # Ajuste manual por zona (override del front): multiplica sobre la
