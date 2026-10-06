@@ -77,6 +77,13 @@ class SimulationFinish(BaseModel):
     error_message: str | None = None
 
 
+class ZoneProfileLayerPayload(BaseModel):
+    """Capa GeoJSON de perfiles de zona que publica el simulador."""
+
+    type: Literal["FeatureCollection"]
+    features: list[dict]
+
+
 class SimulationZoneState(BaseModel):
     neighborhood: str
     multiplier_current: float

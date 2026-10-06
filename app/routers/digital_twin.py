@@ -21,8 +21,10 @@ from app.schemas.digital_twin import (
     TelemetryIngestPayload,
     TelemetryIngestResult,
     ZoneDemandRead,
+    ZoneProfileLayerPayload,
 )
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
+from app.services.map.zone_profile_service import save_zone_profiles_geojson
 from app.services.simulation_session_service import (
     create_saved_configuration,
     create_simulation,
@@ -328,6 +330,18 @@ async def worker_finish_simulation(
         status=payload.status,
         error_message=payload.error_message,
     )
+
+
+@router.put("/worker/simulations/{simulation_id}/zone-profiles")
+async def worker_publish_zone_profiles(
+    simulation_id: int,
+    payload: ZoneProfileLayerPayload,
+    db: MapDbDep,
+) -> dict[str, int]:
+    """El simulador publica la capa de perfiles de zona con la que corre la
+    sesion (segun su zone_profiles.yaml). Reemplaza la capa anterior."""
+    features = await save_zone_profiles_geojson(db, simulation_id, payload.model_dump())
+    return {"features": features}
 
 
 def _log_telemetry_ingest(mode: str, result: TelemetryIngestResult) -> None:

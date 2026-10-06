@@ -444,7 +444,7 @@ async def _seed_container_source(
         if container_type is None:
             raise RuntimeError(
                 f"Falta el tipo de contenedor '{type_target}'. "
-                "Revisá db/datos/container_types.json y volvé a ejecutar la siembra."
+                "Revisá datos/digital_twin/container_types.json y volvé a ejecutar la siembra."
             )
 
         # Si el contenedor ya viene con sitio preagrupado en el archivo

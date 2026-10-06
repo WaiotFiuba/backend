@@ -1,13 +1,13 @@
 """
-app/commands/process_land_use.py
-────────────────────────────────
+simulator/demography/commands/process_land_use.py
+─────────────────────────────────────────────────
 Comando para procesar el relevamiento de usos del suelo de BA Data,
 geocodificar las parcelas utilizando la traza de calles (desde PostGIS o fallback GeoJSON),
 asignarlas a sus radios censales y derivar perfiles de demanda para el simulador.
 
 Orden de ingesta:
   1. PostGIS (tabla 'calles') si la base de datos está disponible.
-  2. Fallback offline a 'db/datos/calles.geojson'.
+  2. Fallback offline a 'datos/digital_twin/calles.geojson'.
 
 Lee los umbrales y multiplicadores base desde:
   simulator/config/zone_profiles.yaml
@@ -36,7 +36,8 @@ from shapely.strtree import STRtree
 
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+# Raiz del repo (simulator/demography/commands/ -> 3 niveles arriba de simulator/).
+ROOT = Path(__file__).resolve().parents[3]
 
 TITULOS_REGEX = re.compile(
     r"\b(AV|AVENIDA|CALLE|PASAJE|PJE|AUT|AUTOPISTA|BV|BOULEVARD|PQUE|PARQUE|DR|DRA|DOCTOR|DOCTORA|"
@@ -63,8 +64,12 @@ KNOWN_ALIASES = {
 
 def _resolve_file(filename: str) -> Path | None:
     candidates = [
+        ROOT / "datos" / "digital_twin" / filename,
+        ROOT / "datos" / "simulator" / "demography" / filename,
         ROOT / "db" / "datos" / filename,
         ROOT / "datos" / filename,
+        Path("/app/datos/digital_twin") / filename,
+        Path("/app/datos/simulator/demography") / filename,
         Path("/app/db/datos") / filename,
         Path("/app/datos") / filename,
         Path("/datos") / filename,
@@ -417,12 +422,12 @@ async def process_land_use_async(
     out_radio = (
         Path(output_radio_csv)
         if output_radio_csv
-        else (ROOT / "db" / "datos" / "land_use_by_radio.csv")
+        else (ROOT / "datos" / "simulator" / "land_use" / "land_use_by_radio.csv")
     )
     out_barrio = (
         Path(output_barrio_csv)
         if output_barrio_csv
-        else (ROOT / "db" / "datos" / "land_use_by_barrio.csv")
+        else (ROOT / "datos" / "simulator" / "land_use" / "land_use_by_barrio.csv")
     )
 
     if not land_use_path or not land_use_path.exists():
@@ -584,7 +589,9 @@ async def process_land_use_async(
             }
         )
 
-    for target_path in set([out_radio, ROOT / "datos" / "land_use_by_radio.csv"]):
+    for target_path in set(
+        [out_radio, ROOT / "datos" / "simulator" / "land_use" / "land_use_by_radio.csv"]
+    ):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
             "radio_code",
@@ -638,7 +645,12 @@ async def process_land_use_async(
             }
         )
 
-    for target_path in set([out_barrio, ROOT / "datos" / "land_use_by_barrio.csv"]):
+    for target_path in set(
+        [
+            out_barrio,
+            ROOT / "datos" / "simulator" / "land_use" / "land_use_by_barrio.csv",
+        ]
+    ):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
             "barrio",

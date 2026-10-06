@@ -101,17 +101,12 @@ def generate_all_schedules() -> dict:
     )
 
     candidates = [
-        Path(__file__).resolve().parent.parent
-        / "db"
-        / "datos"
-        / "contenedores_negros.json",
         Path(__file__).resolve().parent.parent.parent
-        / "backend"
-        / "db"
         / "datos"
+        / "digital_twin"
         / "contenedores_negros.json",
-        Path("/app/db/datos/contenedores_negros.json"),
-        Path("db/datos/contenedores_negros.json"),
+        Path("/app/datos/digital_twin/contenedores_negros.json"),
+        Path("datos/digital_twin/contenedores_negros.json"),
     ]
     json_path = next((p for p in candidates if p.exists()), None)
     all_sites = []

@@ -179,21 +179,17 @@ def generate_all_schedules() -> dict:
 
 
 def save_collection_schedule() -> None:
+    """Genera el cronograma y lo guarda en datos/simulator/routes/. Las demas
+    rutas de CANDIDATE_PATHS son solo respaldos de lectura."""
     schedules = generate_all_schedules()
-    saved = False
-    for cand in CANDIDATE_PATHS:
-        try:
-            cand.parent.mkdir(parents=True, exist_ok=True)
-            with open(cand, mode="w", encoding="utf-8") as f:
-                json.dump(schedules, f, indent=2, ensure_ascii=False)
-            logger.info("Cronograma guardado en %s", cand)
-            saved = True
-        except Exception:
-            continue
-    if not saved:
-        logger.warning(
-            "No se pudo guardar el cronograma en ninguna de las rutas candidatas."
-        )
+    target = CANDIDATE_PATHS[0]
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, mode="w", encoding="utf-8") as f:
+            json.dump(schedules, f, indent=2, ensure_ascii=False)
+        logger.info("Cronograma guardado en %s", target)
+    except OSError:
+        logger.warning("No se pudo guardar el cronograma en %s.", target)
 
 
 def load_collection_schedule() -> dict:

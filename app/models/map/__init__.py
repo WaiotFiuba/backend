@@ -21,6 +21,7 @@ from app.models.map.site_projection import (
     SiteProjectionRun,
 )
 from app.models.map.waste_type import WasteType
+from app.models.map.zone_profile_layer import ZoneProfileLayer
 
 __all__ = [
     "Barrio",
@@ -44,4 +45,5 @@ __all__ = [
     "SiteProjectionPoint",
     "SiteProjectionRun",
     "WasteType",
+    "ZoneProfileLayer",
 ]

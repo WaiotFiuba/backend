@@ -1,42 +1,40 @@
 from __future__ import annotations
 
-from functools import lru_cache
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from shapely.geometry import mapping
+from app.models.map.simulation import SimulationSession
+from app.models.map.zone_profile_layer import LATEST_LAYER_ID, ZoneProfileLayer
 
-from simulator.density_processor import get_density_processor
-from simulator.zone_classifier import get_zone_classifier
+EMPTY_LAYER: dict = {"type": "FeatureCollection", "features": []}
 
 
-@lru_cache
-def get_zone_profiles_geojson() -> dict:
-    """FeatureCollection con el polígono de cada radio censal de CABA y su
-    perfil de zona (zone_type, demand_multiplier, weekend_factor, curva
-    horaria/semanal). Se cachea porque surge de datos estáticos (CSV/YAML)
-    que no cambian durante la vida del proceso.
+async def get_zone_profiles_geojson(db: AsyncSession) -> dict:
+    """Ultima capa de perfiles de zona publicada por el simulador: poligono de
+    cada radio censal con su perfil de zona (zone_type, demand_multiplier,
+    weekend_factor, curva horaria/semanal). Vacia si todavia no corrio ninguna
+    simulacion.
     """
-    processor = get_density_processor()
-    classifier = get_zone_classifier()
+    layer = await db.get(ZoneProfileLayer, LATEST_LAYER_ID)
+    return layer.geojson if layer is not None else EMPTY_LAYER
 
-    features = []
-    for radio in processor.radios:
-        profile = classifier.get_profile_for_radio(radio.radio_code)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": mapping(radio.geometry),
-                "properties": {
-                    "radio_code": radio.radio_code,
-                    "barrio": profile.barrio,
-                    "department_name": radio.department_name,
-                    "population": radio.population,
-                    "zone_type": profile.zone_type,
-                    "demand_multiplier": round(profile.demand_multiplier, 3),
-                    "weekend_factor": round(profile.weekend_factor, 3),
-                    "hour_weights": profile.hour_weights,
-                    "weekday_factors": profile.weekday_factors,
-                },
-            }
+
+async def save_zone_profiles_geojson(
+    db: AsyncSession, simulation_id: int, geojson: dict
+) -> int:
+    """Guarda la capa que publica el simulador al iniciar una sesion,
+    reemplazando la anterior. Devuelve la cantidad de features."""
+    if await db.get(SimulationSession, simulation_id) is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    layer = await db.get(ZoneProfileLayer, LATEST_LAYER_ID)
+    if layer is None:
+        db.add(
+            ZoneProfileLayer(
+                id=LATEST_LAYER_ID, simulation_id=simulation_id, geojson=geojson
+            )
         )
-
-    return {"type": "FeatureCollection", "features": features}
+    else:
+        layer.simulation_id = simulation_id
+        layer.geojson = geojson
+    await db.commit()
+    return len(geojson.get("features", []))

@@ -46,6 +46,20 @@ class SimulationSessionClient:
             30.0,
         )
 
+    async def publish_zone_profiles(
+        self, simulation_id: int, layer: dict[str, object]
+    ) -> bool:
+        """Manda la capa de perfiles de zona de la sesion. Timeout largo: son
+        ~3 MB y el backend puede estar del otro lado de internet."""
+        res = await asyncio.to_thread(
+            _request_json,
+            self._url(f"simulations/{simulation_id}/zone-profiles"),
+            layer,
+            "PUT",
+            120.0,
+        )
+        return res is not None
+
     async def finish_session(
         self,
         simulation_id: int,

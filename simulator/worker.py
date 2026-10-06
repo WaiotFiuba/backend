@@ -4,10 +4,12 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from simulator.config.settings import get_settings
+from simulator.density_processor import get_density_processor
 from simulator.domain.entities import (
     SimulationSession,
     SimulationStatus,
 )
+from simulator.exporters.zone_profiles import build_zone_profiles_geojson
 from simulator.loaders.backend_http import (
     load_topology_from_backend_api,
 )
@@ -20,6 +22,7 @@ from simulator.transport.session_client import (
 from simulator.transport.telemetry_sender import (
     deliver_tick_measurements,
 )
+from simulator.zone_classifier import reload_zone_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,8 @@ async def _run_session(
     logger.info("Iniciando simulacion %s.", simulation_id)
     try:
         config = scenario_from_mapping(session.scenario)
+        # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla.
+        classifier = await asyncio.to_thread(reload_zone_classifier)
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.backend_url,
@@ -84,6 +89,17 @@ async def _run_session(
         )
         simulator = SyntheticDataSimulator(config, topology=topology)
         simulator.initialize()
+
+        # Publicar la capa de perfiles de zona con la que corre esta sesion, para
+        # el mapa del front. Si falla, la simulacion sigue igual.
+        layer = await asyncio.to_thread(
+            build_zone_profiles_geojson, get_density_processor(), classifier
+        )
+        if not await client.publish_zone_profiles(simulation_id, layer):
+            logger.warning(
+                "Simulacion %s: no se pudo publicar la capa de perfiles de zona.",
+                simulation_id,
+            )
 
         # Marcar la sesión como running en el backend tras completar la carga e inicialización
         await client.update_progress(

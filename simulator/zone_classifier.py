@@ -463,3 +463,14 @@ def get_zone_classifier() -> ZoneClassifier:
     if _cached_classifier is None:
         _cached_classifier = ZoneClassifier()
     return _cached_classifier
+
+
+def reload_zone_classifier() -> ZoneClassifier:
+    """Vuelve a crear el ZoneClassifier, releyendo zone_profiles.yaml.
+
+    El worker la llama al iniciar cada sesion, asi los cambios del YAML se
+    aplican en la simulacion siguiente sin reiniciar el proceso.
+    """
+    global _cached_classifier
+    _cached_classifier = ZoneClassifier()
+    return _cached_classifier
