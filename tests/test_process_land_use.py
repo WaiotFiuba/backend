@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simulator.demography.commands.process_land_use import process_land_use_async
+from simulator.demography.commands.process_land_use import (
+    ZONE_PROFILES_YAML,
+    process_land_use_async,
+)
+import simulator.zone_classifier as zone_classifier
 
 
 class TestProcessLandUseSkips(unittest.TestCase):
@@ -38,6 +42,19 @@ class TestProcessLandUseSkips(unittest.TestCase):
 
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(result["reason"], "land_use_csv_missing")
+
+
+class TestProcessLandUseConfig(unittest.TestCase):
+    def test_reads_the_same_zone_profiles_yaml_as_the_classifier(self):
+        # Antes apuntaba a app/digital_twin/synthetic_data/config/, que ya no
+        # existe, y caia en silencio a valores escritos en el codigo.
+        classifier_yaml = (
+            Path(zone_classifier.__file__).resolve().parent
+            / "config"
+            / "zone_profiles.yaml"
+        )
+        self.assertTrue(ZONE_PROFILES_YAML.exists())
+        self.assertEqual(ZONE_PROFILES_YAML.resolve(), classifier_yaml)
 
 
 if __name__ == "__main__":

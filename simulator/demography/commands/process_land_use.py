@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 # Raiz del repo (simulator/demography/commands/ -> 3 niveles arriba de simulator/).
 ROOT = Path(__file__).resolve().parents[3]
+# El mismo YAML de perfiles que usa el ZoneClassifier.
+ZONE_PROFILES_YAML = ROOT / "simulator" / "config" / "zone_profiles.yaml"
 
 TITULOS_REGEX = re.compile(
     r"\b(AV|AVENIDA|CALLE|PASAJE|PJE|AUT|AUTOPISTA|BV|BOULEVARD|PQUE|PARQUE|DR|DRA|DOCTOR|DOCTORA|"
@@ -406,18 +408,7 @@ async def process_land_use_async(
         Path(radios_csv) if radios_csv else _resolve_file("radios_caba_filtrado.csv")
     )
 
-    config_path = (
-        Path(config_yaml)
-        if config_yaml
-        else (
-            ROOT
-            / "app"
-            / "digital_twin"
-            / "synthetic_data"
-            / "config"
-            / "zone_profiles.yaml"
-        )
-    )
+    config_path = Path(config_yaml) if config_yaml else ZONE_PROFILES_YAML
 
     out_radio = (
         Path(output_radio_csv)
