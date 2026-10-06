@@ -330,11 +330,16 @@ class SyntheticDataSimulator:
         zone_mults = zone_mults * state._cached_calibration_factor
 
         if zone_multiplier:
-            # Ajuste manual por zona (override del front): multiplica sobre la
-            # base automática ya calibrada, en vez de reemplazarla — una zona
+            # Ajuste manual por barrio (override del front): multiplica sobre la
+            # base automática ya calibrada, en vez de reemplazarla — un barrio
             # sin override configurado sigue diferenciándose por zone_type/hora.
+            # El barrio sale del perfil del radio censal de cada contenedor:
+            # site.zone es el código de radio, no el barrio que manda el front.
             overrides = np.array(
-                [zone_multiplier(site.zone) for site in state._cached_sites],
+                [
+                    zone_multiplier(profile.barrio)
+                    for profile in state._cached_zone_profiles
+                ],
                 dtype=np.float64,
             )
             zone_mults = zone_mults * overrides

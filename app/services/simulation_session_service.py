@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
@@ -26,6 +27,8 @@ from app.schemas.digital_twin import (
     ZoneDemandRead,
 )
 from app.services.digital_twin_ingest_service import reset_database_container_levels
+
+logger = logging.getLogger(__name__)
 
 
 async def create_simulation(
@@ -295,13 +298,7 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
 async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
     try:
-
-        def check_barrios_exists(sync_conn):
-            inspector = inspect(sync_conn)
-            return inspector.has_table("barrios")
-
-        has_barrios = await db.run_sync(check_barrios_exists)
-        if not has_barrios:
+        if not await _has_barrios_table(db):
             return []
 
         active = await _active_session(db)
@@ -321,19 +318,17 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
             await db.execute(
                 select(NeighborhoodDemographic)
                 .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
-                .options(
-                    joinedload(NeighborhoodDemographic.neighborhood).joinedload(
-                        Barrio.comuna
-                    )
-                )
+                .options(joinedload(NeighborhoodDemographic.neighborhood))
                 .order_by(Barrio.nombre)
             )
         ).scalars()
         return [
             ZoneDemandRead(
                 neighborhood=row.neighborhood.nombre,
-                commune=str(row.neighborhood.comuna.comuna)
-                if row.neighborhood.comuna
+                # barrios.comuna trae el número de comuna; la tabla comunas ya
+                # no se importa.
+                commune=str(row.neighborhood.comuna_id)
+                if row.neighborhood.comuna_id is not None
                 else None,
                 population=row.population,
                 year=row.year,
@@ -346,6 +341,7 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
             for row in rows
         ]
     except Exception:
+        logger.exception("No se pudo listar la demanda por barrio.")
         return []
 
 
@@ -451,16 +447,20 @@ async def _zone_overrides(
     )
 
 
+async def _has_barrios_table(db: AsyncSession) -> bool:
+    """La tabla barrios es opcional (datos de CABA). AsyncSession.run_sync le
+    pasa a la función una Session, no una conexión: inspect() necesita la
+    conexión de esa sesión."""
+    return await db.run_sync(
+        lambda session: inspect(session.connection()).has_table("barrios")
+    )
+
+
 async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
     if not names:
         return
 
-    def check_barrios_exists(sync_conn):
-        inspector = inspect(sync_conn)
-        return inspector.has_table("barrios")
-
-    has_barrios = await db.run_sync(check_barrios_exists)
-    if not has_barrios:
+    if not await _has_barrios_table(db):
         raise HTTPException(
             status_code=422,
             detail={"unknown_neighborhoods": names},
