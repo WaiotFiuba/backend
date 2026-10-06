@@ -24,12 +24,13 @@ def _site(site_id: str, address: str, lat: float, lon: float) -> dict:
 
 class TestCollectionRoutesFromTopology(unittest.TestCase):
     def test_routes_use_backend_site_ids_and_stream(self):
-        wet = _site("7", "SAN LUIS 2650", -34.6040, -58.4040)
+        black = _site("7", "SAN LUIS 2650", -34.6040, -58.4040)
         rodrigo_bueno = _site("8", "AV. ESPAÑA 2200", -34.6185, -58.3545)
         green = _site("9", "LIBERTAD 750", -34.6010, -58.3850)
 
         routes = build_collection_routes(
-            wet_sites=[wet, rodrigo_bueno], green_sites=[green]
+            black_container_sites=[black, rodrigo_bueno],
+            green_container_sites=[green],
         )
 
         stops = [(r_id, s) for r_id, r in routes.items() for s in r.site_ids]

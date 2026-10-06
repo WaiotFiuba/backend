@@ -120,10 +120,10 @@ class SyntheticDataSimulator:
                 for s in topology.sites
             ]
             routes = build_collection_routes(
-                wet_sites=[
+                black_container_sites=[
                     s for s in site_records if False in site_streams.get(s["id"], ())
                 ],
-                green_sites=[
+                green_container_sites=[
                     s for s in site_records if True in site_streams.get(s["id"], ())
                 ],
             )

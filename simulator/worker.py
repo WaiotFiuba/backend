@@ -23,7 +23,6 @@ from simulator.transport.session_client import (
 from simulator.transport.telemetry_sender import (
     deliver_tick_measurements,
 )
-from simulator.trucks.collection_schedule import ensure_collection_schedule
 from simulator.zone_classifier import reload_zone_classifier
 
 logger = logging.getLogger(__name__)
@@ -70,16 +69,12 @@ async def run_worker() -> None:
 
 async def _prepare_derived_data() -> None:
     """Datos derivados que usa el simulador (antes los generaba el seed del
-    backend): uso del suelo por radio censal y cronograma de recolección. Cada
-    uno se regenera solo si hace falta; si algo falla, el worker sigue igual."""
+    backend): uso del suelo por radio censal. Se regenera solo si hace falta;
+    si algo falla, el worker sigue igual."""
     try:
         await process_land_use_async()
     except Exception:
         logger.exception("No se pudo procesar el uso del suelo.")
-    try:
-        await asyncio.to_thread(ensure_collection_schedule)
-    except Exception:
-        logger.exception("No se pudo actualizar el cronograma de recolección.")
 
 
 async def _run_session(

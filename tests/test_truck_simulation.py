@@ -17,10 +17,11 @@ from simulator.trucks.truck_routes import (
     RouteSegment,
     TruckRoute,
     _fix_enie,
+    _parse_routes_csv,
     assign_sites_to_routes,
-    load_all_collection_routes,
-    load_green_routes_from_csv,
-    load_routes_from_csv,
+    build_collection_routes,
+    resolve_green_routes_csv_path,
+    resolve_routes_csv_path,
 )
 
 
@@ -33,13 +34,10 @@ class TestTruckSimulation(unittest.TestCase):
         # Nombres sin el caracter corrompido quedan intactos.
         self.assertEqual(_fix_enie("San Luis"), "San Luis")
 
-    def test_load_routes_from_csv(self):
-        routes = load_routes_from_csv()
+    def test_parse_routes_csv(self):
+        routes = _parse_routes_csv(resolve_routes_csv_path())
         self.assertGreater(len(routes), 0)
-        self.assertIn("RODRIGO_BUENO", routes)
-        route_rb = routes["RODRIGO_BUENO"]
-        self.assertGreater(len(route_rb.waypoints), 10)
-        self.assertEqual(route_rb.zone, 1)
+        self.assertIn("1184", routes)
 
         # Ningun nombre de calle real cargado desde el CSV debe conservar el
         # caracter de mojibake que reemplazaba a la "ñ" en el archivo fuente.
@@ -52,8 +50,8 @@ class TestTruckSimulation(unittest.TestCase):
         )
         self.assertFalse(any("±" in name for name in all_street_names))
 
-    def test_load_green_routes_from_csv(self):
-        routes = load_green_routes_from_csv()
+    def test_parse_green_routes_csv(self):
+        routes = _parse_routes_csv(resolve_green_routes_csv_path())
         self.assertGreater(len(routes), 0)
         self.assertIn("1RECLDM8510F6", routes)
 
@@ -62,10 +60,14 @@ class TestTruckSimulation(unittest.TestCase):
         self.assertGreater(len(route.segments), 0)
         self.assertGreater(route.segments[0].length_m, 0.0)
 
-    def test_load_all_collection_routes_includes_wet_and_green_routes(self):
-        routes = load_all_collection_routes()
-        self.assertIn("RODRIGO_BUENO", routes)
+    def test_build_collection_routes_includes_black_and_green_routes(self):
+        routes = build_collection_routes(
+            black_container_sites=[], green_container_sites=[]
+        )
+        self.assertIn("1184", routes)
         self.assertIn("1RECLDM8510F6", routes)
+        # Sin sitios en el barrio, no hay circuito de Rodrigo Bueno.
+        self.assertNotIn("RODRIGO_BUENO", routes)
 
     def test_depots_and_transfer_stations(self):
         self.assertEqual(len(DEPOTS_BY_ZONE), 7)
@@ -363,7 +365,7 @@ class TestTruckSimulation(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["container_id"], "contenedores_verdes|1")
 
-    def test_scheduled_collection_matching_site_aliases(self):
+    def test_rodrigo_bueno_site_is_collected_by_its_route(self):
         from simulator.simulation.engine import (
             SyntheticDataSimulator,
         )
@@ -403,18 +405,12 @@ class TestTruckSimulation(unittest.TestCase):
         sim.initialize()
         sim.state.levels["328"] = 100.0
 
-        # El motor nuevo ya no consulta un cronograma estático por minuto:
-        # reparte las paradas de cada ruta dinámicamente entre las horas de
-        # collection_hours. Alcanza con que el sitio esté en la ruta.
-        for route in sim.truck_fleet.routes.values():
-            route.site_ids = [
-                s
-                for s in route.site_ids
-                if str(s).split("|")[-1] not in ("158", "328")
-                and str(s) not in ("158", "328")
-            ]
-        if sim.truck_fleet and "RODRIGO_BUENO" in sim.truck_fleet.routes:
-            sim.truck_fleet.routes["RODRIGO_BUENO"].site_ids = ["158"]
+        # El sitio cae en el barrio Rodrigo Bueno: lo recorre solo su
+        # circuito, con el id de sitio del backend.
+        stops = [
+            (r_id, s) for r_id, r in sim.truck_fleet.routes.items() for s in r.site_ids
+        ]
+        self.assertEqual(stops, [("RODRIGO_BUENO", "158")])
 
         # Tick a las 05:45
         tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
