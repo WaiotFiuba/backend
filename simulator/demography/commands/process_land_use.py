@@ -430,6 +430,12 @@ async def process_land_use_async(
         else (ROOT / "datos" / "simulator" / "land_use" / "land_use_by_barrio.csv")
     )
 
+    if out_radio.exists() and not force:
+        print(
+            f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar)."
+        )
+        return {"status": "already_exists", "output_radio": str(out_radio)}
+
     if not land_use_path or not land_use_path.exists():
         print(
             f"[WARNING] No se encontró el archivo de usos del suelo: {land_use_path}. Omitiendo."
@@ -441,12 +447,6 @@ async def process_land_use_async(
             f"[WARNING] No se encontró el archivo de radios: {radios_path}. Omitiendo."
         )
         return {"status": "skipped", "reason": "radios_csv_missing"}
-
-    if out_radio.exists() and not force:
-        print(
-            f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar)."
-        )
-        return {"status": "already_exists", "output_radio": str(out_radio)}
 
     thresholds, category_weights = _load_yaml_config(config_path)
 
