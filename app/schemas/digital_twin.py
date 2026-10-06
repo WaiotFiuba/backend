@@ -107,7 +107,6 @@ class SimulationProgressUpdate(BaseModel):
     collections_generated: int = 0
     alarms_generated: int = 0
     status: SimulationStatus | None = None
-    trucks: list[dict] | None = None
     # Escenario efectivo (con los defaults del simulador) y cantidad real de
     # periodos: el worker los reporta al marcar la sesion como running.
     scenario: dict[str, object] | None = None

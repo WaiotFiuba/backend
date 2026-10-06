@@ -242,37 +242,3 @@ class TruckFleetSimulator:
                 }
             )
         return result
-
-
-_LATEST_TRUCK_SNAPSHOT: list[dict] | None = None
-_DEMO_FLEET_SIMULATOR: TruckFleetSimulator | None = None
-_LAST_DEMO_STEP_TIME: float | None = None
-
-
-def set_latest_truck_snapshot(snapshot: list[dict]) -> None:
-    global _LATEST_TRUCK_SNAPSHOT
-    _LATEST_TRUCK_SNAPSHOT = snapshot
-
-
-def get_latest_truck_snapshot() -> list[dict]:
-    global _LATEST_TRUCK_SNAPSHOT, _DEMO_FLEET_SIMULATOR
-    if _LATEST_TRUCK_SNAPSHOT is not None:
-        return _LATEST_TRUCK_SNAPSHOT
-
-    if _DEMO_FLEET_SIMULATOR is None:
-        from simulator.trucks.truck_routes import load_routes_from_csv
-
-        routes = load_routes_from_csv()
-        sites_dict = {}
-        if "RODRIGO_BUENO" in routes and routes["RODRIGO_BUENO"].waypoints:
-            sites_dict = {
-                s_id: routes["RODRIGO_BUENO"].waypoints[i]
-                for i, s_id in enumerate(routes["RODRIGO_BUENO"].site_ids)
-                if i < len(routes["RODRIGO_BUENO"].waypoints)
-            }
-        _DEMO_FLEET_SIMULATOR = TruckFleetSimulator(
-            routes=routes, sites_dict=sites_dict
-        )
-
-    # El camión permanece estacionado en la base (AT_DEPOT) hasta que el usuario inicie la simulación desde el frontend
-    return _DEMO_FLEET_SIMULATOR.get_trucks_snapshot()

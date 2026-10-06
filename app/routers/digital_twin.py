@@ -180,95 +180,6 @@ async def delete_configuration_endpoint(
     await delete_saved_configuration(db, current_user.id, config_id)
 
 
-@router.get("/depots")
-async def get_depots_endpoint() -> dict:
-    """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
-    from simulator.trucks.truck_depots import (
-        DEPOTS_BY_ZONE,
-        TRANSFER_STATIONS,
-    )
-
-    return {
-        "bases": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in DEPOTS_BY_ZONE.values()
-        ],
-        "transfer_stations": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in TRANSFER_STATIONS
-        ],
-    }
-
-
-@router.get("/trucks/active")
-async def get_active_trucks_endpoint() -> list[dict]:
-    """Retorna el estado de la flota de camiones recolectores en tiempo real."""
-    from simulator.trucks.truck_engine import (
-        get_latest_truck_snapshot,
-    )
-
-    return get_latest_truck_snapshot()
-
-
-@router.get("/routes/{route_id}")
-async def get_route_details_endpoint(route_id: str) -> dict:
-    """Retorna los tramos y waypoints de un circuito de recolección."""
-    from fastapi import HTTPException
-    from simulator.trucks.truck_routes import load_all_collection_routes
-
-    routes = load_all_collection_routes()
-    clean_id = route_id.split(".")[0].strip()
-    route = routes.get(clean_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Circuito no encontrado")
-
-    is_green_route = "Contenedores Verdes" in route.service_name
-    if (
-        not is_green_route
-        and not route.total_distance_m
-        and clean_id != "RODRIGO_BUENO"
-    ):
-        try:
-            from simulator.trucks.drpp_solver import optimize_circuit_route
-
-            sol = optimize_circuit_route(clean_id)
-            route.total_distance_m = sol.total_distance_m
-            route.collection_distance_m = sol.collection_distance_m
-            route.deadheading_distance_m = sol.deadheading_distance_m
-            route.repeated_segments_count = sol.repeated_segments_count
-            route.street_sequence = sol.street_sequence
-        except Exception:
-            pass
-
-    return {
-        "route_id": route.route_id,
-        "zone": route.zone,
-        "service_name": route.service_name,
-        "site_ids": route.site_ids,
-        "waypoints": route.waypoints,
-        "segments_count": len(route.segments),
-        "total_distance_m": route.total_distance_m,
-        "collection_distance_m": route.collection_distance_m,
-        "deadheading_distance_m": route.deadheading_distance_m,
-        "repeated_segments_count": route.repeated_segments_count,
-        "street_sequence": route.street_sequence,
-    }
-
-
 # Endpoints utilizados por el Simulator Worker (sin acceso directo a BD)
 @router.get("/worker/active-session", response_model=SimulationRead | None)
 async def read_worker_active_session(
@@ -296,13 +207,6 @@ async def worker_update_progress(
     payload: SimulationProgressUpdate,
     db: MapDbDep,
 ) -> SimulationRead:
-    if payload.trucks is not None:
-        from simulator.trucks.truck_engine import (
-            set_latest_truck_snapshot,
-        )
-
-        set_latest_truck_snapshot(payload.trucks)
-
     return await update_simulation_progress(
         db=db,
         simulation_id=simulation_id,

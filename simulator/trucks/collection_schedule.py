@@ -21,6 +21,19 @@ CANDIDATE_PATHS = [
 _CACHED_SCHEDULE: dict | None = None
 
 
+def containers_json_path() -> Path:
+    """Archivo de contenedores con el que se arma el cronograma."""
+    base = Path(__file__).resolve().parent.parent.parent
+    json_candidates = [
+        base / "datos" / "digital_twin" / "contenedores_negros.json",
+        base / "datos" / "digital_twin" / "containers.json",
+        Path("/app/datos/digital_twin/contenedores_negros.json"),
+        Path("/app/datos/digital_twin/containers.json"),
+        base / "datos" / "contenedores_negros.json",
+    ]
+    return next((p for p in json_candidates if p.exists()), json_candidates[0])
+
+
 def generate_all_schedules() -> dict:
     import math
     from simulator.trucks.truck_depots import (
@@ -31,15 +44,7 @@ def generate_all_schedules() -> dict:
         load_routes_from_csv,
     )
 
-    base = Path(__file__).resolve().parent.parent.parent
-    json_candidates = [
-        base / "datos" / "digital_twin" / "contenedores_negros.json",
-        base / "datos" / "digital_twin" / "containers.json",
-        Path("/app/datos/digital_twin/contenedores_negros.json"),
-        Path("/app/datos/digital_twin/containers.json"),
-        base / "datos" / "contenedores_negros.json",
-    ]
-    json_path = next((p for p in json_candidates if p.exists()), json_candidates[0])
+    json_path = containers_json_path()
     all_sites = []
     if json_path.exists():
         with open(json_path, mode="r", encoding="utf-8", errors="ignore") as f:
@@ -190,6 +195,45 @@ def save_collection_schedule() -> None:
         logger.info("Cronograma guardado en %s", target)
     except OSError:
         logger.warning("No se pudo guardar el cronograma en %s.", target)
+
+
+def ensure_collection_schedule() -> bool:
+    """Regenera el cronograma si alguna de sus entradas (contenedores o rutas) es
+    mas nueva que el archivo, o si el archivo no existe. Devuelve True si lo
+    regenero.
+
+    Nunca pisa un cronograma existente con uno peor: si falta una entrada, o si
+    el resultado sale sin paradas, conserva el archivo y loguea un aviso.
+    """
+    from simulator.trucks.truck_routes import resolve_routes_csv_path
+
+    global _CACHED_SCHEDULE
+    target = CANDIDATE_PATHS[0]
+    inputs = [containers_json_path(), resolve_routes_csv_path()]
+    missing = [p for p in inputs if not p.exists()]
+    if missing:
+        logger.warning(
+            "Cronograma: faltan entradas %s; se conserva el archivo actual.", missing
+        )
+        return False
+    if target.exists() and target.stat().st_mtime >= max(
+        p.stat().st_mtime for p in inputs
+    ):
+        return False
+
+    schedules = generate_all_schedules()
+    if not any(r.get("total_stops") for r in schedules.values()):
+        logger.warning(
+            "Cronograma: la generacion no asigno ninguna parada; se conserva el "
+            "archivo actual."
+        )
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, mode="w", encoding="utf-8") as f:
+        json.dump(schedules, f, indent=2, ensure_ascii=False)
+    _CACHED_SCHEDULE = schedules
+    logger.info("Cronograma regenerado en %s (cambiaron sus entradas).", target)
+    return True
 
 
 def load_collection_schedule() -> dict:

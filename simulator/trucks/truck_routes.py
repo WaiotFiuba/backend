@@ -150,6 +150,28 @@ def _fix_enie(street_name: str) -> str:
     return street_name.replace("±", "ñ")
 
 
+def resolve_routes_csv_path() -> Path:
+    """Ruta del CSV de rutas de recoleccion (la primera candidata que exista)."""
+    backend_root = Path(__file__).resolve().parent.parent.parent
+    base_datos = backend_root / "datos"
+    candidates = [
+        base_datos / "simulator" / "routes" / "rutas_recoleccion_residuos_humedos.csv",
+        base_datos
+        / "simulator"
+        / "routes"
+        / "rutas_recoleccion_residuos_humedos_clean.csv",
+        base_datos / "rutas_recoleccion_residuos_humedos.csv",
+        base_datos / "rutas_recoleccion_residuos_humedos_clean.csv",
+        Path("/app/datos/simulator/routes/rutas_recoleccion_residuos_humedos.csv"),
+        Path("/app/datos/rutas_recoleccion_residuos_humedos.csv"),
+        Path("/app/datos/rutas_recoleccion_residuos_humedos_clean.csv"),
+        Path("datos/simulator/routes/rutas_recoleccion_residuos_humedos.csv"),
+        Path("datos/rutas_recoleccion_residuos_humedos.csv"),
+        Path("datos/rutas_recoleccion_residuos_humedos_clean.csv"),
+    ]
+    return next((p for p in candidates if p.exists()), candidates[0])
+
+
 def load_routes_from_csv(
     csv_path: Path | str | None = None,
     container_data_files: tuple[str, ...] = ("contenedores_negros.json",),
@@ -171,27 +193,7 @@ def load_routes_from_csv(
         return routes
 
     if csv_path is None:
-        backend_root = Path(__file__).resolve().parent.parent.parent
-        base_datos = backend_root / "datos"
-        candidates = [
-            base_datos
-            / "simulator"
-            / "routes"
-            / "rutas_recoleccion_residuos_humedos.csv",
-            base_datos
-            / "simulator"
-            / "routes"
-            / "rutas_recoleccion_residuos_humedos_clean.csv",
-            base_datos / "rutas_recoleccion_residuos_humedos.csv",
-            base_datos / "rutas_recoleccion_residuos_humedos_clean.csv",
-            Path("/app/datos/simulator/routes/rutas_recoleccion_residuos_humedos.csv"),
-            Path("/app/datos/rutas_recoleccion_residuos_humedos.csv"),
-            Path("/app/datos/rutas_recoleccion_residuos_humedos_clean.csv"),
-            Path("datos/simulator/routes/rutas_recoleccion_residuos_humedos.csv"),
-            Path("datos/rutas_recoleccion_residuos_humedos.csv"),
-            Path("datos/rutas_recoleccion_residuos_humedos_clean.csv"),
-        ]
-        csv_path = next((p for p in candidates if p.exists()), candidates[0])
+        csv_path = resolve_routes_csv_path()
 
     if not Path(csv_path).exists():
         logger.warning("Archivo de rutas no encontrado en %s", csv_path)

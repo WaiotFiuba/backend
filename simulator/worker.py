@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from simulator.config.settings import get_settings
+from simulator.demography.commands.process_land_use import process_land_use_async
 from simulator.density_processor import get_density_processor
 from simulator.domain.entities import (
     SimulationSession,
@@ -22,6 +23,7 @@ from simulator.transport.session_client import (
 from simulator.transport.telemetry_sender import (
     deliver_tick_measurements,
 )
+from simulator.trucks.collection_schedule import ensure_collection_schedule
 from simulator.zone_classifier import reload_zone_classifier
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ async def run_worker() -> None:
     settings = get_settings()
     client = SimulationSessionClient(settings.backend_url)
     logger.info("Worker de simulacion iniciado (HTTP Backend mode).")
+    await _prepare_derived_data()
     first_wait = True
     while True:
         success = await client.fail_interrupted_sessions()
@@ -63,6 +66,20 @@ async def run_worker() -> None:
             continue
 
         await _run_session(client, active_session)
+
+
+async def _prepare_derived_data() -> None:
+    """Datos derivados que usa el simulador (antes los generaba el seed del
+    backend): uso del suelo por radio censal y cronograma de recolección. Cada
+    uno se regenera solo si hace falta; si algo falla, el worker sigue igual."""
+    try:
+        await process_land_use_async()
+    except Exception:
+        logger.exception("No se pudo procesar el uso del suelo.")
+    try:
+        await asyncio.to_thread(ensure_collection_schedule)
+    except Exception:
+        logger.exception("No se pudo actualizar el cronograma de recolección.")
 
 
 async def _run_session(
@@ -153,11 +170,6 @@ async def _run_session(
             )
 
             # 2. Con los datos 100% guardados en Postgres, publicar el progreso y la hora simulada
-            trucks_snapshot = (
-                simulator.truck_fleet.get_trucks_snapshot()
-                if getattr(simulator, "truck_fleet", None)
-                else []
-            )
             await client.update_progress(
                 simulation_id,
                 {
@@ -167,7 +179,6 @@ async def _run_session(
                     "measurements_sent": len(tick.measurements),
                     "collections_generated": len(tick.collections),
                     "alarms_generated": len(tick.alarms),
-                    "trucks": trucks_snapshot,
                 },
             )
 
