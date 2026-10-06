@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.simulation_status import ACTIVE_STATUSES, SimulationStatus
-from simulator.simulation.scenario import scenario_from_mapping
 from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.saved_configuration import SavedConfiguration
@@ -18,6 +18,7 @@ from app.schemas.digital_twin import (
     SavedConfigurationCreate,
     SavedConfigurationRead,
     SavedConfigurationUpdate,
+    ScenarioInput,
     SimulationControlsUpdate,
     SimulationCreate,
     SimulationRead,
@@ -53,23 +54,22 @@ async def create_simulation(
 
     await reset_database_container_levels(db)
 
+    scenario_data = dict(payload.scenario)
+    if payload.start_time is not None:
+        scenario_data["start"] = payload.start_time
     try:
-        scenario_data = dict(payload.scenario)
-        if payload.start_time is not None:
-            scenario_data["start"] = payload.start_time
-        if (
-            "frequency_minutes" not in scenario_data
-            and payload.transition_minutes is not None
-        ):
-            scenario_data["frequency_minutes"] = payload.transition_minutes
-        config = scenario_from_mapping(scenario_data)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        scenario = ScenarioInput.model_validate(scenario_data).model_dump(
+            mode="json", exclude_unset=True
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_url=False, include_context=False),
+        ) from exc
     await _validate_neighborhoods(
         db,
         [item.neighborhood for item in payload.zone_overrides],
     )
-    scenario = _scenario_record(config)
     session = SimulationSession(
         status=SimulationStatus.PENDING,
         scenario=scenario,
@@ -79,7 +79,8 @@ async def create_simulation(
         global_demand_target=payload.global_demand_multiplier,
         transition_minutes=payload.transition_minutes,
         simulated_time=None,
-        total_periods=config.periods,
+        # El simulador reporta los periodos reales al arrancar la sesion.
+        total_periods=0,
         created_by=user_id,
     )
     db.add(session)
@@ -231,6 +232,8 @@ async def update_simulation_progress(
     collections_generated: int = 0,
     alarms_generated: int = 0,
     status: SimulationStatus | None = None,
+    scenario: dict[str, object] | None = None,
+    total_periods: int | None = None,
 ) -> SimulationRead:
     session = await db.get(SimulationSession, simulation_id)
     if session is None:
@@ -245,6 +248,10 @@ async def update_simulation_progress(
         session.current_period = current_period
     if global_demand_current is not None:
         session.global_demand_current = global_demand_current
+    if scenario is not None:
+        session.scenario = scenario
+    if total_periods is not None:
+        session.total_periods = total_periods
     session.measurements_sent += measurements_sent
     session.collections_generated += collections_generated
     session.alarms_generated += alarms_generated
@@ -515,17 +522,6 @@ async def _simulation_read(
             for item in overrides
         ],
     )
-
-
-def _scenario_record(config) -> dict[str, object]:
-    return {
-        key: value.isoformat()
-        if isinstance(value, datetime)
-        else list(value)
-        if isinstance(value, tuple)
-        else value
-        for key, value in config.__dict__.items()
-    }
 
 
 def _as_utc(value: datetime) -> datetime:

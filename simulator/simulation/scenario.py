@@ -200,6 +200,19 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
     return ScenarioConfig(**filtered)
 
 
+def scenario_to_record(config: ScenarioConfig) -> dict[str, object]:
+    """Escenario efectivo (con los defaults del simulador) como dict guardable en
+    JSON. El worker se lo reporta al backend al iniciar cada sesion."""
+    return {
+        key: value.isoformat()
+        if isinstance(value, datetime)
+        else list(value)
+        if isinstance(value, tuple)
+        else value
+        for key, value in config.__dict__.items()
+    }
+
+
 def _periods_between(start: datetime, end: datetime, frequency_minutes: int) -> int:
     if end <= start:
         raise ValueError("El campo 'end' debe ser posterior a 'start'.")

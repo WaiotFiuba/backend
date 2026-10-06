@@ -313,6 +313,8 @@ async def worker_update_progress(
         collections_generated=payload.collections_generated,
         alarms_generated=payload.alarms_generated,
         status=payload.status,
+        scenario=payload.scenario,
+        total_periods=payload.total_periods,
     )
 
 

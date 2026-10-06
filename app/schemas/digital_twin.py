@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.simulation_status import SimulationStatus
 
@@ -45,6 +45,44 @@ class ZoneDemandOverride(BaseModel):
     multiplier: float = Field(gt=0, le=1100)
 
 
+class ScenarioInput(BaseModel):
+    """Escenario que manda el front al crear una simulacion.
+
+    El backend solo valida los tipos de los campos que entiende; no completa
+    defaults. Los defaults los aplica el simulador, que al arrancar la sesion
+    reporta el escenario efectivo (ver SimulationProgressUpdate.scenario). Los
+    campos que el backend no conoce se guardan tal cual.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    start: datetime | None = None
+    end: datetime | None = None
+    periods: int | None = Field(default=None, ge=0)
+    frequency_minutes: int | None = Field(default=None, gt=0)
+    collection_hours: list[int] | None = None
+    collection_days: list[int | str] | None = None
+    no_collection_days: list[int | str] | None = None
+
+    @field_validator("start", "end", "periods", mode="before")
+    @classmethod
+    def _empty_as_none(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("collection_hours")
+    @classmethod
+    def _valid_hours(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and any(not 0 <= h <= 23 for h in value):
+            raise ValueError("collection_hours debe tener horas entre 0 y 23.")
+        return value
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> ScenarioInput:
+        if self.start and self.end and self.end <= self.start:
+            raise ValueError("El campo 'end' debe ser posterior a 'start'.")
+        return self
+
+
 class SimulationCreate(BaseModel):
     scenario: dict[str, object] = Field(default_factory=dict)
     speedup: float = Field(default=60, gt=0)
@@ -70,6 +108,10 @@ class SimulationProgressUpdate(BaseModel):
     alarms_generated: int = 0
     status: SimulationStatus | None = None
     trucks: list[dict] | None = None
+    # Escenario efectivo (con los defaults del simulador) y cantidad real de
+    # periodos: el worker los reporta al marcar la sesion como running.
+    scenario: dict[str, object] | None = None
+    total_periods: int | None = Field(default=None, ge=0)
 
 
 class SimulationFinish(BaseModel):

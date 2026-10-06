@@ -15,7 +15,7 @@ from simulator.loaders.backend_http import (
 )
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
-from simulator.simulation.scenario import scenario_from_mapping
+from simulator.simulation.scenario import scenario_from_mapping, scenario_to_record
 from simulator.transport.session_client import (
     SimulationSessionClient,
 )
@@ -101,9 +101,16 @@ async def _run_session(
                 simulation_id,
             )
 
-        # Marcar la sesión como running en el backend tras completar la carga e inicialización
+        # Marcar la sesión como running en el backend tras completar la carga e
+        # inicialización, junto con el escenario efectivo (con los defaults del
+        # simulador) y la cantidad real de periodos.
         await client.update_progress(
-            simulation_id, {"status": SimulationStatus.RUNNING}
+            simulation_id,
+            {
+                "status": SimulationStatus.RUNNING,
+                "scenario": scenario_to_record(config),
+                "total_periods": max(config.periods, 0),
+            },
         )
 
         previous_controls: ControlSnapshot | None = None

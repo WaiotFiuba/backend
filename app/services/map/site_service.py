@@ -7,7 +7,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import Numeric, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from simulator.simulation.scenario import scenario_from_mapping
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
@@ -491,8 +490,12 @@ async def get_site_level_history(
     if active_session is None or active_session.simulated_time is None:
         return SiteLevelHistory(site_id=site_id)
 
-    config = scenario_from_mapping(active_session.scenario)
-    window_start = _as_utc(config.start)
+    # Inicio de la simulacion: el escenario efectivo que reporta el simulador al
+    # arrancar la sesion siempre lo incluye.
+    scenario_start = (active_session.scenario or {}).get("start")
+    if not scenario_start:
+        return SiteLevelHistory(site_id=site_id, simulation_id=active_session.id)
+    window_start = _as_utc(datetime.fromisoformat(str(scenario_start)))
     window_end = _as_utc(active_session.simulated_time)
     if window_end < window_start:
         return SiteLevelHistory(
