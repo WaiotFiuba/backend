@@ -35,6 +35,16 @@ dev = [
     "pytest-asyncio>=0.23.5",
     "httpx>=0.27.0",
 ]
+# Lo unico que necesita el worker del simulador (simulator/). Su imagen
+# (Dockerfile.simulator) instala solo este grupo, sin el resto del backend.
+simulator = [
+    "numpy>=2.5.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.6.1",
+    "pyproj>=3.8.0",
+    "pyyaml>=6.0.3",
+    "shapely>=2.1.2",
+]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
