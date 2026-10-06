@@ -220,8 +220,6 @@ class SyntheticDataSimulator:
             )
             containers_by_site: dict[str, list[int]] = defaultdict(list)
 
-            id_to_idx: dict[object, int] = {}
-
             for idx, container in enumerate(containers):
                 site = state.site_by_id[container.site_id]
                 device = state.device_by_container_id[container.id]
@@ -240,16 +238,6 @@ class SyntheticDataSimulator:
                 ].append(idx)
                 containers_by_site[container.site_id].append(idx)
 
-                # Index aliases for O(1) lookup
-                id_to_idx[container.id] = idx
-                id_to_idx[str(container.id)] = idx
-                c_id_raw = str(container.id).split("|")[-1]
-                id_to_idx[c_id_raw] = idx
-                if getattr(container, "serie_id", None):
-                    serie_id = str(container.serie_id)
-                    id_to_idx[serie_id] = idx
-                    id_to_idx[serie_id.split("|")[-1]] = idx
-
             state._cached_sites = site_list
             state._cached_devices = device_list
             state._cached_demand_bases = np.array(demand_bases, dtype=np.float64)
@@ -260,7 +248,6 @@ class SyntheticDataSimulator:
             state._cached_calibration_factor = calibration_factor(zone_profiles)
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
-            state._cached_id_to_index = id_to_idx
             state._cached_arrays = True
 
         measurements: list[Measurement] = []
@@ -269,19 +256,7 @@ class SyntheticDataSimulator:
 
         # Get current state as arrays
         levels = np.array(
-            [
-                state.levels.get(
-                    c.id,
-                    state.levels.get(
-                        str(c.id),
-                        state.levels.get(
-                            int(c.id) if str(c.id).isdigit() else c.id, 0.0
-                        ),
-                    ),
-                )
-                for c in containers
-            ],
-            dtype=np.float64,
+            [state.levels.get(c.id, 0.0) for c in containers], dtype=np.float64
         )
         batteries = np.array(
             [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
@@ -321,33 +296,20 @@ class SyntheticDataSimulator:
         collected = np.zeros(N, dtype=bool)
 
         if getattr(self, "truck_fleet", None) is not None:
-            # Build lightweight mapping of site containers using cached indices
-            containers_by_site_dict = defaultdict(list)
-            cached_map = getattr(state, "_cached_containers_by_site", None)
-            if cached_map:
-                items = [
-                    {
-                        "id": containers[i].id,
-                        "index": i,
-                        "current_level": float(levels[i]),
-                        "waste_type": containers[i].waste_type,
-                    }
-                    for i in range(N)
-                ]
-                for site_id, indices in cached_map.items():
-                    containers_by_site_dict[str(site_id)] = [
-                        items[idx] for idx in indices
-                    ]
-            else:
-                for i in range(N):
-                    c = containers[i]
-                    item = {
-                        "id": c.id,
-                        "index": i,
-                        "current_level": float(levels[i]),
-                        "waste_type": c.waste_type,
-                    }
-                    containers_by_site_dict[str(c.site_id)].append(item)
+            # Contenedores de cada sitio, con su nivel actual, para los camiones.
+            items = [
+                {
+                    "id": containers[i].id,
+                    "index": i,
+                    "current_level": float(levels[i]),
+                    "waste_type": containers[i].waste_type,
+                }
+                for i in range(N)
+            ]
+            containers_by_site_dict = {
+                str(site_id): [items[idx] for idx in indices]
+                for site_id, indices in state._cached_containers_by_site.items()
+            }
 
             truck_events = self.truck_fleet.step(
                 simulated_time=timestamp,
@@ -355,37 +317,24 @@ class SyntheticDataSimulator:
                 speedup=1.0,
                 containers_by_site=containers_by_site_dict,
             )
-            self.truck_fleet.get_trucks_snapshot()
 
-            id_to_index = getattr(state, "_cached_id_to_index", {})
             for ev in truck_events:
-                c_id = ev["container_id"]
-                idx = ev.get("container_index")
-                if idx is None:
-                    idx = id_to_index.get(c_id)
-                    if idx is None:
-                        idx = id_to_index.get(str(c_id))
-                        if idx is None:
-                            idx = id_to_index.get(str(c_id).split("|")[-1])
-
-                if idx is not None and 0 <= idx < N:
-                    levels[idx] = ev["level_after"]
-                    state.levels[containers[idx].id] = ev["level_after"]
-                    state.levels[str(containers[idx].id)] = ev["level_after"]
-                    collected[idx] = True
-                    reading_timestamp = timestamp + timedelta(
-                        minutes=int(state._cached_reading_offsets[idx])
+                idx = ev["container_index"]
+                levels[idx] = ev["level_after"]
+                collected[idx] = True
+                reading_timestamp = timestamp + timedelta(
+                    minutes=int(state._cached_reading_offsets[idx])
+                )
+                collection_events.append(
+                    CollectionEvent(
+                        timestamp=reading_timestamp,
+                        container_id=containers[idx].id,
+                        kind="total",
+                        level_before_pct=float(np.round(ev["level_before"], 2)),
+                        level_after_pct=float(np.round(ev["level_after"], 2)),
+                        detected_by_sensor=True,
                     )
-                    collection_events.append(
-                        CollectionEvent(
-                            timestamp=reading_timestamp,
-                            container_id=str(containers[idx].id),
-                            kind="total",
-                            level_before_pct=float(np.round(ev["level_before"], 2)),
-                            level_after_pct=float(np.round(ev["level_after"], 2)),
-                            detected_by_sensor=True,
-                        )
-                    )
+                )
 
         else:
             is_no_collection_day = timestamp.weekday() in getattr(
@@ -477,22 +426,15 @@ class SyntheticDataSimulator:
         calculated_distances = np.maximum(2.0, calculated_distances)
         calculated_distances = np.round(calculated_distances, 2)
 
-        # Handle stuck distances
-        for idx, container in enumerate(containers):
-            anom = anomalies[idx]
-            if anom == "sensor_trabado":
-                if container.id not in state.stuck_distances:
-                    state.stuck_distances[container.id] = float(
-                        calculated_distances[idx]
-                    )
-            else:
-                state.stuck_distances.pop(container.id, None)
-
+        # Sensor trabado: repite la distancia guardada mientras siga trabado.
         final_distances = calculated_distances.copy()
         for idx, container in enumerate(containers):
-            stuck_val = state.stuck_distances.get(container.id)
-            if stuck_val is not None:
-                final_distances[idx] = stuck_val
+            if anomalies[idx] == "sensor_trabado":
+                final_distances[idx] = state.stuck_distances.setdefault(
+                    container.id, float(calculated_distances[idx])
+                )
+            else:
+                state.stuck_distances.pop(container.id, None)
 
         # Batteries
         discharges = self.np_rng.uniform(0.002, 0.025, size=N)
