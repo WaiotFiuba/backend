@@ -157,27 +157,14 @@ class TruckFleetSimulator:
             truck.current_site_idx = end_idx
 
             if sites_to_collect:
-                last_site = str(sites_to_collect[-1]).split("|")[-1]
-                if last_site in self.sites_dict:
-                    s_lat, s_lon = self.sites_dict[last_site]
-                    truck.latitude = round(s_lat, 6)
-                    truck.longitude = round(s_lon, 6)
-                elif str(sites_to_collect[-1]) in self.sites_dict:
-                    s_lat, s_lon = self.sites_dict[str(sites_to_collect[-1])]
-                    truck.latitude = round(s_lat, 6)
-                    truck.longitude = round(s_lon, 6)
+                last_site = self.sites_dict.get(str(sites_to_collect[-1]))
+                if last_site is not None:
+                    truck.latitude = round(last_site[0], 6)
+                    truck.longitude = round(last_site[1], 6)
 
             for stop in scheduled_stops:
                 site_id = stop["site_id"]
-                raw_id = str(site_id).split("|")[-1]
-                site_containers = (
-                    containers_by_site.get(str(site_id))
-                    or containers_by_site.get(raw_id)
-                    or containers_by_site.get(f"contenedores_verdes|{raw_id}")
-                    or containers_by_site.get(f"contenedores_negros|{raw_id}")
-                    or containers_by_site.get(f"SITE-{raw_id}")
-                    or []
-                )
+                site_containers = containers_by_site.get(str(site_id), [])
                 seen_c_ids = set()
                 for c in site_containers:
                     c_id = c.get("id")

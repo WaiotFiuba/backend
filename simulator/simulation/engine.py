@@ -92,22 +92,42 @@ class SyntheticDataSimulator:
 
         try:
             from simulator.trucks.truck_routes import (
-                load_all_collection_routes,
+                build_collection_routes,
             )
             from simulator.trucks.truck_engine import (
                 TruckFleetSimulator,
+                _is_recyclable_container,
             )
 
-            # Carga las definiciones de circuitos/rutas de recolección de camiones desde el archivo CSV
-            # Retorna un diccionario {route_id: TruckRoute} con metadatos de zona, paradas y coordenadas
-            routes = load_all_collection_routes()
+            # Rutas de recolección armadas con los sitios de esta topología: las
+            # paradas quedan con el id de sitio del backend, el mismo con el que
+            # run_tick agrupa los contenedores. Un sitio va a las rutas de
+            # húmedos si tiene algún contenedor húmedo y a las de secos si tiene
+            # alguno reciclable (puede estar en las dos).
+            site_streams: dict[str, set[bool]] = {}
+            for container in topology.containers:
+                site_streams.setdefault(str(container.site_id), set()).add(
+                    _is_recyclable_container({"waste_type": container.waste_type})
+                )
+            site_records = [
+                {
+                    "id": s.id,
+                    "address": s.address,
+                    "name": s.name,
+                    "latitude": s.latitude,
+                    "longitude": s.longitude,
+                }
+                for s in topology.sites
+            ]
+            routes = build_collection_routes(
+                wet_sites=[
+                    s for s in site_records if False in site_streams.get(s["id"], ())
+                ],
+                green_sites=[
+                    s for s in site_records if True in site_streams.get(s["id"], ())
+                ],
+            )
 
-            # Normaliza la lista de sitios de la topología actual
-            # necesario para el algoritmo de asignación geográfica por calle y altura:
-            # - 'id': Identificador único del sitio/contenedor
-            # - 'address': Dirección normalizada (calle y altura) para vincular con los circuitos de la ruta
-            # - 'name': Nombre de referencia del sitio
-            # - 'latitude' / 'longitude': Coordenadas GPS para asignación espacial por cercanía y distancias
             sites_dict = {s.id: (s.latitude, s.longitude) for s in topology.sites}
             self.truck_fleet = TruckFleetSimulator(
                 routes=routes,
@@ -196,7 +216,6 @@ class SyntheticDataSimulator:
             containers_by_site: dict[str, list[int]] = defaultdict(list)
 
             id_to_idx: dict[object, int] = {}
-            site_alias_to_indices: dict[str, list[int]] = defaultdict(list)
 
             for idx, container in enumerate(containers):
                 site = state.site_by_id[container.site_id]
@@ -225,37 +244,6 @@ class SyntheticDataSimulator:
                     serie_id = str(container.serie_id)
                     id_to_idx[serie_id] = idx
                     id_to_idx[serie_id.split("|")[-1]] = idx
-                    serie_prefix = (
-                        serie_id.split("|", 1)[0] if "|" in serie_id else None
-                    )
-                else:
-                    serie_prefix = None
-
-                keys_to_index = {
-                    container.id,
-                    str(container.id),
-                    container.site_id,
-                    str(container.site_id),
-                }
-                if getattr(container, "serie_id", None):
-                    keys_to_index.add(serie_id)
-                    keys_to_index.add(serie_id.split("|")[-1])
-                keys_to_index.add(c_id_raw)
-                keys_to_index.add(f"contenedores_negros|{c_id_raw}")
-                if serie_prefix:
-                    keys_to_index.add(f"{serie_prefix}|{c_id_raw}")
-                keys_to_index.add(f"SITE-{c_id_raw}")
-
-                site_id_raw = str(container.site_id).split("|")[-1]
-                keys_to_index.add(site_id_raw)
-                keys_to_index.add(f"contenedores_negros|{site_id_raw}")
-                if serie_prefix:
-                    keys_to_index.add(f"{serie_prefix}|{site_id_raw}")
-                keys_to_index.add(f"SITE-{site_id_raw}")
-
-                for k in keys_to_index:
-                    if k is not None:
-                        site_alias_to_indices[str(k)].append(idx)
 
             state._cached_sites = site_list
             state._cached_devices = device_list
@@ -267,7 +255,6 @@ class SyntheticDataSimulator:
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
             state._cached_id_to_index = id_to_idx
-            state._cached_site_alias_to_indices = site_alias_to_indices
             state._cached_arrays = True
 
         measurements: list[Measurement] = []
@@ -400,7 +387,7 @@ class SyntheticDataSimulator:
         if getattr(self, "truck_fleet", None) is not None:
             # Build lightweight mapping of site containers using cached indices
             containers_by_site_dict = defaultdict(list)
-            cached_map = getattr(state, "_cached_site_alias_to_indices", None)
+            cached_map = getattr(state, "_cached_containers_by_site", None)
             if cached_map:
                 items = [
                     {
@@ -411,8 +398,10 @@ class SyntheticDataSimulator:
                     }
                     for i in range(N)
                 ]
-                for alias, indices in cached_map.items():
-                    containers_by_site_dict[alias] = [items[idx] for idx in indices]
+                for site_id, indices in cached_map.items():
+                    containers_by_site_dict[str(site_id)] = [
+                        items[idx] for idx in indices
+                    ]
             else:
                 for i in range(N):
                     c = containers[i]
