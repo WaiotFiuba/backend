@@ -28,6 +28,12 @@ from simulator.zone_classifier import reload_zone_classifier
 logger = logging.getLogger(__name__)
 
 
+# Todos los contenedores: el bbox cubre el mundo entero.
+_ALL_CONTAINERS_PATH = (
+    "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18"
+)
+
+
 async def run_worker() -> None:
     settings = get_settings()
     client = SimulationSessionClient(settings.backend_url)
@@ -90,7 +96,7 @@ async def _run_session(
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.backend_url,
-            "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18",
+            _ALL_CONTAINERS_PATH,
             settings.simulator_container_limit,
         )
         logger.info(
@@ -179,8 +185,9 @@ async def _run_session(
 
             tick_elapsed = asyncio.get_running_loop().time() - tick_started
             speedup = controls.speedup
-            target_delay = (config.frequency_minutes * 60.0) / speedup
-            remaining_delay = max(0.0, target_delay - tick_elapsed)
+            remaining_delay = _remaining_tick_delay(
+                config.frequency_minutes, speedup, tick_elapsed
+            )
 
             total_periods_str = str(config.periods) if config.periods > 0 else "∞"
             logger.info(
@@ -199,14 +206,7 @@ async def _run_session(
                 remaining_delay,
             )
 
-            if not await _wait_between_ticks(
-                client,
-                simulation_id,
-                remaining_delay,
-                simulator=simulator,
-                speedup=speedup,
-                current_sim_time=simulated_time,
-            ):
+            if not await _wait_between_ticks(client, simulation_id, remaining_delay):
                 break
         else:
             await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
@@ -223,7 +223,7 @@ async def _run_session(
 
 async def _wait_until_runnable(
     client: SimulationSessionClient, simulation_id: int
-) -> dict | None:
+) -> SimulationSession | None:
     settings = get_settings()
     paused_logged = False
     missed_polls = 0
@@ -286,9 +286,6 @@ async def _wait_between_ticks(
     client: SimulationSessionClient,
     simulation_id: int,
     delay_seconds: float,
-    simulator: object | None = None,
-    speedup: float = 1.0,
-    current_sim_time: datetime | None = None,
 ) -> bool:
     settings = get_settings()
     remaining = delay_seconds
@@ -363,10 +360,6 @@ def _log_control_change(
         current.global_target,
         current.zones,
     )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _as_utc(value: datetime) -> datetime:
