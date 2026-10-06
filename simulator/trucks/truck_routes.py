@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.services.map.street_pairing import (
+from simulator.geo.addresses import (
     approximate_distance_meters,
     normalize_street_name,
     parse_street_address,

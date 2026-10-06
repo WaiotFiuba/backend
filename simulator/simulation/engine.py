@@ -18,7 +18,7 @@ from simulator.domain.entities import (
 from simulator.generators.anomalies import (
     alarm_from_measurement,
 )
-from app.services.map.street_pairing import (
+from simulator.simulation.opposing_sites import (
     build_opposing_sites_map,
 )
 from simulator.generators.topology import (
