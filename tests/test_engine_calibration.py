@@ -4,7 +4,8 @@ import unittest
 from datetime import datetime
 from types import SimpleNamespace
 
-from simulator.simulation.engine import SyntheticDataSimulator, _calibration_factor
+from simulator.generators.filling import calibration_factor
+from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import Container, Device, SimulationTopology, Site
 from simulator.zone_classifier import get_zone_classifier
@@ -17,13 +18,13 @@ def _profiles(*multipliers: float) -> list[SimpleNamespace]:
 class TestCalibrationFactor(unittest.TestCase):
     def test_brings_weekly_mean_to_target_when_out_of_range(self):
         target = get_zone_classifier().calibration_target
-        factor = _calibration_factor(_profiles(1.0, 1.2, 1.3))
+        factor = calibration_factor(_profiles(1.0, 1.2, 1.3))
         # media 1.1667, fuera de target ± tolerancia: la lleva al target.
         self.assertAlmostEqual(factor * (1.0 + 1.2 + 1.3) / 3, target, 6)
 
     def test_keeps_multipliers_when_weekly_mean_is_in_range(self):
         target = get_zone_classifier().calibration_target
-        self.assertEqual(_calibration_factor(_profiles(target, target)), 1.0)
+        self.assertEqual(calibration_factor(_profiles(target, target)), 1.0)
 
 
 class TestCalibrationKeepsDailyCurve(unittest.TestCase):

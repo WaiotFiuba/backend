@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
-from simulator.zone_classifier import ZoneProfile, get_zone_classifier
+from simulator.zone_classifier import get_zone_classifier
 from simulator.domain.entities import (
     Alarm,
     CollectionEvent,
@@ -17,6 +18,12 @@ from simulator.domain.entities import (
 )
 from simulator.generators.anomalies import (
     alarm_from_measurement,
+)
+from simulator.generators.filling import (
+    apply_filling,
+    calibration_factor,
+    filling_increments,
+    zone_multipliers,
 )
 from simulator.simulation.opposing_sites import (
     build_opposing_sites_map,
@@ -51,37 +58,6 @@ class SimulationState:
     reading_offsets: dict[str, int]
     stuck_distances: dict[str, float]
     opposing_site_by_site_id: dict[str, str]
-
-
-def _calibration_factor(profiles: list[ZoneProfile]) -> float:
-    """Factor fijo que lleva la media semanal de zone_mult a target_zone_mult
-    (zone_profiles.yaml) si se sale de target ± tolerance_pct; si no, 1.
-
-    La curva horaria y semanal de cada perfil tiene media 1 en la semana
-    (ZoneProfile.temporal_normalization_factor), así que la media semanal de
-    zone_mult es la media de los demand_multiplier. Se calcula una vez por
-    simulación: normalizar la media de cada tick aplanaba la curva horaria de
-    toda la ciudad (la madrugada generaba lo mismo que la noche).
-    """
-    zone_classifier = get_zone_classifier()
-    if not profiles:
-        return 1.0
-    weekly_mean = sum(p.demand_multiplier for p in profiles) / len(profiles)
-    target = zone_classifier.calibration_target
-    tol = zone_classifier.calibration_tolerance_pct / 100.0
-    lower, upper = target * (1.0 - tol), target * (1.0 + tol)
-    factor = 1.0
-    if weekly_mean > 0.0 and not (lower <= weekly_mean <= upper):
-        factor = target / weekly_mean
-    logger.info(
-        "Calibración global: media semanal de zone_mult=%.4f, rango [%.4f, %.4f], "
-        "factor=%.4f.",
-        weekly_mean,
-        lower,
-        upper,
-        factor,
-    )
-    return factor
 
 
 class SyntheticDataSimulator:
@@ -239,8 +215,6 @@ class SyntheticDataSimulator:
             reading_offsets = []
             zone_profiles = []
 
-            from collections import defaultdict
-
             containers_by_site_and_waste: dict[tuple[str, str], list[int]] = (
                 defaultdict(list)
             )
@@ -283,7 +257,7 @@ class SyntheticDataSimulator:
             state._cached_heights = np.array(heights, dtype=np.float64)
             state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
             state._cached_zone_profiles = zone_profiles
-            state._cached_calibration_factor = _calibration_factor(zone_profiles)
+            state._cached_calibration_factor = calibration_factor(zone_profiles)
             state._cached_containers_by_site_and_waste = containers_by_site_and_waste
             state._cached_containers_by_site = containers_by_site
             state._cached_id_to_index = id_to_idx
@@ -313,93 +287,34 @@ class SyntheticDataSimulator:
             [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
         )
 
-        # 1. Calculate filling increments and spillover to opposing sites
-
-        # Base automática: cada sitio usa su ZoneProfile cacheado (zone_type +
-        # curva horaria/semanal propia), evaluado con la hora/día de este tick.
-        zone_mults = np.array(
-            [
-                profile.effective_multiplier(timestamp.hour, timestamp.weekday())
-                for profile in state._cached_zone_profiles
-            ],
-            dtype=np.float64,
+        # 1. Llenado (ver simulator/generators/filling.py)
+        zone_mults = zone_multipliers(
+            state._cached_zone_profiles,
+            timestamp,
+            state._cached_calibration_factor,
+            zone_multiplier,
         )
-
-        # Calibración global: factor fijo de toda la simulación (ver
-        # _calibration_factor), para no aplanar la curva horaria de la ciudad.
-        zone_mults = zone_mults * state._cached_calibration_factor
-
-        if zone_multiplier:
-            # Ajuste manual por barrio (override del front): multiplica sobre la
-            # base automática ya calibrada, en vez de reemplazarla — un barrio
-            # sin override configurado sigue diferenciándose por zone_type/hora.
-            # El barrio sale del perfil del radio censal de cada contenedor:
-            # site.zone es el código de radio, no el barrio que manda el front.
-            overrides = np.array(
-                [
-                    zone_multiplier(profile.barrio)
-                    for profile in state._cached_zone_profiles
-                ],
-                dtype=np.float64,
-            )
-            zone_mults = zone_mults * overrides
-
         global_mult = (
             self.config.high_demand_multiplier
             if global_demand_multiplier is None
             else global_demand_multiplier
         )
-
-        noises = self.np_rng.lognormal(0.0, 0.18, size=N)
-        noises = np.maximum(0.2, noises)
-        time_ratio = self.config.frequency_minutes / 60.0
-
-        increments = (
-            state._cached_demand_bases
-            * time_ratio
-            * state._cached_waste_factors
-            * global_mult
-            * zone_mults
-            * self.config.overflow_stress_multiplier
-            * noises
+        increments = filling_increments(
+            state._cached_demand_bases,
+            state._cached_waste_factors,
+            zone_mults,
+            global_mult,
+            self.config,
+            self.np_rng,
         )
-        increments = np.round(increments, 4)
-
-        # Traspaso de exceso a sitios de enfrente si un contenedor/sitio está al 100%
-        initial_levels_tick = levels.copy()
-        tentative_levels = initial_levels_tick + increments
-
-        from collections import defaultdict
-
-        opposing_spillovers: dict[int, float] = defaultdict(float)
-
-        for i in range(N):
-            container = containers[i]
-            site_id = container.site_id
-            opposing_site_id = state.opposing_site_by_site_id.get(site_id)
-
-            if opposing_site_id:
-                if initial_levels_tick[i] >= 100.0:
-                    excess = increments[i]
-                elif tentative_levels[i] > 100.0:
-                    excess = tentative_levels[i] - 100.0
-                else:
-                    excess = 0.0
-
-                if excess > 0.0:
-                    targets = state._cached_containers_by_site_and_waste.get(
-                        (opposing_site_id, container.waste_type)
-                    ) or state._cached_containers_by_site.get(opposing_site_id, [])
-
-                    if targets:
-                        share = excess / len(targets)
-                        for target_idx in targets:
-                            opposing_spillovers[target_idx] += share
-
-        for target_idx, added_level in opposing_spillovers.items():
-            tentative_levels[target_idx] += added_level
-
-        levels = np.minimum(100.0, tentative_levels)
+        levels = apply_filling(
+            levels,
+            increments,
+            containers,
+            state.opposing_site_by_site_id,
+            state._cached_containers_by_site_and_waste,
+            state._cached_containers_by_site,
+        )
 
         # 2. Collections (Simulación con Flota de Camiones)
         level_before_collection = levels.copy()
