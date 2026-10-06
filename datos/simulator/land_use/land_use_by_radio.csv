@@ -1,46 +1,46 @@
 radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily_pct,commercial_pct,office_pct,industrial_pct,total_parcelas,demand_multiplier,weekend_factor
 20070101,RETIRO,Comuna 1,office,3.23,0.0,9.68,64.52,17.74,62,0.8589,0.2475
-20070201,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070202,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070203,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070201,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070202,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070203,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20070204,RETIRO,Comuna 1,office,0.0,0.0,0.0,100.0,0.0,1,0.85,0.1
-20070205,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070207,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070208,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070209,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070210,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070211,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070205,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070207,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070208,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070209,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070210,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070211,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20070212,RETIRO,Comuna 1,mixed,0.0,0.0,0.0,0.0,0.0,1,0.5,0.75
-20070213,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070214,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070215,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070216,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070217,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070218,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070219,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070220,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070221,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070222,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070223,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070301,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070302,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070303,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070304,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070305,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070306,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070307,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070308,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070309,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070310,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070311,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070312,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070313,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070314,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070315,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070316,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070317,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070318,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20070319,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070213,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070214,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070215,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070216,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070217,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070218,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070219,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070220,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070221,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070222,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070223,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070301,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070302,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070303,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070304,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070305,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070306,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070307,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070308,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070309,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070310,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070311,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070312,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070313,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070314,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070315,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070316,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070317,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070318,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20070319,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20070401,RETIRO,Comuna 1,commercial,46.81,2.13,42.55,6.38,0.0,47,1.1957,0.8337
 20070402,RETIRO,Comuna 1,commercial,33.33,0.0,59.52,4.76,0.0,42,1.2523,0.9415
 20070403,RETIRO,Comuna 1,office,12.5,0.0,25.0,62.5,0.0,8,1.0188,0.4375
@@ -171,9 +171,9 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20071313,PUERTO MADERO,Comuna 1,office,6.98,0.0,72.09,20.93,0.0,43,1.2639,0.9279
 20071314,PUERTO MADERO,Comuna 1,office,8.96,0.0,56.72,31.34,1.49,67,1.1762,0.7803
 20071315,PUERTO MADERO,Comuna 1,office,3.03,0.0,75.76,18.18,3.03,33,1.2682,0.9515
-20071316,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20071317,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20071318,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20071316,PUERTO MADERO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20071317,PUERTO MADERO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20071318,PUERTO MADERO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20071401,MONSERRAT,Comuna 1,office,6.67,0.51,52.82,39.49,0.51,195,1.1567,0.7187
 20071402,MONSERRAT,Comuna 1,office,14.29,1.36,34.69,48.98,0.68,147,1.0765,0.5639
 20071403,MONSERRAT,Comuna 1,office,19.57,6.52,36.96,32.61,0.0,46,1.0935,0.6784
@@ -196,7 +196,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20071508,MONSERRAT,Comuna 1,office,34.69,2.04,38.78,16.33,6.12,49,1.1327,0.7344
 20071509,MONSERRAT,Comuna 1,commercial,40.86,5.38,38.71,10.75,3.23,93,1.1602,0.781
 20071510,MONSERRAT,Comuna 1,commercial,36.51,0.0,53.97,9.52,0.0,63,1.2381,0.8762
-20071511,CONSTITUCION,Comuna 1,commercial,31.03,1.72,51.72,13.79,1.72,58,1.2102,0.8388
+20071511,MONSERRAT,Comuna 1,commercial,31.03,1.72,51.72,13.79,1.72,58,1.2102,0.8388
 20071601,MONSERRAT,Comuna 1,office,14.81,0.0,54.63,27.78,2.78,108,1.1819,0.7778
 20071602,MONSERRAT,Comuna 1,office,17.54,0.0,59.65,21.05,1.75,57,1.2184,0.8457
 20071603,MONSERRAT,Comuna 1,office,18.71,0.0,56.83,23.74,0.0,139,1.2068,0.8239
@@ -293,10 +293,10 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20072505,SAN TELMO,Comuna 1,commercial,39.73,12.33,32.88,13.7,0.0,73,1.1377,0.7618
 20072506,SAN TELMO,Comuna 1,office,34.78,4.35,44.57,15.22,0.0,92,1.1827,0.8044
 20072507,SAN TELMO,Comuna 1,commercial,48.0,6.0,38.0,4.0,2.0,50,1.174,0.8194
-20072508,PARQUE PATRICIOS,Comuna 1,residential_multifamily,47.16,16.59,20.52,5.24,9.61,229,1.075,0.7008
+20072508,SAN TELMO,Comuna 1,residential_multifamily,47.16,16.59,20.52,5.24,9.61,229,1.075,0.7008
 20072509,SAN TELMO,Comuna 1,commercial,32.31,1.54,56.92,9.23,0.0,65,1.2454,0.8992
 20072510,SAN TELMO,Comuna 1,commercial,38.67,2.67,48.0,10.67,0.0,75,1.2134,0.8413
-20072511,LA BOCA,Comuna 1,residential_multifamily,41.18,5.88,29.41,14.71,8.82,34,1.1029,0.6823
+20072511,SAN TELMO,Comuna 1,residential_multifamily,41.18,5.88,29.41,14.71,8.82,34,1.1029,0.6823
 20072601,SAN TELMO,Comuna 1,residential_multifamily,50.0,13.64,25.0,11.36,0.0,44,1.1261,0.7273
 20072602,SAN TELMO,Comuna 1,commercial,53.85,3.85,32.69,7.69,0.0,52,1.1615,0.7706
 20072603,SAN TELMO,Comuna 1,commercial,41.46,0.0,46.34,9.76,0.0,41,1.2,0.835
@@ -338,21 +338,21 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20072907,CONSTITUCION,Comuna 1,commercial,32.1,12.35,35.8,6.17,11.11,81,1.1086,0.7747
 20072908,CONSTITUCION,Comuna 1,residential_multifamily,45.24,15.48,13.1,2.38,22.62,84,1.0013,0.6151
 20072909,CONSTITUCION,Comuna 1,residential_multifamily,50.59,11.76,14.12,9.41,12.94,85,1.0359,0.6155
-20073001,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073002,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073003,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073004,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073005,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073006,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073007,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073008,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073009,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073010,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073011,NUEVA POMPEYA,Comuna 1,residential_multifamily,36.11,31.94,25.0,4.17,2.78,72,1.1042,0.7979
-20073012,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20073013,Comuna 1,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073001,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073002,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073003,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073004,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073005,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073006,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073007,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073008,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073009,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073010,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073011,RETIRO,Comuna 1,residential_multifamily,36.11,31.94,25.0,4.17,2.78,72,1.1042,0.7979
+20073012,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20073013,RETIRO,Comuna 1,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20140101,RECOLETA,Comuna 2,industrial,4.17,0.0,0.0,37.5,45.83,24,0.725,0.1762
-20140102,PALERMO,Comuna 2,commercial,28.57,0.0,42.86,14.29,14.29,7,1.1287,0.7285
+20140102,RECOLETA,Comuna 2,commercial,28.57,0.0,42.86,14.29,14.29,7,1.1287,0.7285
 20140201,RECOLETA,Comuna 2,commercial,50.0,0.0,40.0,10.0,0.0,20,1.195,0.79
 20140202,RECOLETA,Comuna 2,office,60.53,0.0,21.05,18.42,0.0,38,1.1171,0.6342
 20140203,RECOLETA,Comuna 2,residential_multifamily,53.1,17.59,18.28,8.97,1.72,290,1.0963,0.7023
@@ -721,7 +721,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20211806,BALVANERA,Comuna 3,commercial,51.79,7.14,30.36,7.14,0.0,56,1.1411,0.7704
 20211807,BALVANERA,Comuna 3,commercial,38.03,15.49,36.62,8.45,1.41,71,1.1592,0.8106
 20211808,BALVANERA,Comuna 3,residential_multifamily,39.13,21.74,26.09,13.04,0.0,23,1.1131,0.7457
-20211809,SAN CRISTOBAL,Comuna 3,commercial,39.58,8.33,50.0,2.08,0.0,48,1.2322,0.9105
+20211809,BALVANERA,Comuna 3,commercial,39.58,8.33,50.0,2.08,0.0,48,1.2322,0.9105
 20211810,BALVANERA,Comuna 3,residential_multifamily,54.22,14.46,16.87,12.05,2.41,83,1.0881,0.6675
 20211811,BALVANERA,Comuna 3,residential_multifamily,51.43,14.29,28.57,5.71,0.0,35,1.15,0.7786
 20211901,BALVANERA,Comuna 3,commercial,32.69,19.23,36.54,7.69,3.85,52,1.1442,0.8135
@@ -751,7 +751,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20212104,SAN CRISTOBAL,Comuna 3,commercial,32.0,0.0,56.0,8.0,4.0,50,1.23,0.88
 20212105,SAN CRISTOBAL,Comuna 3,commercial,30.0,0.0,66.67,1.67,0.0,60,1.2859,0.9983
 20212106,SAN CRISTOBAL,Comuna 3,commercial,39.06,6.25,51.56,3.12,0.0,64,1.2374,0.9094
-20212107,BARRACAS,Comuna 3,mixed,28.26,0.0,21.74,10.87,2.17,46,0.9065,0.7069
+20212107,SAN CRISTOBAL,Comuna 3,mixed,28.26,0.0,21.74,10.87,2.17,46,0.9065,0.7069
 20212108,SAN CRISTOBAL,Comuna 3,commercial,47.37,10.53,36.84,3.51,0.0,57,1.1755,0.8339
 20212109,SAN CRISTOBAL,Comuna 3,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
 20212110,SAN CRISTOBAL,Comuna 3,commercial,31.71,14.63,45.12,4.88,3.66,82,1.1847,0.8683
@@ -913,14 +913,14 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20280906,NUEVA POMPEYA,Comuna 4,industrial,16.67,0.0,0.0,0.0,83.33,6,0.725,0.2667
 20280907,NUEVA POMPEYA,Comuna 4,industrial,33.33,0.0,0.0,0.0,66.67,3,0.8,0.3333
 20281001,BARRACAS,Comuna 4,industrial,22.5,25.0,10.0,2.5,40.0,40,0.9062,0.55
-20281002,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20281003,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20281004,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281002,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281003,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281004,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20281005,BARRACAS,Comuna 4,industrial,6.67,20.0,0.0,20.0,53.33,15,0.78,0.3367
-20281006,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20281007,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281006,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281007,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20281008,BARRACAS,Comuna 4,commercial,28.57,28.57,42.86,0.0,0.0,7,1.1857,0.9286
-20281009,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281009,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20281101,BARRACAS,Comuna 4,residential_multifamily,38.41,38.41,6.62,3.31,13.25,151,0.9943,0.6662
 20281102,BARRACAS,Comuna 4,residential_singlefamily,40.57,47.17,5.66,1.89,4.72,106,1.0204,0.7235
 20281103,BARRACAS,Comuna 4,industrial,32.78,31.12,8.3,1.24,26.56,241,0.9556,0.6152
@@ -974,7 +974,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20281510,BARRACAS,Comuna 4,commercial,29.67,7.69,54.95,4.4,2.2,91,1.2259,0.9216
 20281601,LA BOCA,Comuna 4,residential_multifamily,41.18,0.0,11.76,11.76,0.0,17,0.8941,0.6182
 20281602,LA BOCA,Comuna 4,residential_multifamily,68.42,10.53,5.26,5.26,5.26,19,1.0315,0.6111
-20281603,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20281603,LA BOCA,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20281604,LA BOCA,Comuna 4,residential_multifamily,38.96,28.57,18.18,0.0,10.39,77,1.0415,0.7446
 20281605,LA BOCA,Comuna 4,residential_multifamily,33.8,30.99,15.49,4.23,14.08,71,1.0176,0.6943
 20281606,LA BOCA,Comuna 4,residential_multifamily,49.23,32.31,6.15,3.08,9.23,65,1.0207,0.6654
@@ -1051,58 +1051,58 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20282308,BARRACAS,Comuna 4,residential_multifamily,33.56,27.74,15.75,3.42,18.49,292,1.0076,0.6736
 20282309,BARRACAS,Comuna 4,industrial,14.29,32.14,5.71,7.14,38.57,140,0.8646,0.523
 20282310,BARRACAS,Comuna 4,residential_multifamily,24.79,24.79,10.68,8.12,24.79,234,0.922,0.5853
-20282311,VILLA GRAL. MITRE,Comuna 4,industrial,34.14,18.62,9.31,9.66,26.55,290,0.9461,0.547
+20282311,BARRACAS,Comuna 4,industrial,34.14,18.62,9.31,9.66,26.55,290,0.9461,0.547
 20282312,BARRACAS,Comuna 4,industrial,23.08,17.69,9.23,3.85,46.15,130,0.8839,0.4958
 20282401,BARRACAS,Comuna 4,commercial,40.0,13.33,46.67,0.0,0.0,15,1.22,0.9133
-20282402,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282403,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282404,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282405,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282406,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282407,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282402,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282403,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282404,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282405,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282406,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282407,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20282408,BARRACAS,Comuna 4,industrial,20.8,25.6,9.6,8.0,35.2,125,0.9072,0.5403
-20282409,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282501,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282502,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282503,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282504,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282505,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282506,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282507,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282508,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282509,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282510,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282511,NUEVA POMPEYA,Comuna 4,industrial,0.0,0.0,0.0,33.33,66.67,3,0.7167,0.1667
-20282512,NUEVA POMPEYA,Comuna 4,industrial,0.0,0.0,0.0,0.0,85.71,7,0.6286,0.2
-20282601,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282602,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282603,NUEVA POMPEYA,Comuna 4,industrial,50.0,0.0,0.0,0.0,50.0,2,0.875,0.4
+20282409,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282501,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282502,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282503,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282504,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282505,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282506,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282507,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282508,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282509,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282510,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282511,BARRACAS,Comuna 4,industrial,0.0,0.0,0.0,33.33,66.67,3,0.7167,0.1667
+20282512,BARRACAS,Comuna 4,industrial,0.0,0.0,0.0,0.0,85.71,7,0.6286,0.2
+20282601,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282602,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282603,BARRACAS,Comuna 4,industrial,50.0,0.0,0.0,0.0,50.0,2,0.875,0.4
 20282701,BARRACAS,Comuna 4,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20282702,PARQUE PATRICIOS,Comuna 4,residential_multifamily,100.0,0.0,0.0,0.0,0.0,2,1.1,0.6
-20282703,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282704,PARQUE PATRICIOS,Comuna 4,residential_singlefamily,24.49,42.86,18.37,2.04,12.24,49,1.0306,0.7582
-20282705,BELGRANO,Comuna 4,residential_singlefamily,25.53,68.09,6.38,0.0,0.0,47,1.017,0.8085
+20282702,BARRACAS,Comuna 4,residential_multifamily,100.0,0.0,0.0,0.0,0.0,2,1.1,0.6
+20282703,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282704,BARRACAS,Comuna 4,residential_singlefamily,24.49,42.86,18.37,2.04,12.24,49,1.0306,0.7582
+20282705,BARRACAS,Comuna 4,residential_singlefamily,25.53,68.09,6.38,0.0,0.0,47,1.017,0.8085
 20282706,BARRACAS,Comuna 4,office,0.0,0.0,50.0,33.33,16.67,6,1.0917,0.6667
 20282707,BARRACAS,Comuna 4,industrial,18.18,9.09,45.45,0.0,27.27,11,1.0999,0.7864
 20282801,BARRACAS,Comuna 4,commercial,50.0,0.0,50.0,0.0,0.0,2,1.25,0.9
 20282802,BARRACAS,Comuna 4,commercial,28.0,28.0,44.0,0.0,0.0,25,1.19,0.934
-20282803,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282804,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282805,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282806,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282807,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282808,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282809,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282810,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282811,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282901,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282902,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282903,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282904,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282905,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282906,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282907,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20282908,Comuna 4,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282803,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282804,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282805,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282806,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282807,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282808,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282809,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282810,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282811,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282901,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282902,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282903,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282904,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282905,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282906,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282907,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20282908,BARRACAS,Comuna 4,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20350101,ALMAGRO,Comuna 5,residential_multifamily,45.0,18.75,22.5,8.75,3.75,80,1.0931,0.7247
 20350102,ALMAGRO,Comuna 5,residential_multifamily,61.11,19.44,13.89,5.56,0.0,36,1.0986,0.7041
 20350103,ALMAGRO,Comuna 5,residential_multifamily,50.0,23.53,11.76,7.35,5.88,68,1.0463,0.6702
@@ -1451,7 +1451,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20421108,CABALLITO,Comuna 6,commercial,49.45,10.99,38.46,1.1,0.0,91,1.1961,0.8527
 20421109,CABALLITO,Comuna 6,residential_multifamily,54.67,14.67,26.67,4.0,0.0,75,1.1481,0.7767
 20421110,CABALLITO,Comuna 6,residential_multifamily,85.71,0.0,14.29,0.0,0.0,7,1.1429,0.6857
-20421201,Comuna 6,Comuna 6,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20421201,CABALLITO,Comuna 6,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20421202,CABALLITO,Comuna 6,residential_multifamily,47.14,27.14,17.14,1.43,7.14,70,1.0749,0.735
 20421203,CABALLITO,Comuna 6,residential_multifamily,37.43,18.71,22.22,5.26,14.04,171,1.0482,0.7
 20421204,CABALLITO,Comuna 6,commercial,34.62,19.23,46.15,0.0,0.0,26,1.2096,0.925
@@ -1693,7 +1693,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20491309,FLORES,Comuna 7,residential_singlefamily,16.67,81.33,1.33,0.0,0.67,150,0.979,0.8086
 20491310,FLORES,Comuna 7,residential_singlefamily,16.13,77.42,3.23,0.0,3.23,93,0.9791,0.8
 20491311,FLORES,Comuna 7,residential_singlefamily,25.7,73.36,0.47,0.0,0.47,214,0.9893,0.7843
-20491312,BALVANERA,Comuna 7,commercial,29.55,29.01,32.61,7.39,1.44,555,1.1294,0.8255
+20491312,FLORES,Comuna 7,commercial,29.55,29.01,32.61,7.39,1.44,555,1.1294,0.8255
 20491313,FLORES,Comuna 7,residential_singlefamily,14.16,75.97,5.58,3.43,0.86,233,0.9903,0.8028
 20491314,FLORES,Comuna 7,residential_singlefamily,29.01,51.85,9.26,2.47,4.94,162,1.0068,0.757
 20491315,FLORES,Comuna 7,residential_singlefamily,38.58,43.31,11.02,6.3,0.79,127,1.0488,0.7397
@@ -1731,37 +1731,37 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20491608,FLORES,Comuna 7,residential_multifamily,37.0,36.0,11.0,3.0,8.0,100,1.0055,0.7147
 20491609,FLORES,Comuna 7,residential_singlefamily,29.11,40.38,16.43,1.88,11.27,213,1.0277,0.7464
 20491701,FLORES,Comuna 7,office,0.0,0.0,0.0,100.0,0.0,6,0.85,0.1
-20491702,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491703,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491704,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491705,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491706,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491707,NUEVA POMPEYA,Comuna 7,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
-20491708,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491709,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491710,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491711,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491712,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491713,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491801,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491802,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491803,NUEVA POMPEYA,Comuna 7,residential_singlefamily,0.0,75.0,0.0,0.0,25.0,4,0.875,0.6875
+20491702,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491703,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491704,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491705,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491706,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491707,FLORES,Comuna 7,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
+20491708,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491709,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491710,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491711,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491712,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491713,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491801,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491802,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491803,FLORES,Comuna 7,residential_singlefamily,0.0,75.0,0.0,0.0,25.0,4,0.875,0.6875
 20491804,FLORES,Comuna 7,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20491805,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491805,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20491806,FLORES,Comuna 7,industrial,0.0,18.75,12.5,37.5,31.25,16,0.875,0.4094
-20491807,NUEVA POMPEYA,Comuna 7,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
+20491807,FLORES,Comuna 7,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
 20491808,FLORES,Comuna 7,office,50.0,0.0,0.0,50.0,0.0,2,0.975,0.35
 20491809,FLORES,Comuna 7,office,0.0,40.0,0.0,60.0,0.0,5,0.89,0.4
-20491810,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491810,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20491811,FLORES,Comuna 7,commercial,0.0,66.67,33.33,0.0,0.0,3,1.1,0.9667
-20491812,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20491813,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491812,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491813,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20491901,FLORES,Comuna 7,commercial,60.0,0.0,40.0,0.0,0.0,10,1.22,0.84
-20491902,PALERMO,Comuna 7,industrial,0.0,0.0,0.0,33.33,66.67,3,0.7167,0.1667
+20491902,FLORES,Comuna 7,industrial,0.0,0.0,0.0,33.33,66.67,3,0.7167,0.1667
 20491903,FLORES,Comuna 7,residential_multifamily,100.0,0.0,0.0,0.0,0.0,2,1.1,0.6
 20491904,FLORES,Comuna 7,office,0.0,0.0,0.0,100.0,0.0,3,0.85,0.1
-20491905,NUEVA POMPEYA,Comuna 7,industrial,0.0,50.0,0.0,0.0,50.0,2,0.8,0.525
-20491906,Comuna 7,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20491905,FLORES,Comuna 7,industrial,0.0,50.0,0.0,0.0,50.0,2,0.8,0.525
+20491906,FLORES,Comuna 7,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20492001,PARQUE CHACABUCO,Comuna 7,residential_multifamily,40.43,38.26,18.7,1.3,1.3,230,1.0896,0.7962
 20492002,PARQUE CHACABUCO,Comuna 7,residential_singlefamily,36.23,54.35,6.52,2.17,0.72,138,1.0293,0.7613
 20492003,PARQUE CHACABUCO,Comuna 7,residential_singlefamily,27.64,60.98,3.25,1.63,6.5,123,0.985,0.7378
@@ -1824,40 +1824,40 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20492409,PARQUE CHACABUCO,Comuna 7,residential_singlefamily,31.85,37.1,22.98,2.02,5.24,248,1.0798,0.8012
 20492410,PARQUE CHACABUCO,Comuna 7,residential_singlefamily,37.62,42.57,13.86,0.99,4.95,202,1.0529,0.7649
 20492411,PARQUE CHACABUCO,Comuna 7,residential_singlefamily,38.19,43.31,14.17,0.0,3.94,254,1.0575,0.7782
-20560101,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560101,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560102,VILLA LUGANO,Comuna 8,industrial,18.91,34.45,10.08,0.42,35.29,238,0.9136,0.6034
 20560103,VILLA LUGANO,Comuna 8,commercial,12.5,25.0,50.0,0.0,12.5,8,1.1562,0.9125
-20560104,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560105,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560106,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560107,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560104,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560105,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560106,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560107,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560108,VILLA LUGANO,Comuna 8,industrial,25.83,32.45,13.25,0.66,27.15,151,0.9633,0.649
 20560109,VILLA LUGANO,Comuna 8,residential_singlefamily,28.57,39.8,11.22,1.02,18.37,98,0.9826,0.6891
-20560110,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560111,VILLA RIACHUELO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,5,0.85,0.1
+20560110,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560111,VILLA LUGANO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,5,0.85,0.1
 20560112,VILLA LUGANO,Comuna 8,industrial,0.0,0.0,0.0,0.0,100.0,2,0.65,0.2
 20560113,VILLA LUGANO,Comuna 8,industrial,16.67,41.67,0.0,0.0,41.67,12,0.8501,0.5375
 20560114,VILLA LUGANO,Comuna 8,residential_multifamily,33.33,33.33,16.67,0.0,16.67,18,1.025,0.7167
 20560115,VILLA LUGANO,Comuna 8,industrial,16.67,16.67,0.0,0.0,66.67,6,0.7751,0.375
-20560116,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560117,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560116,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560117,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560118,VILLA LUGANO,Comuna 8,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
 20560119,VILLA LUGANO,Comuna 8,industrial,0.0,50.0,16.67,0.0,33.33,6,0.925,0.6917
-20560120,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560120,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560121,VILLA LUGANO,Comuna 8,industrial,0.0,0.0,0.0,0.0,100.0,1,0.65,0.2
 20560122,VILLA LUGANO,Comuna 8,industrial,5.88,5.88,17.65,0.0,70.59,17,0.8265,0.4382
-20560123,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560124,BELGRANO,Comuna 8,residential_multifamily,64.06,18.75,12.5,1.56,1.56,64,1.089,0.7096
-20560201,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560202,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560203,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560123,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560124,VILLA LUGANO,Comuna 8,residential_multifamily,64.06,18.75,12.5,1.56,1.56,64,1.089,0.7096
+20560201,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560202,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560203,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560204,VILLA LUGANO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,2,0.85,0.1
-20560205,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560206,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560207,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560205,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560206,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560207,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560208,VILLA LUGANO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,1,0.85,0.1
-20560209,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560210,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560209,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560210,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560301,VILLA LUGANO,Comuna 8,residential_singlefamily,32.64,38.58,7.72,1.19,19.88,337,0.973,0.6573
 20560302,VILLA LUGANO,Comuna 8,residential_singlefamily,29.06,46.79,10.94,0.38,12.83,265,1.0039,0.7294
 20560303,VILLA LUGANO,Comuna 8,industrial,15.73,35.48,7.26,3.63,36.69,248,0.8871,0.567
@@ -1865,19 +1865,19 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20560305,VILLA LUGANO,Comuna 8,residential_singlefamily,22.02,43.68,18.05,4.33,11.55,277,1.0236,0.7502
 20560306,VILLA LUGANO,Comuna 8,residential_singlefamily,34.57,35.69,12.64,5.95,10.04,269,1.0177,0.6962
 20560307,VILLA LUGANO,Comuna 8,residential_singlefamily,23.72,53.49,6.51,0.47,15.81,215,0.967,0.7072
-20560308,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560308,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560309,VILLA LUGANO,Comuna 8,office,40.0,40.0,0.0,20.0,0.0,5,0.99,0.6
-20560310,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560311,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560312,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560313,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560314,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560310,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560311,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560312,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560313,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560314,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560401,VILLA LUGANO,Comuna 8,residential_singlefamily,27.57,31.28,13.58,2.47,24.28,243,0.9735,0.6506
 20560402,VILLA LUGANO,Comuna 8,residential_singlefamily,26.11,45.0,6.67,1.11,20.56,180,0.9539,0.6651
 20560403,VILLA LUGANO,Comuna 8,residential_singlefamily,32.57,50.29,4.57,1.71,10.29,175,0.9843,0.704
 20560404,VILLA LUGANO,Comuna 8,residential_singlefamily,35.47,45.93,6.98,1.74,9.3,172,1.0024,0.7115
 20560405,VILLA LUGANO,Comuna 8,residential_singlefamily,42.91,44.88,4.72,0.39,7.09,254,1.0139,0.7102
-20560406,MATADEROS,Comuna 8,residential_singlefamily,26.11,43.35,14.24,1.11,14.72,632,1.0059,0.73
+20560406,VILLA LUGANO,Comuna 8,residential_singlefamily,26.11,43.35,14.24,1.11,14.72,632,1.0059,0.73
 20560407,VILLA LUGANO,Comuna 8,residential_singlefamily,22.04,43.42,10.86,1.64,21.71,304,0.9637,0.6789
 20560408,VILLA LUGANO,Comuna 8,residential_multifamily,31.3,30.08,18.29,1.63,17.89,246,1.0203,0.7061
 20560409,VILLA LUGANO,Comuna 8,residential_singlefamily,17.2,60.8,8.4,1.6,12.0,250,0.976,0.7464
@@ -1890,11 +1890,11 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20560505,VILLA LUGANO,Comuna 8,residential_singlefamily,27.4,50.0,19.71,0.0,2.4,208,1.0704,0.8348
 20560506,VILLA LUGANO,Comuna 8,residential_singlefamily,30.52,58.22,5.63,0.47,3.76,213,1.0031,0.7642
 20560507,VILLA LUGANO,Comuna 8,residential_singlefamily,28.22,49.01,12.87,5.94,3.96,202,1.0324,0.7542
-20560508,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560509,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560510,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560508,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560509,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560510,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560511,VILLA LUGANO,Comuna 8,commercial,25.0,25.0,50.0,0.0,0.0,8,1.2125,0.9625
-20560601,VILLA SOLDATI,Comuna 8,mixed,0.0,0.0,0.0,0.0,0.0,8,0.5,0.75
+20560601,VILLA LUGANO,Comuna 8,mixed,0.0,0.0,0.0,0.0,0.0,8,0.5,0.75
 20560602,VILLA LUGANO,Comuna 8,commercial,1.79,12.5,39.29,0.0,0.0,56,0.9206,1.0983
 20560603,VILLA LUGANO,Comuna 8,commercial,7.32,26.83,58.54,2.44,4.88,41,1.2074,0.9866
 20560604,VILLA LUGANO,Comuna 8,residential_singlefamily,30.0,55.22,7.83,1.3,5.22,230,1.0113,0.7583
@@ -1909,18 +1909,18 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20560702,VILLA LUGANO,Comuna 8,commercial,36.56,21.51,38.71,0.0,3.23,93,1.1694,0.8731
 20560703,VILLA LUGANO,Comuna 8,commercial,55.56,11.11,33.33,0.0,0.0,18,1.1833,0.8278
 20560704,VILLA LUGANO,Comuna 8,commercial,40.0,20.0,40.0,0.0,0.0,5,1.19,0.89
-20560705,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560706,VILLA RIACHUELO,Comuna 8,commercial,0.0,0.0,100.0,0.0,0.0,1,1.4,1.2
-20560707,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560705,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560706,VILLA LUGANO,Comuna 8,commercial,0.0,0.0,100.0,0.0,0.0,1,1.4,1.2
+20560707,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560708,VILLA LUGANO,Comuna 8,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20560709,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560710,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560709,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560710,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560711,VILLA LUGANO,Comuna 8,residential_singlefamily,33.33,58.33,0.0,0.0,8.33,12,0.975,0.7125
 20560712,VILLA LUGANO,Comuna 8,office,20.0,40.0,0.0,20.0,20.0,5,0.9,0.52
 20560713,VILLA LUGANO,Comuna 8,office,26.32,36.84,10.53,15.79,10.53,19,0.9896,0.6342
-20560714,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560715,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20560716,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560714,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560715,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20560716,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20560801,VILLA LUGANO,Comuna 8,residential_singlefamily,34.39,58.82,5.43,0.9,0.45,221,1.0237,0.7733
 20560802,VILLA LUGANO,Comuna 8,residential_singlefamily,34.73,52.72,6.28,0.42,5.86,239,1.0124,0.7439
 20560803,VILLA LUGANO,Comuna 8,residential_singlefamily,31.7,56.25,8.04,1.79,2.23,224,1.0253,0.771
@@ -1931,7 +1931,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20560808,VILLA LUGANO,Comuna 8,residential_singlefamily,30.1,58.25,5.83,1.94,2.91,206,1.0063,0.7608
 20560809,VILLA LUGANO,Comuna 8,residential_multifamily,39.97,33.68,15.01,2.09,8.55,573,1.0466,0.7305
 20560810,VILLA LUGANO,Comuna 8,residential_singlefamily,26.98,52.56,10.7,1.4,8.37,215,1.0122,0.7551
-20560811,VILLA RIACHUELO,Comuna 8,commercial,29.63,14.81,48.15,0.0,7.41,27,1.1889,0.8963
+20560811,VILLA LUGANO,Comuna 8,commercial,29.63,14.81,48.15,0.0,7.41,27,1.1889,0.8963
 20560901,VILLA RIACHUELO,Comuna 8,residential_singlefamily,21.47,54.45,19.9,1.57,2.62,191,1.0624,0.8372
 20560902,VILLA RIACHUELO,Comuna 8,residential_singlefamily,25.62,50.0,19.01,1.24,3.31,242,1.0591,0.8214
 20560903,VILLA RIACHUELO,Comuna 8,commercial,25.0,31.87,38.74,0.0,4.4,364,1.1487,0.8945
@@ -1941,19 +1941,19 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20560907,VILLA RIACHUELO,Comuna 8,residential_singlefamily,25.0,63.24,5.88,2.94,2.94,204,1.0022,0.7669
 20560908,VILLA RIACHUELO,Comuna 8,residential_singlefamily,30.95,37.7,22.62,2.78,5.16,252,1.0764,0.797
 20560909,VILLA RIACHUELO,Comuna 8,residential_singlefamily,28.36,41.82,20.73,0.0,8.36,275,1.0575,0.7969
-20561001,VILLA RIACHUELO,Comuna 8,residential_singlefamily,32.43,40.54,27.03,0.0,0.0,37,1.1203,0.8635
-20561002,VILLA RIACHUELO,Comuna 8,residential_singlefamily,28.21,35.9,28.21,2.56,5.13,39,1.1014,0.8257
+20561001,VILLA LUGANO,Comuna 8,residential_singlefamily,32.43,40.54,27.03,0.0,0.0,37,1.1203,0.8635
+20561002,VILLA LUGANO,Comuna 8,residential_singlefamily,28.21,35.9,28.21,2.56,5.13,39,1.1014,0.8257
 20561003,VILLA LUGANO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,1,0.85,0.1
-20561004,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561005,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561006,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561007,VILLA SOLDATI,Comuna 8,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
+20561004,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561005,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561006,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561007,VILLA LUGANO,Comuna 8,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,1,0.95,0.85
 20561008,VILLA LUGANO,Comuna 8,office,4.76,0.0,4.76,47.62,4.76,21,0.7452,0.2307
-20561101,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561102,VILLA RIACHUELO,Comuna 8,residential_singlefamily,37.5,50.0,12.5,0.0,0.0,8,1.0625,0.8
-20561103,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561104,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561105,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561101,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561102,VILLA LUGANO,Comuna 8,residential_singlefamily,37.5,50.0,12.5,0.0,0.0,8,1.0625,0.8
+20561103,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561104,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561105,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20561201,VILLA RIACHUELO,Comuna 8,residential_singlefamily,25.32,59.66,7.73,3.0,3.43,233,1.0056,0.7683
 20561202,VILLA RIACHUELO,Comuna 8,residential_singlefamily,29.54,47.69,13.88,2.14,5.69,281,1.0328,0.7709
 20561203,VILLA RIACHUELO,Comuna 8,residential_singlefamily,27.08,51.99,14.44,0.36,6.14,277,1.0369,0.7902
@@ -1961,7 +1961,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20561205,VILLA RIACHUELO,Comuna 8,residential_singlefamily,29.69,47.66,13.67,0.78,7.81,256,1.0301,0.7667
 20561206,VILLA RIACHUELO,Comuna 8,residential_singlefamily,20.39,55.34,14.08,0.49,8.74,206,1.0129,0.7872
 20561207,VILLA RIACHUELO,Comuna 8,residential_singlefamily,23.33,33.33,22.0,7.33,13.67,300,1.0341,0.7244
-20561301,PARQUE AVELLANEDA,Comuna 8,residential_multifamily,31.7,29.02,8.93,8.04,7.59,224,0.9407,0.6652
+20561301,VILLA SOLDATI,Comuna 8,residential_multifamily,31.7,29.02,8.93,8.04,7.59,224,0.9407,0.6652
 20561302,VILLA SOLDATI,Comuna 8,industrial,11.63,16.86,1.74,0.58,68.02,172,0.7654,0.375
 20561303,VILLA SOLDATI,Comuna 8,industrial,15.3,28.11,6.41,2.85,46.98,281,0.8564,0.5062
 20561304,VILLA SOLDATI,Comuna 8,residential_singlefamily,17.93,35.63,20.46,1.38,24.6,435,0.9938,0.7065
@@ -1972,8 +1972,8 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20561309,VILLA SOLDATI,Comuna 8,residential_multifamily,77.78,0.0,0.0,11.11,11.11,9,1.0222,0.5
 20561310,VILLA SOLDATI,Comuna 8,residential_multifamily,85.71,0.0,4.76,9.52,0.0,21,1.0904,0.581
 20561311,VILLA SOLDATI,Comuna 8,residential_multifamily,46.15,0.0,0.0,0.0,23.08,13,0.8115,0.4666
-20561401,VILLA LUGANO,Comuna 8,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20561402,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561401,VILLA SOLDATI,Comuna 8,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
+20561402,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20561403,VILLA SOLDATI,Comuna 8,commercial,50.0,0.0,50.0,0.0,0.0,2,1.25,0.9
 20561404,VILLA SOLDATI,Comuna 8,residential_singlefamily,23.19,41.67,13.41,4.71,15.58,276,0.9872,0.7002
 20561405,VILLA SOLDATI,Comuna 8,residential_singlefamily,21.86,35.48,13.26,7.89,21.15,279,0.9695,0.6444
@@ -1983,49 +1983,49 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20561409,VILLA SOLDATI,Comuna 8,industrial,22.04,37.83,4.28,1.64,33.22,304,0.8966,0.579
 20561410,VILLA SOLDATI,Comuna 8,industrial,20.72,46.61,3.19,1.59,27.89,251,0.9102,0.6162
 20561411,VILLA SOLDATI,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,2,0.85,0.1
-20561501,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561502,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561501,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561502,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20561503,VILLA SOLDATI,Comuna 8,residential_multifamily,42.86,21.43,14.29,0.0,21.43,14,1.0144,0.6536
-20561504,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561505,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561506,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561504,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561505,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561506,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20561507,VILLA SOLDATI,Comuna 8,commercial,37.5,25.0,31.25,0.0,6.25,16,1.1281,0.825
 20561508,VILLA SOLDATI,Comuna 8,residential_singlefamily,25.0,50.0,18.75,0.0,6.25,16,1.0531,0.8125
 20561509,VILLA SOLDATI,Comuna 8,residential_singlefamily,30.43,44.2,5.07,1.45,18.12,138,0.9594,0.6616
 20561510,VILLA SOLDATI,Comuna 8,residential_multifamily,35.68,35.14,7.57,0.54,20.0,185,0.9722,0.6511
-20561511,VILLA LUGANO,Comuna 8,industrial,9.38,18.75,12.5,28.12,31.25,32,0.8984,0.4563
+20561511,VILLA SOLDATI,Comuna 8,industrial,9.38,18.75,12.5,28.12,31.25,32,0.8984,0.4563
 20561512,VILLA SOLDATI,Comuna 8,residential_multifamily,80.95,0.0,14.29,4.76,0.0,21,1.131,0.6619
 20561513,VILLA SOLDATI,Comuna 8,residential_singlefamily,0.0,100.0,0.0,0.0,0.0,2,0.95,0.85
-20561514,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561515,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561516,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561517,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561518,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561519,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561601,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561602,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561603,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561604,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561605,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561606,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561607,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561608,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561609,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561610,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561701,VILLA SOLDATI,Comuna 8,mixed,6.9,0.0,3.45,0.0,3.45,29,0.5776,0.65
+20561514,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561515,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561516,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561517,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561518,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561519,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561601,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561602,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561603,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561604,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561605,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561606,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561607,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561608,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561609,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561610,VILLA SOLDATI,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561701,VILLA LUGANO,Comuna 8,mixed,6.9,0.0,3.45,0.0,3.45,29,0.5776,0.65
 20561702,VILLA LUGANO,Comuna 8,office,0.0,0.0,0.0,100.0,0.0,2,0.85,0.1
-20561703,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561703,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20561704,VILLA LUGANO,Comuna 8,office,50.0,0.0,12.5,25.0,12.5,8,1.0188,0.5
 20561705,VILLA LUGANO,Comuna 8,residential_multifamily,90.0,0.0,0.0,10.0,0.0,10,1.075,0.55
-20561801,MATADEROS,Comuna 8,residential_singlefamily,33.33,44.44,11.11,0.0,11.11,9,1.0166,0.7333
-20561802,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561803,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561804,VILLA LURO,Comuna 8,commercial,0.0,50.0,50.0,0.0,0.0,2,1.175,1.025
+20561801,VILLA LUGANO,Comuna 8,residential_singlefamily,33.33,44.44,11.11,0.0,11.11,9,1.0166,0.7333
+20561802,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561803,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561804,VILLA LUGANO,Comuna 8,commercial,0.0,50.0,50.0,0.0,0.0,2,1.175,1.025
 20561805,VILLA LUGANO,Comuna 8,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20561806,MATADEROS,Comuna 8,residential_multifamily,40.0,28.57,20.0,0.0,11.43,35,1.0657,0.7457
-20561807,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561808,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20561809,Comuna 8,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561806,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,28.57,20.0,0.0,11.43,35,1.0657,0.7457
+20561807,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561808,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20561809,VILLA LUGANO,Comuna 8,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20630101,LINIERS,Comuna 9,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
 20630102,LINIERS,Comuna 9,residential_multifamily,43.48,27.54,17.39,7.25,4.35,69,1.0733,0.7195
 20630103,LINIERS,Comuna 9,residential_multifamily,40.12,27.54,25.75,1.8,4.19,167,1.109,0.7988
@@ -2183,15 +2183,15 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20631402,PARQUE AVELLANEDA,Comuna 9,commercial,24.86,33.7,37.29,1.1,2.21,362,1.1436,0.8961
 20631403,PARQUE AVELLANEDA,Comuna 9,residential_singlefamily,25.2,30.0,29.6,2.8,11.2,250,1.0792,0.7962
 20631404,PARQUE AVELLANEDA,Comuna 9,residential_singlefamily,23.18,45.03,9.93,1.99,17.88,151,0.9649,0.6925
-20631405,Comuna 9,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20631406,Comuna 9,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20631405,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20631406,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20631407,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,46.15,15.38,23.08,0.0,0.0,13,1.0538,0.8091
 20631408,PARQUE AVELLANEDA,Comuna 9,office,16.67,33.33,16.67,16.67,16.67,6,0.9834,0.6333
 20631409,PARQUE AVELLANEDA,Comuna 9,residential_singlefamily,22.92,46.35,20.83,3.65,4.17,192,1.0526,0.8103
-20631410,VILLA LURO,Comuna 9,residential_multifamily,100.0,0.0,0.0,0.0,0.0,2,1.1,0.6
-20631411,Comuna 9,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
-20631412,VILLA LUGANO,Comuna 9,commercial,0.0,66.67,33.33,0.0,0.0,3,1.1,0.9667
-20631413,Comuna 9,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20631410,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,100.0,0.0,0.0,0.0,0.0,2,1.1,0.6
+20631411,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20631412,PARQUE AVELLANEDA,Comuna 9,commercial,0.0,66.67,33.33,0.0,0.0,3,1.1,0.9667
+20631413,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20631414,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,50.0,37.5,12.5,0.0,0.0,8,1.0813,0.7687
 20631415,PARQUE AVELLANEDA,Comuna 9,residential_multifamily,80.0,0.0,0.0,0.0,20.0,5,1.01,0.52
 20631501,MATADEROS,Comuna 9,industrial,15.04,21.54,5.28,3.25,52.44,246,0.8247,0.456
@@ -2340,7 +2340,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20701207,FLORESTA,Comuna 10,residential_multifamily,46.75,28.57,11.69,9.09,2.6,77,1.05,0.6868
 20701208,FLORESTA,Comuna 10,residential_multifamily,60.38,3.77,18.87,9.43,5.66,53,1.0906,0.6539
 20701209,FLORESTA,Comuna 10,residential_multifamily,49.28,18.84,27.54,2.9,1.45,69,1.1407,0.792
-20701210,VELEZ SARSFIELD,Comuna 10,residential_multifamily,41.86,32.56,23.26,2.33,0.0,43,1.1152,0.8093
+20701210,FLORESTA,Comuna 10,residential_multifamily,41.86,32.56,23.26,2.33,0.0,43,1.1152,0.8093
 20701301,VELEZ SARSFIELD,Comuna 10,residential_singlefamily,39.24,48.73,3.16,3.16,5.06,158,1.0018,0.7054
 20701302,VELEZ SARSFIELD,Comuna 10,residential_multifamily,53.41,21.59,12.5,7.95,4.55,88,1.0648,0.671
 20701303,VELEZ SARSFIELD,Comuna 10,residential_multifamily,35.53,35.03,26.9,0.0,2.03,197,1.116,0.8421
@@ -2737,7 +2737,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20840805,COGHLAN,Comuna 12,commercial,27.27,40.91,31.82,0.0,0.0,22,1.1341,0.8932
 20840806,COGHLAN,Comuna 12,residential_multifamily,48.72,36.75,11.11,2.56,0.85,117,1.0679,0.7423
 20840807,COGHLAN,Comuna 12,residential_singlefamily,31.96,43.3,17.53,3.09,3.09,97,1.0598,0.7876
-20840808,VILLA URQUIZA,Comuna 12,commercial,28.85,12.82,53.63,3.85,0.85,468,1.2282,0.9312
+20840808,COGHLAN,Comuna 12,commercial,28.85,12.82,53.63,3.85,0.85,468,1.2282,0.9312
 20840809,COGHLAN,Comuna 12,residential_singlefamily,37.5,56.25,0.0,6.25,0.0,32,1.0,0.7094
 20840810,COGHLAN,Comuna 12,residential_singlefamily,32.0,60.0,2.0,4.0,2.0,50,0.997,0.734
 20840811,COGHLAN,Comuna 12,residential_singlefamily,35.9,58.97,2.56,2.56,0.0,39,1.0128,0.75
@@ -2775,7 +2775,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20841110,VILLA URQUIZA,Comuna 12,residential_singlefamily,25.26,57.09,12.8,3.11,1.38,289,1.0366,0.7992
 20841111,VILLA URQUIZA,Comuna 12,residential_singlefamily,25.82,59.15,11.27,1.88,1.88,213,1.0319,0.7986
 20841112,VILLA URQUIZA,Comuna 12,commercial,38.33,8.33,48.33,5.0,0.0,60,1.2199,0.8858
-20841113,PALERMO,Comuna 12,residential_multifamily,51.9,27.85,11.39,1.27,7.59,79,1.0551,0.7013
+20841113,VILLA URQUIZA,Comuna 12,residential_multifamily,51.9,27.85,11.39,1.27,7.59,79,1.0551,0.7013
 20841201,VILLA URQUIZA,Comuna 12,commercial,28.38,9.46,59.46,2.7,0.0,74,1.2574,0.9669
 20841202,VILLA URQUIZA,Comuna 12,residential_multifamily,59.74,15.58,18.18,3.9,2.6,77,1.1097,0.7181
 20841203,VILLA URQUIZA,Comuna 12,residential_multifamily,53.95,32.89,13.16,0.0,0.0,76,1.0901,0.7612
@@ -2783,7 +2783,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20841205,VILLA URQUIZA,Comuna 12,residential_multifamily,43.68,40.0,13.16,2.63,0.53,190,1.0705,0.7637
 20841206,VILLA URQUIZA,Comuna 12,commercial,30.0,13.33,56.67,0.0,0.0,60,1.25,0.9733
 20841207,VILLA URQUIZA,Comuna 12,commercial,30.52,9.09,57.79,1.95,0.65,154,1.2519,0.9571
-20841208,PALERMO,Comuna 12,residential_multifamily,39.81,28.98,25.16,2.87,2.87,314,1.1101,0.7982
+20841208,VILLA URQUIZA,Comuna 12,residential_multifamily,39.81,28.98,25.16,2.87,2.87,314,1.1101,0.7982
 20841209,VILLA URQUIZA,Comuna 12,commercial,41.67,16.67,41.67,0.0,0.0,24,1.2001,0.8917
 20841301,VILLA URQUIZA,Comuna 12,residential_multifamily,45.0,10.0,15.0,15.0,15.0,20,1.025,0.58
 20841302,VILLA URQUIZA,Comuna 12,residential_multifamily,59.09,13.64,22.73,4.55,0.0,44,1.1365,0.7477
@@ -2963,7 +2963,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20910312,NUÑEZ,Comuna 13,residential_multifamily,49.12,28.07,21.05,0.0,1.75,57,1.1131,0.7895
 20910313,NUÑEZ,Comuna 13,residential_multifamily,70.59,8.82,8.82,2.94,8.82,34,1.0661,0.625
 20910401,NUÑEZ,Comuna 13,commercial,35.9,11.54,44.87,7.69,0.0,78,1.1981,0.8596
-20910402,SAAVEDRA,Comuna 13,residential_multifamily,39.86,28.59,26.9,2.54,1.83,710,1.1216,0.8135
+20910402,NUÑEZ,Comuna 13,residential_multifamily,39.86,28.59,26.9,2.54,1.83,710,1.1216,0.8135
 20910403,NUÑEZ,Comuna 13,residential_multifamily,49.43,20.69,26.44,2.3,1.15,87,1.1375,0.7942
 20910404,NUÑEZ,Comuna 13,commercial,34.56,12.5,48.53,2.94,1.47,136,1.2129,0.9019
 20910405,NUÑEZ,Comuna 13,commercial,26.97,5.62,64.04,3.37,0.0,89,1.2753,0.9814
@@ -3112,7 +3112,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20911611,BELGRANO,Comuna 13,commercial,51.06,0.0,48.94,0.0,0.0,47,1.2468,0.8936
 20911612,BELGRANO,Comuna 13,commercial,35.56,2.22,60.0,2.22,0.0,45,1.2711,0.9545
 20911613,BELGRANO,Comuna 13,residential_multifamily,76.47,17.65,5.88,0.0,0.0,34,1.0912,0.6794
-20911701,PATERNAL,Comuna 13,residential_multifamily,50.0,9.62,28.85,5.77,3.85,52,1.1289,0.7559
+20911701,BELGRANO,Comuna 13,residential_multifamily,50.0,9.62,28.85,5.77,3.85,52,1.1289,0.7559
 20911702,BELGRANO,Comuna 13,residential_multifamily,55.38,6.15,29.23,6.15,3.08,65,1.1492,0.7477
 20911703,BELGRANO,Comuna 13,residential_multifamily,63.33,16.67,18.33,0.0,1.67,60,1.1225,0.745
 20911704,BELGRANO,Comuna 13,commercial,51.52,15.15,33.33,0.0,0.0,33,1.1773,0.8379
@@ -3138,8 +3138,8 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20911901,BELGRANO,Comuna 13,commercial,23.4,14.89,55.32,4.26,0.0,47,1.2202,0.9554
 20911902,BELGRANO,Comuna 13,commercial,30.91,5.45,60.0,3.64,0.0,55,1.2627,0.9554
 20911903,BELGRANO,Comuna 13,commercial,53.12,9.38,34.38,3.12,0.0,32,1.1813,0.8141
-20911904,RECOLETA,Comuna 13,commercial,53.33,13.33,33.33,0.0,0.0,30,1.1799,0.8333
-20911905,RECOLETA,Comuna 13,residential_multifamily,51.96,18.63,24.51,4.9,0.0,102,1.1333,0.7691
+20911904,BELGRANO,Comuna 13,commercial,53.33,13.33,33.33,0.0,0.0,30,1.1799,0.8333
+20911905,BELGRANO,Comuna 13,residential_multifamily,51.96,18.63,24.51,4.9,0.0,102,1.1333,0.7691
 20911906,BELGRANO,Comuna 13,residential_singlefamily,31.25,62.5,0.0,6.25,0.0,16,0.9906,0.725
 20911907,BELGRANO,Comuna 13,residential_singlefamily,19.28,67.47,1.2,12.05,0.0,83,0.9723,0.7156
 20911908,BELGRANO,Comuna 13,residential_singlefamily,37.84,40.54,13.51,8.11,0.0,37,1.0594,0.7419
@@ -3169,7 +3169,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20912108,BELGRANO,Comuna 13,residential_multifamily,78.57,0.0,14.29,7.14,0.0,14,1.125,0.65
 20912109,BELGRANO,Comuna 13,commercial,38.46,1.54,50.77,7.69,0.0,65,1.2215,0.8742
 20912110,BELGRANO,Comuna 13,residential_multifamily,56.0,32.0,8.0,4.0,0.0,25,1.066,0.708
-20912201,COLEGIALES,Comuna 13,commercial,21.19,13.56,59.32,5.08,0.0,118,1.2398,0.9675
+20912201,BELGRANO,Comuna 13,commercial,21.19,13.56,59.32,5.08,0.0,118,1.2398,0.9675
 20912202,BELGRANO,Comuna 13,residential_multifamily,67.74,3.23,25.81,3.23,0.0,31,1.1646,0.7468
 20912203,BELGRANO,Comuna 13,residential_multifamily,94.12,0.0,5.88,0.0,0.0,17,1.1176,0.6353
 20912204,BELGRANO,Comuna 13,residential_multifamily,65.79,26.32,5.26,2.63,0.0,38,1.0697,0.6842
@@ -3248,8 +3248,8 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20912906,COLEGIALES,Comuna 13,residential_multifamily,50.0,37.84,4.05,8.11,0.0,74,1.0351,0.6783
 20912907,COLEGIALES,Comuna 13,residential_multifamily,46.29,36.0,14.29,1.14,2.29,175,1.0758,0.7609
 20912908,COLEGIALES,Comuna 13,residential_multifamily,43.81,30.48,15.24,8.57,0.95,105,1.0686,0.7222
-20912909,CHACARITA,Comuna 13,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
-20912910,Comuna 13,Comuna 13,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20912909,COLEGIALES,Comuna 13,residential_multifamily,100.0,0.0,0.0,0.0,0.0,1,1.1,0.6
+20912910,COLEGIALES,Comuna 13,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20912911,COLEGIALES,Comuna 13,office,37.74,7.55,33.96,16.98,3.77,53,1.1311,0.7227
 20980101,PALERMO,Comuna 14,commercial,29.73,2.7,62.16,5.41,0.0,37,1.2689,0.9527
 20980102,PALERMO,Comuna 14,commercial,38.1,0.0,57.14,4.76,0.0,42,1.2595,0.919
@@ -3293,7 +3293,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20980408,PALERMO,Comuna 14,residential_multifamily,66.67,0.0,20.0,6.67,0.0,15,1.1034,0.6928
 20980409,PALERMO,Comuna 14,commercial,27.4,31.51,31.51,9.59,0.0,73,1.1234,0.8199
 20980410,PALERMO,Comuna 14,commercial,43.24,8.11,42.34,5.41,0.0,111,1.1959,0.8495
-20980501,COLEGIALES,Comuna 14,residential_multifamily,55.56,22.22,11.11,0.0,11.11,9,1.05,0.6778
+20980501,PALERMO,Comuna 14,residential_multifamily,55.56,22.22,11.11,0.0,11.11,9,1.05,0.6778
 20980502,PALERMO,Comuna 14,residential_multifamily,40.0,30.0,30.0,0.0,0.0,10,1.145,0.855
 20980503,PALERMO,Comuna 14,residential_multifamily,49.44,24.72,7.87,11.24,5.62,89,1.0265,0.6307
 20980504,PALERMO,Comuna 14,residential_multifamily,75.0,2.5,15.0,5.0,2.5,40,1.1175,0.6612
@@ -3375,7 +3375,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20981108,PALERMO,Comuna 14,residential_multifamily,63.16,2.63,23.68,10.53,0.0,38,1.1408,0.696
 20981109,PALERMO,Comuna 14,commercial,52.73,3.64,41.82,1.82,0.0,55,1.2156,0.8509
 20981110,PALERMO,Comuna 14,commercial,34.62,0.0,61.54,3.85,0.0,52,1.2751,0.95
-20981111,Comuna 14,Comuna 14,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+20981111,PALERMO,Comuna 14,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 20981112,PALERMO,Comuna 14,commercial,40.74,3.7,37.04,11.11,3.7,27,1.1389,0.7673
 20981113,PALERMO,Comuna 14,residential_multifamily,70.0,10.0,10.0,10.0,0.0,10,1.09,0.635
 20981114,PALERMO,Comuna 14,residential_multifamily,88.89,0.0,0.0,5.56,0.0,18,1.0528,0.5706
@@ -3495,7 +3495,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20982310,PALERMO,Comuna 14,commercial,45.24,7.14,38.1,4.76,0.0,42,1.1631,0.8338
 20982311,PALERMO,Comuna 14,commercial,37.68,5.8,50.72,4.35,0.0,69,1.2239,0.9014
 20982312,PALERMO,Comuna 14,commercial,43.14,0.0,50.98,0.0,1.96,51,1.2206,0.9102
-20982313,RECOLETA,Comuna 14,commercial,62.96,0.0,33.33,3.7,0.0,27,1.1907,0.7815
+20982313,PALERMO,Comuna 14,commercial,62.96,0.0,33.33,3.7,0.0,27,1.1907,0.7815
 20982314,PALERMO,Comuna 14,commercial,37.78,2.22,51.11,4.44,4.44,45,1.2189,0.8723
 20982401,PALERMO,Comuna 14,residential_multifamily,63.33,10.0,13.33,13.33,0.0,30,1.0916,0.6383
 20982402,PALERMO,Comuna 14,residential_multifamily,69.23,0.0,28.85,1.92,0.0,52,1.1818,0.7635
@@ -3570,7 +3570,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 20983107,PALERMO,Comuna 14,residential_multifamily,57.81,17.19,12.5,12.5,0.0,64,1.0805,0.6555
 20983108,PALERMO,Comuna 14,residential_singlefamily,22.58,66.82,3.69,6.45,0.0,217,0.992,0.7577
 20983109,PALERMO,Comuna 14,residential_singlefamily,31.22,49.79,8.86,4.22,5.06,237,1.0135,0.7375
-20983110,VILLA SANTA RITA,Comuna 14,residential_multifamily,48.51,27.23,14.47,8.51,0.85,235,1.0749,0.7094
+20983110,PALERMO,Comuna 14,residential_multifamily,48.51,27.23,14.47,8.51,0.85,235,1.0749,0.7094
 20983111,PALERMO,Comuna 14,commercial,56.0,0.0,40.0,4.0,0.0,25,1.21,0.82
 20983112,PALERMO,Comuna 14,commercial,54.76,0.0,45.24,0.0,0.0,42,1.2357,0.8714
 21050101,AGRONOMIA,Comuna 15,residential_singlefamily,43.57,46.43,6.43,0.71,2.86,140,1.035,0.7397
@@ -3676,7 +3676,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 21050908,CHACARITA,Comuna 15,residential_multifamily,81.82,0.0,18.18,0.0,0.0,11,1.1545,0.7091
 21050909,CHACARITA,Comuna 15,commercial,20.08,16.47,40.96,6.43,16.06,249,1.1098,0.7905
 21050910,CHACARITA,Comuna 15,industrial,22.47,22.47,12.36,8.99,33.71,89,0.9292,0.5505
-21050911,Comuna 15,Comuna 15,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
+21050911,CHACARITA,Comuna 15,residential_multifamily,40.0,40.0,10.0,5.0,5.0,0,1.035,0.715
 21051001,CHACARITA,Comuna 15,residential_multifamily,51.89,17.92,17.92,5.66,6.6,106,1.083,0.6976
 21051002,CHACARITA,Comuna 15,residential_multifamily,42.31,21.43,15.93,6.04,13.74,182,1.0354,0.6643
 21051003,CHACARITA,Comuna 15,residential_multifamily,47.31,30.65,13.44,5.38,3.23,186,1.0665,0.7174
@@ -3704,7 +3704,7 @@ radio_code,barrio,department_name,zone_type,res_multifamily_pct,res_singlefamily
 21051112,CHACARITA,Comuna 15,commercial,29.79,10.64,44.68,8.51,0.0,47,1.1585,0.8693
 21051113,CHACARITA,Comuna 15,residential_multifamily,37.65,28.24,20.59,7.65,5.29,170,1.073,0.7355
 21051114,CHACARITA,Comuna 15,commercial,29.55,1.14,56.82,6.82,5.68,88,1.2263,0.8869
-21051115,PALERMO,Comuna 15,commercial,45.54,6.25,41.96,3.57,2.68,112,1.1955,0.8388
+21051115,CHACARITA,Comuna 15,commercial,45.54,6.25,41.96,3.57,2.68,112,1.1955,0.8388
 21051116,CHACARITA,Comuna 15,commercial,57.14,3.57,35.71,3.57,0.0,28,1.1928,0.8054
 21051201,VILLA CRESPO,Comuna 15,residential_multifamily,42.51,20.77,12.08,7.73,14.01,207,1.0053,0.6306
 21051202,VILLA CRESPO,Comuna 15,residential_multifamily,43.03,22.42,21.21,7.27,4.85,165,1.0827,0.7291

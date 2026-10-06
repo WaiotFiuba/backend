@@ -118,6 +118,45 @@ def _load_yaml_config(
     return thresholds, category_weights
 
 
+def _barrios_by_radio(
+    radio_codes: list[str], geometries: list, barrios_path: Path | None
+) -> dict[str, str]:
+    """
+    Barrio de cada radio censal: el del polígono de barrio (barrios.geojson) que
+    cubre la mayor parte del radio, en mayúsculas como en el relevamiento.
+    Devuelve {} si no está el archivo.
+    """
+    if not barrios_path or not barrios_path.exists():
+        print(
+            "[WARNING] No se encontró barrios.geojson: el barrio de cada radio "
+            "sale de sus parcelas."
+        )
+        return {}
+
+    with open(barrios_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    polygons, names = [], []
+    for feature in data.get("features", []):
+        name = str((feature.get("properties") or {}).get("nombre") or "").strip()
+        if not name or not feature.get("geometry"):
+            continue
+        polygon = shape(feature["geometry"])
+        polygons.append(polygon if polygon.is_valid else polygon.buffer(0))
+        names.append(name.upper())
+
+    tree = STRtree(polygons)
+    barrios: dict[str, str] = {}
+    for code, radio in zip(radio_codes, geometries):
+        best_name, best_area = None, 0.0
+        for i in tree.query(radio):
+            area = polygons[i].intersection(radio).area
+            if area > best_area:
+                best_name, best_area = names[i], area
+        if best_name:
+            barrios[code] = best_name
+    return barrios
+
+
 def _norm_text(text: str) -> str:
     if not text:
         return ""
@@ -463,6 +502,12 @@ async def process_land_use_async(
 
     tree = STRtree(geometries)
     radio_dept_map = dict(zip(radio_codes, radio_depts))
+    # El barrio de cada radio sale del mapa de barrios. Las parcelas del
+    # relevamiento se ubican por dirección y algunas caen en un radio vecino, y
+    # los radios sin parcelas quedaban con el nombre de su comuna.
+    radio_barrio_map = _barrios_by_radio(
+        radio_codes, geometries, _resolve_file("barrios.geojson")
+    )
 
     # 2. Cargar calles (PostGIS primero, fallback GeoJSON)
     calles_dict, calles_token_dict, source = await _load_streets_from_db_or_geojson(
@@ -542,7 +587,9 @@ async def process_land_use_async(
     for r_code in radio_codes:
         dept_name = radio_dept_map.get(r_code, "UNKNOWN")
         seen_b = radio_barrios_seen.get(r_code, {})
-        barrio = max(seen_b.items(), key=lambda x: x[1])[0] if seen_b else dept_name
+        barrio = radio_barrio_map.get(r_code) or (
+            max(seen_b.items(), key=lambda x: x[1])[0] if seen_b else dept_name
+        )
         counts = radio_counts.get(r_code, {})
         total_p = sum(counts.values())
 

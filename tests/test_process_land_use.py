@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from shapely.geometry import box
+
 from simulator.demography.commands.process_land_use import (
     ZONE_PROFILES_YAML,
+    _barrios_by_radio,
     process_land_use_async,
 )
 import simulator.zone_classifier as zone_classifier
@@ -55,6 +59,40 @@ class TestProcessLandUseConfig(unittest.TestCase):
         )
         self.assertTrue(ZONE_PROFILES_YAML.exists())
         self.assertEqual(ZONE_PROFILES_YAML.resolve(), classifier_yaml)
+
+
+class TestBarriosByRadio(unittest.TestCase):
+    def _barrios_file(self, tmp: str) -> Path:
+        # Dos barrios lado a lado: Palermo en x 0..10 y Recoleta en x 10..20.
+        features = [
+            {
+                "type": "Feature",
+                "properties": {"nombre": name},
+                "geometry": box(x0, 0, x0 + 10, 10).__geo_interface__,
+            }
+            for name, x0 in (("Palermo", 0), ("Recoleta", 10))
+        ]
+        path = Path(tmp) / "barrios.geojson"
+        path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+        return path
+
+    def test_each_radio_gets_the_barrio_that_covers_most_of_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            barrios = _barrios_by_radio(
+                ["adentro", "cruza", "afuera"],
+                [box(2, 2, 4, 4), box(8, 2, 14, 4), box(30, 30, 31, 31)],
+                self._barrios_file(tmp),
+            )
+
+        # El que cruza el borde queda en Recoleta (4 de sus 6 unidades); el que
+        # no toca ningun barrio no tiene entrada (se usa el de las parcelas).
+        self.assertEqual(barrios, {"adentro": "PALERMO", "cruza": "RECOLETA"})
+
+    def test_missing_barrios_file_returns_no_barrios(self):
+        self.assertEqual(
+            _barrios_by_radio(["r"], [box(0, 0, 1, 1)], Path("/no/existe.geojson")),
+            {},
+        )
 
 
 if __name__ == "__main__":
