@@ -6,6 +6,9 @@ from datetime import datetime
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import Container, Device, SimulationTopology, Site
+import random
+
+from simulator.trucks.truck_engine import build_truck_fleet
 from simulator.trucks.truck_routes import (
     build_collection_routes,
     build_rodrigo_bueno_route,
@@ -100,6 +103,53 @@ class TestCollectionRoutesFromTopology(unittest.TestCase):
         tick = sim.run_tick(datetime(2026, 9, 2, 22, 0))
 
         self.assertEqual([c.container_id for c in tick.collections], ["5"])
+
+
+class TestBuildTruckFleet(unittest.TestCase):
+    def test_each_site_goes_to_the_routes_of_its_container_color(self):
+        # Los sitios son de un solo tipo: el negro va a las rutas de humedos y
+        # el verde a las de secos, nunca a las dos.
+        sites = [
+            Site(
+                id=site_id,
+                name=f"Sitio {site_id}",
+                zone="20350105",
+                latitude=lat,
+                longitude=lon,
+                demand_base=1.0,
+                address=address,
+            )
+            for site_id, address, lat, lon in (
+                ("negro", "SAN LUIS 2650", -34.6040, -58.4040),
+                ("verde", "LIBERTAD 750", -34.6010, -58.3850),
+            )
+        ]
+        containers = [
+            Container(
+                id=f"c-{site_id}",
+                site_id=site_id,
+                name="RSU",
+                waste_type=waste_type,
+                height_cm=145,
+            )
+            for site_id, waste_type in (
+                ("negro", "RSU Fracción Húmeda"),
+                ("verde", "RSU Fracción Seca"),
+            )
+        ]
+        topology = SimulationTopology(
+            sites=sites,
+            containers=containers,
+            devices=[Device(id=f"d-{c.id}", container_id=c.id) for c in containers],
+            initial_levels={c.id: 0.0 for c in containers},
+        )
+
+        fleet = build_truck_fleet(topology, ScenarioConfig(), random.Random(1))
+
+        stops = [(r_id, s) for r_id, r in fleet.routes.items() for s in r.site_ids]
+        self.assertEqual(sorted(s for _, s in stops), ["negro", "verde"])
+        self.assertIn(("1184", "negro"), stops)
+        self.assertIn(("1RECLDM8510F6", "verde"), stops)
 
 
 if __name__ == "__main__":

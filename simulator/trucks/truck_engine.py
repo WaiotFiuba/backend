@@ -4,12 +4,16 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from simulator.trucks.truck_depots import (
     get_depot_for_zone,
 )
-from simulator.trucks.truck_routes import TruckRoute
+from simulator.trucks.truck_routes import TruckRoute, build_collection_routes
+
+if TYPE_CHECKING:
+    from simulator.simulation.scenario import ScenarioConfig
+    from simulator.topology import SimulationTopology
 
 logger = logging.getLogger(__name__)
 
@@ -229,3 +233,49 @@ class TruckFleetSimulator:
                 }
             )
         return result
+
+
+def build_truck_fleet(
+    topology: SimulationTopology, config: ScenarioConfig, rng: random.Random
+) -> TruckFleetSimulator:
+    """Flota de la sesión: un camión por ruta, con las rutas armadas con los
+    sitios de esta topología.
+
+    Las paradas quedan con el id de sitio del backend, el mismo con el que el
+    engine agrupa los contenedores. Cada sitio agrupa contenedores de un solo
+    tipo (el backend arma los sitios por tipo de residuo): los de contenedores
+    verdes van a las rutas de secos y el resto a las de húmedos. Los sitios sin
+    contenedores no van a ninguna ruta.
+    """
+    sites_with_containers = {str(c.site_id) for c in topology.containers}
+    green_site_ids = {
+        str(c.site_id)
+        for c in topology.containers
+        if _is_recyclable_container({"waste_type": c.waste_type})
+    }
+    site_records = [
+        {
+            "id": s.id,
+            "address": s.address,
+            "name": s.name,
+            "latitude": s.latitude,
+            "longitude": s.longitude,
+        }
+        for s in topology.sites
+    ]
+    routes = build_collection_routes(
+        black_container_sites=[
+            s
+            for s in site_records
+            if s["id"] in sites_with_containers and s["id"] not in green_site_ids
+        ],
+        green_container_sites=[s for s in site_records if s["id"] in green_site_ids],
+    )
+    return TruckFleetSimulator(
+        routes=routes,
+        sites_dict={s.id: (s.latitude, s.longitude) for s in topology.sites},
+        collection_hours=config.collection_hours,
+        no_collection_days=config.no_collection_days,
+        collection_threshold_pct=0.0,
+        rng=rng,
+    )

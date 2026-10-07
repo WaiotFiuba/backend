@@ -29,8 +29,7 @@ from simulator.simulation.state import (
     build_container_arrays,
 )
 from simulator.topology import SimulationTopology
-from simulator.trucks.truck_engine import TruckFleetSimulator, _is_recyclable_container
-from simulator.trucks.truck_routes import build_collection_routes
+from simulator.trucks.truck_engine import TruckFleetSimulator, build_truck_fleet
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +42,7 @@ class SyntheticDataSimulator:
         self.rng = random.Random(config.seed)
         self.topology = topology
         self.state: SimulationState | None = None
+        self.truck_fleet: TruckFleetSimulator | None = None
 
     def initialize(self) -> SimulationState:
         self.rng = random.Random(self.config.seed)
@@ -82,48 +82,11 @@ class SyntheticDataSimulator:
             ),
         )
 
+        self.truck_fleet = None
         try:
-            # Rutas de recolección armadas con los sitios de esta topología: las
-            # paradas quedan con el id de sitio del backend, el mismo con el que
-            # run_tick agrupa los contenedores. Un sitio va a las rutas de
-            # húmedos si tiene algún contenedor húmedo y a las de secos si tiene
-            # alguno reciclable (puede estar en las dos).
-            site_streams: dict[str, set[bool]] = {}
-            for container in topology.containers:
-                site_streams.setdefault(str(container.site_id), set()).add(
-                    _is_recyclable_container({"waste_type": container.waste_type})
-                )
-            site_records = [
-                {
-                    "id": s.id,
-                    "address": s.address,
-                    "name": s.name,
-                    "latitude": s.latitude,
-                    "longitude": s.longitude,
-                }
-                for s in topology.sites
-            ]
-            routes = build_collection_routes(
-                black_container_sites=[
-                    s for s in site_records if False in site_streams.get(s["id"], ())
-                ],
-                green_container_sites=[
-                    s for s in site_records if True in site_streams.get(s["id"], ())
-                ],
-            )
-
-            sites_dict = {s.id: (s.latitude, s.longitude) for s in topology.sites}
-            self.truck_fleet = TruckFleetSimulator(
-                routes=routes,
-                sites_dict=sites_dict,
-                collection_hours=self.config.collection_hours,
-                no_collection_days=self.config.no_collection_days,
-                collection_threshold_pct=0.0,
-                rng=self.rng,
-            )
+            self.truck_fleet = build_truck_fleet(topology, self.config, self.rng)
         except Exception as e:  # noqa: BLE001
             logger.warning("No se pudo inicializar la flota de camiones: %s", e)
-            self.truck_fleet = None
 
         return self.state
 
@@ -226,7 +189,7 @@ class SyntheticDataSimulator:
         level_before_collection = levels.copy()
         collected = np.zeros(N, dtype=bool)
 
-        if getattr(self, "truck_fleet", None) is not None:
+        if self.truck_fleet is not None:
             # Contenedores de cada sitio, con su nivel actual, para los camiones.
             items = [
                 {
