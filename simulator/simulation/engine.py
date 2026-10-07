@@ -13,6 +13,10 @@ from simulator.domain.entities import (
     Measurement,
 )
 from simulator.generators.anomalies import alarm_from_measurement
+from simulator.generators.collections import (
+    collect_probabilistic,
+    collect_with_trucks,
+)
 from simulator.generators.filling import (
     apply_filling,
     filling_increments,
@@ -185,105 +189,20 @@ class SyntheticDataSimulator:
             arrays.containers_by_site,
         )
 
-        # 2. Collections (Simulación con Flota de Camiones)
+        # 2. Recolección (ver simulator/generators/collections.py): con la flota
+        # de camiones o, si no se pudo armar, con el modelo probabilístico viejo.
         level_before_collection = levels.copy()
-        collected = np.zeros(N, dtype=bool)
-
         if self.truck_fleet is not None:
-            # Contenedores de cada sitio, con su nivel actual, para los camiones.
-            items = [
-                {
-                    "id": containers[i].id,
-                    "index": i,
-                    "current_level": float(levels[i]),
-                    "waste_type": containers[i].waste_type,
-                }
-                for i in range(N)
-            ]
-            containers_by_site_dict = {
-                str(site_id): [items[idx] for idx in indices]
-                for site_id, indices in arrays.containers_by_site.items()
-            }
-
-            truck_events = self.truck_fleet.step(
-                simulated_time=timestamp,
-                dt_seconds=self.config.frequency_minutes * 60.0,
-                speedup=1.0,
-                containers_by_site=containers_by_site_dict,
+            collection = collect_with_trucks(
+                self.truck_fleet, levels, timestamp, containers, arrays, self.config
             )
-
-            for ev in truck_events:
-                idx = ev["container_index"]
-                levels[idx] = ev["level_after"]
-                collected[idx] = True
-                reading_timestamp = timestamp + timedelta(
-                    minutes=int(arrays.reading_offsets[idx])
-                )
-                collection_events.append(
-                    CollectionEvent(
-                        timestamp=reading_timestamp,
-                        container_id=containers[idx].id,
-                        kind="total",
-                        level_before_pct=float(np.round(ev["level_before"], 2)),
-                        level_after_pct=float(np.round(ev["level_after"], 2)),
-                        detected_by_sensor=True,
-                    )
-                )
-
         else:
-            is_no_collection_day = timestamp.weekday() in getattr(
-                self.config, "no_collection_days", ()
+            collection = collect_probabilistic(
+                levels, timestamp, containers, arrays, self.config, self.np_rng
             )
-            is_collection_hour = (
-                timestamp.hour in self.config.collection_hours
-            ) and not is_no_collection_day
-            if is_collection_hour:
-                omitted_roll = self.np_rng.random(size=N)
-                not_omitted = omitted_roll >= self.config.omitted_collection_probability
-
-                threshold = 62.0 if timestamp.weekday() < 5 else 55.0
-                above_threshold = levels >= threshold
-
-                collect_roll = self.np_rng.random(size=N)
-                will_collect = collect_roll < self.config.collection_probability
-
-                collected = not_omitted & above_threshold & will_collect
-            else:
-                collected = np.zeros(N, dtype=bool)
-
-            partial_roll = self.np_rng.random(size=N)
-            is_partial = partial_roll < self.config.partial_collection_probability
-
-            reduction = self.np_rng.uniform(25.0, 55.0, size=N)
-            total_val = self.np_rng.uniform(0.0, 8.0, size=N)
-
-            partial_level = np.maximum(0.0, levels - reduction)
-            new_levels_if_collected = np.where(is_partial, partial_level, total_val)
-            new_levels_if_collected = np.round(new_levels_if_collected, 2)
-
-            levels = np.where(collected, new_levels_if_collected, levels)
-
-            collected_indices = np.where(collected)[0]
-            for idx in collected_indices:
-                container = containers[idx]
-                reading_timestamp = timestamp + timedelta(
-                    minutes=int(arrays.reading_offsets[idx])
-                )
-                kind = "partial" if is_partial[idx] else "total"
-                collection_events.append(
-                    CollectionEvent(
-                        timestamp=reading_timestamp,
-                        container_id=container.id,
-                        kind=kind,
-                        level_before_pct=float(
-                            np.round(level_before_collection[idx], 2)
-                        ),
-                        level_after_pct=float(levels[idx]),
-                        detected_by_sensor=bool(
-                            (level_before_collection[idx] - levels[idx]) >= 20.0
-                        ),
-                    )
-                )
+        levels = collection.levels
+        collected = collection.collected
+        collection_events.extend(collection.events)
 
         collection_detected = (level_before_collection - levels) >= 20.0
 
