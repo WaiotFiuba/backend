@@ -12,7 +12,7 @@ from simulator.domain.entities import (
     CollectionEvent,
     Measurement,
 )
-from simulator.generators.anomalies import alarm_from_measurement
+from simulator.generators.anomalies import alarm_from_measurement, draw_anomalies
 from simulator.generators.collections import (
     collect_probabilistic,
     collect_with_trucks,
@@ -22,7 +22,7 @@ from simulator.generators.filling import (
     filling_increments,
     zone_multipliers,
 )
-from simulator.generators.sensors import _daily_wave
+from simulator.generators.sensors import read_sensors
 from simulator.generators.topology import generate_synthetic_topology
 from simulator.simulation.clock import iter_timestamps
 from simulator.simulation.opposing_sites import build_opposing_sites_map
@@ -156,9 +156,6 @@ class SyntheticDataSimulator:
         levels = np.array(
             [state.levels.get(c.id, 0.0) for c in containers], dtype=np.float64
         )
-        batteries = np.array(
-            [state.batteries[d.id] for d in arrays.devices], dtype=np.float64
-        )
 
         # 1. Llenado (ver simulator/generators/filling.py)
         zone_mults = zone_multipliers(
@@ -206,82 +203,26 @@ class SyntheticDataSimulator:
 
         collection_detected = (level_before_collection - levels) >= 20.0
 
-        # 3. Anomalies
-        anomaly_rolls = self.np_rng.random(size=N)
-        stuck_p = self.config.stuck_sensor_probability
-        noisy_p = self.config.noisy_sensor_probability
-
-        anomalies = np.empty(N, dtype=object)
-        anomalies[:] = None
-        anomalies[anomaly_rolls < stuck_p] = "sensor_trabado"
-        anomalies[(anomaly_rolls >= stuck_p) & (anomaly_rolls < stuck_p + noisy_p)] = (
-            "sensor_ruidoso"
+        # 3. Fallas sorteadas y 4. lecturas de los sensores (ver
+        # simulator/generators/anomalies.py y sensors.py).
+        anomalies = draw_anomalies(N, self.config, self.np_rng)
+        readings = read_sensors(
+            levels,
+            collected,
+            anomalies,
+            timestamp,
+            containers,
+            arrays.heights,
+            np.array([state.batteries[d.id] for d in arrays.devices], dtype=np.float64),
+            state.stuck_distances,
+            self.np_rng,
         )
-
-        fire_rolls = self.np_rng.random(size=N)
-        fire = fire_rolls < self.config.fire_probability
-
-        signal_rolls = self.np_rng.random(size=N)
-        signal_lost = signal_rolls < self.config.signal_loss_probability
-
-        low_battery_rolls = self.np_rng.random(size=N)
-        low_battery = low_battery_rolls < self.config.low_battery_probability
-
-        # 4. Sensor readings
-        is_noisy_anomaly = anomalies == "sensor_ruidoso"
-        sigmas = np.where(is_noisy_anomaly, 6.5, 1.2)
-        ultrasonic_noises = self.np_rng.normal(0.0, sigmas)
-
-        empty_distances = arrays.heights
-        calculated_distances = (
-            empty_distances * (1.0 - levels / 100.0) + ultrasonic_noises
-        )
-        calculated_distances = np.maximum(2.0, calculated_distances)
-        calculated_distances = np.round(calculated_distances, 2)
-
-        # Sensor trabado: repite la distancia guardada mientras siga trabado.
-        final_distances = calculated_distances.copy()
-        for idx, container in enumerate(containers):
-            if anomalies[idx] == "sensor_trabado":
-                final_distances[idx] = state.stuck_distances.setdefault(
-                    container.id, float(calculated_distances[idx])
-                )
-            else:
-                state.stuck_distances.pop(container.id, None)
-
-        # Batteries
-        discharges = self.np_rng.uniform(0.002, 0.025, size=N)
-        normal_batteries = np.maximum(0.0, batteries - discharges)
-        force_low_vals = self.np_rng.uniform(3.0, 14.0, size=N)
-        final_batteries = np.where(low_battery, force_low_vals, normal_batteries)
-        final_batteries = np.round(final_batteries, 2)
-
         for idx, device in enumerate(arrays.devices):
-            state.batteries[device.id] = float(final_batteries[idx])
-
-        # Signal RSSI
-        lost_rssi = self.np_rng.uniform(-125.0, -116.0, size=N)
-        normal_rssi = self.np_rng.normal(-76.0, 8.0, size=N)
-        rssis = np.where(signal_lost, lost_rssi, normal_rssi)
-        rssis = np.round(rssis, 2)
-
-        # Temperature
-        base_temp = 19.0 + 7.0 * _daily_wave(timestamp.hour)
-        fire_temps = self.np_rng.uniform(75.0, 130.0, size=N)
-        normal_temps = base_temp + self.np_rng.normal(0.0, 1.8, size=N)
-        temps = np.where(fire, fire_temps, normal_temps)
-        temps = np.round(temps, 2)
-
-        # Acceleration
-        coll_acc = self.np_rng.uniform(1.45, 3.4, size=N)
-        normal_acc = self.np_rng.normal(0.03, 0.025, size=N)
-        normal_acc = np.maximum(0.0, normal_acc)
-        accelerations = np.where(collected, coll_acc, normal_acc)
-        accelerations = np.round(accelerations, 3)
+            state.batteries[device.id] = float(readings.batteries[idx])
 
         # 5. Build results & update state
-        is_collection_detected = collection_detected & (accelerations >= 1.2)
-        final_anomalies = np.where(fire, "incendio", anomalies)
+        is_collection_detected = collection_detected & (readings.accelerations >= 1.2)
+        final_anomalies = np.where(anomalies.fire, "incendio", anomalies.sensor)
 
         for idx, container in enumerate(containers):
             state.levels[container.id] = float(levels[idx])
@@ -298,11 +239,11 @@ class SyntheticDataSimulator:
                 container_id=container.id,
                 device_id=device.id,
                 fill_level_pct=float(levels[idx]),
-                ultrasonic_distance_cm=float(final_distances[idx]),
-                battery_pct=float(final_batteries[idx]),
-                signal_rssi_dbm=float(rssis[idx]),
-                temperature_c=float(temps[idx]),
-                acceleration_g=float(accelerations[idx]),
+                ultrasonic_distance_cm=float(readings.distances[idx]),
+                battery_pct=float(readings.batteries[idx]),
+                signal_rssi_dbm=float(readings.rssi[idx]),
+                temperature_c=float(readings.temperatures[idx]),
+                acceleration_g=float(readings.accelerations[idx]),
                 is_collection_detected=bool(is_collection_detected[idx]),
                 anomaly=final_anomalies[idx],
             )

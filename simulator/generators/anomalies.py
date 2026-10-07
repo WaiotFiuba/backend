@@ -1,19 +1,42 @@
+"""Fallas que se sortean en cada tick y las alarmas que dispara cada medición."""
+
 from __future__ import annotations
 
-import random
+from dataclasses import dataclass
+
+import numpy as np
 
 from simulator.domain.entities import Alarm
+from simulator.simulation.scenario import ScenarioConfig
 
 
-def pick_sensor_anomaly(
-    rng: random.Random, stuck_probability: float, noisy_probability: float
-) -> str | None:
-    roll = rng.random()
-    if roll < stuck_probability:
-        return "sensor_trabado"
-    if roll < stuck_probability + noisy_probability:
-        return "sensor_ruidoso"
-    return None
+@dataclass(frozen=True)
+class AnomalyDraws:
+    sensor: np.ndarray  # None, "sensor_trabado" o "sensor_ruidoso" por contenedor
+    fire: np.ndarray
+    signal_lost: np.ndarray
+    low_battery: np.ndarray
+
+
+def draw_anomalies(
+    n: int, config: ScenarioConfig, rng: np.random.Generator
+) -> AnomalyDraws:
+    """Sorteo independiente por contenedor de cada falla, con las
+    probabilidades del escenario."""
+    rolls = rng.random(size=n)
+    stuck_p = config.stuck_sensor_probability
+    noisy_p = config.noisy_sensor_probability
+    sensor = np.empty(n, dtype=object)
+    sensor[:] = None
+    sensor[rolls < stuck_p] = "sensor_trabado"
+    sensor[(rolls >= stuck_p) & (rolls < stuck_p + noisy_p)] = "sensor_ruidoso"
+
+    fire = rng.random(size=n) < config.fire_probability
+    signal_lost = rng.random(size=n) < config.signal_loss_probability
+    low_battery = rng.random(size=n) < config.low_battery_probability
+    return AnomalyDraws(
+        sensor=sensor, fire=fire, signal_lost=signal_lost, low_battery=low_battery
+    )
 
 
 def alarm_from_measurement(measurement) -> Alarm | None:
