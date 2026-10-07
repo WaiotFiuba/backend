@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from simulator.domain.entities import Measurement
-from simulator.simulation.engine import SimulationResult
+from simulator.simulation.state import SimulationResult
 
 ExportFormat = str
 

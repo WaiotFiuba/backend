@@ -212,7 +212,7 @@ def test_zone_multiplier_override_composes_over_automatic_zone_classifier():
     overridden = {
         m.container_id: m.fill_level_pct
         for m in override_sim.run_tick(
-            tick_time, zone_multiplier=lambda zone: overrides.get(zone, 1.0)
+            tick_time, neighborhood_multiplier=lambda name: overrides.get(name, 1.0)
         ).measurements
     }
 

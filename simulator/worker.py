@@ -160,7 +160,7 @@ async def _run_session(
                 global_demand_multiplier=(
                     controls.global_current * config.high_demand_multiplier
                 ),
-                zone_multiplier=controls.zone_multiplier_fn(),
+                neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
             )
 
             # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj

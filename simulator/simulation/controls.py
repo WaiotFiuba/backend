@@ -39,8 +39,8 @@ class ControlSnapshot:
             tuple((name, target) for name, _current, target in self.zones),
         )
 
-    def zone_multiplier_fn(self) -> Callable[[str], float] | None:
-        """Funcion zona -> multiplicador actual, o None si ninguna zona lo modifica."""
+    def neighborhood_multiplier_fn(self) -> Callable[[str], float] | None:
+        """Funcion barrio -> multiplicador actual, o None si ningun barrio lo modifica."""
         if not any(current != 1.0 for _, current, _ in self.zones):
             return None
         multipliers = {
@@ -48,10 +48,12 @@ class ControlSnapshot:
         }
         multipliers.update({name: current for name, current, _target in self.zones})
 
-        def zone_fn(zone: str) -> float:
-            return multipliers.get(zone, multipliers.get(_norm_zone_name(zone), 1.0))
+        def neighborhood_fn(neighborhood: str) -> float:
+            return multipliers.get(
+                neighborhood, multipliers.get(_norm_zone_name(neighborhood), 1.0)
+            )
 
-        return zone_fn
+        return neighborhood_fn
 
 
 @functools.lru_cache(maxsize=256)

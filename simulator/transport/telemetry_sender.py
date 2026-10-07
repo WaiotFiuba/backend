@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 
 from simulator.domain.entities import Measurement
 from simulator.exporters.files import api_payload_from_measurement
-from simulator.simulation.engine import SimulationResult
+from simulator.simulation.state import SimulationResult
 
 
 class BackendDeliveryError(RuntimeError):

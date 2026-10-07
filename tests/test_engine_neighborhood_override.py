@@ -43,13 +43,15 @@ def _topology() -> SimulationTopology:
     )
 
 
-def _generated(zone_multiplier) -> dict[str, float]:
+def _generated(neighborhood_multiplier) -> dict[str, float]:
     sim = SyntheticDataSimulator(
         ScenarioConfig(seed=1, frequency_minutes=60, collection_hours=(3,)),
         topology=_topology(),
     )
     sim.initialize()
-    sim.run_tick(datetime(2026, 10, 7, 12, 0), zone_multiplier=zone_multiplier)
+    sim.run_tick(
+        datetime(2026, 10, 7, 12, 0), neighborhood_multiplier=neighborhood_multiplier
+    )
     return dict(sim.state.levels)
 
 
@@ -65,7 +67,7 @@ class TestNeighborhoodOverride(unittest.TestCase):
         )
 
         base = _generated(None)
-        adjusted = _generated(snapshot.zone_multiplier_fn())
+        adjusted = _generated(snapshot.neighborhood_multiplier_fn())
 
         self.assertAlmostEqual(adjusted["1"], 2 * base["1"], places=2)
         self.assertAlmostEqual(adjusted["2"], base["2"], places=4)

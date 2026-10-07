@@ -2,62 +2,37 @@ from __future__ import annotations
 
 import logging
 import random
-from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
-from simulator.zone_classifier import get_zone_classifier
+import numpy as np
+
 from simulator.domain.entities import (
     Alarm,
     CollectionEvent,
-    Container,
-    Device,
     Measurement,
-    Site,
 )
-from simulator.generators.anomalies import (
-    alarm_from_measurement,
-)
+from simulator.generators.anomalies import alarm_from_measurement
 from simulator.generators.filling import (
     apply_filling,
-    calibration_factor,
     filling_increments,
     zone_multipliers,
 )
-from simulator.simulation.opposing_sites import (
-    build_opposing_sites_map,
-)
-from simulator.generators.topology import (
-    generate_synthetic_topology,
-)
+from simulator.generators.sensors import _daily_wave
+from simulator.generators.topology import generate_synthetic_topology
 from simulator.simulation.clock import iter_timestamps
+from simulator.simulation.opposing_sites import build_opposing_sites_map
 from simulator.simulation.scenario import ScenarioConfig
+from simulator.simulation.state import (
+    SimulationResult,
+    SimulationState,
+    build_container_arrays,
+)
 from simulator.topology import SimulationTopology
+from simulator.trucks.truck_engine import TruckFleetSimulator, _is_recyclable_container
+from simulator.trucks.truck_routes import build_collection_routes
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class SimulationResult:
-    sites: list[Site]
-    containers: list[Container]
-    devices: list[Device]
-    measurements: list[Measurement]
-    collections: list[CollectionEvent]
-    alarms: list[Alarm]
-
-
-@dataclass
-class SimulationState:
-    topology: SimulationTopology
-    site_by_id: dict[str, Site]
-    device_by_container_id: dict[str, Device]
-    levels: dict[str, float]
-    batteries: dict[str, float]
-    reading_offsets: dict[str, int]
-    stuck_distances: dict[str, float]
-    opposing_site_by_site_id: dict[str, str]
 
 
 class SyntheticDataSimulator:
@@ -70,42 +45,44 @@ class SyntheticDataSimulator:
         self.state: SimulationState | None = None
 
     def initialize(self) -> SimulationState:
-        import numpy as np
-
         self.rng = random.Random(self.config.seed)
         self.np_rng = np.random.default_rng(self.config.seed)
         topology = self.topology or generate_synthetic_topology(self.config, self.rng)
         opposing_sites = build_opposing_sites_map(topology.sites)
+        site_by_id = {site.id: site for site in topology.sites}
+        device_by_container_id = {
+            device.container_id: device for device in topology.devices
+        }
+        # Mismo orden de sorteos que siempre: primero baterías, después desfasajes.
+        batteries = {
+            device.id: self.rng.uniform(70, 100) for device in topology.devices
+        }
+        reading_offsets = {
+            device.id: self.rng.randint(
+                -self.config.reading_jitter_minutes,
+                self.config.reading_jitter_minutes,
+            )
+            for device in topology.devices
+        }
         self.state = SimulationState(
             topology=topology,
-            site_by_id={site.id: site for site in topology.sites},
-            device_by_container_id={
-                device.container_id: device for device in topology.devices
-            },
+            site_by_id=site_by_id,
+            device_by_container_id=device_by_container_id,
             levels=dict(topology.initial_levels),
-            batteries={
-                device.id: self.rng.uniform(70, 100) for device in topology.devices
-            },
-            reading_offsets={
-                device.id: self.rng.randint(
-                    -self.config.reading_jitter_minutes,
-                    self.config.reading_jitter_minutes,
-                )
-                for device in topology.devices
-            },
+            batteries=batteries,
+            reading_offsets=reading_offsets,
             stuck_distances={},
             opposing_site_by_site_id=opposing_sites,
+            arrays=build_container_arrays(
+                topology,
+                site_by_id,
+                device_by_container_id,
+                reading_offsets,
+                self.config,
+            ),
         )
 
         try:
-            from simulator.trucks.truck_routes import (
-                build_collection_routes,
-            )
-            from simulator.trucks.truck_engine import (
-                TruckFleetSimulator,
-                _is_recyclable_container,
-            )
-
             # Rutas de recolección armadas con los sitios de esta topología: las
             # paradas quedan con el id de sitio del backend, el mismo con el que
             # run_tick agrupa los contenedores. Un sitio va a las rutas de
@@ -153,7 +130,7 @@ class SyntheticDataSimulator:
     def run(
         self,
         global_demand_multiplier: float | None = None,
-        zone_multiplier: Callable[[str], float] | None = None,
+        neighborhood_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         state = self.state or self.initialize()
         measurements: list[Measurement] = []
@@ -168,7 +145,7 @@ class SyntheticDataSimulator:
             tick = self.run_tick(
                 timestamp,
                 global_demand_multiplier=global_demand_multiplier,
-                zone_multiplier=zone_multiplier,
+                neighborhood_multiplier=neighborhood_multiplier,
             )
             measurements.extend(tick.measurements)
             collection_events.extend(tick.collections)
@@ -187,11 +164,8 @@ class SyntheticDataSimulator:
         self,
         timestamp: datetime,
         global_demand_multiplier: float | None = None,
-        zone_multiplier: Callable[[str], float] | None = None,
+        neighborhood_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
-        import numpy as np
-        from simulator.generators.sensors import _daily_wave
-
         state = self.state or self.initialize()
         containers = state.topology.containers
         N = len(containers)
@@ -205,50 +179,7 @@ class SyntheticDataSimulator:
                 alarms=[],
             )
 
-        if not hasattr(state, "_cached_arrays"):
-            # Cache static mappings to avoid rebuilding on every tick
-            site_list = []
-            device_list = []
-            demand_bases = []
-            waste_factors = []
-            heights = []
-            reading_offsets = []
-            zone_profiles = []
-
-            containers_by_site_and_waste: dict[tuple[str, str], list[int]] = (
-                defaultdict(list)
-            )
-            containers_by_site: dict[str, list[int]] = defaultdict(list)
-
-            for idx, container in enumerate(containers):
-                site = state.site_by_id[container.site_id]
-                device = state.device_by_container_id[container.id]
-                site_list.append(site)
-                device_list.append(device)
-                demand_bases.append(site.demand_base)
-                waste_factors.append(
-                    self.config.waste_type_factors.get(container.waste_type, 1.0)
-                )
-                heights.append(container.height_cm)
-                reading_offsets.append(state.reading_offsets[device.id])
-                zone_profiles.append(get_zone_classifier().get_profile(site.zone))
-
-                containers_by_site_and_waste[
-                    (container.site_id, container.waste_type)
-                ].append(idx)
-                containers_by_site[container.site_id].append(idx)
-
-            state._cached_sites = site_list
-            state._cached_devices = device_list
-            state._cached_demand_bases = np.array(demand_bases, dtype=np.float64)
-            state._cached_waste_factors = np.array(waste_factors, dtype=np.float64)
-            state._cached_heights = np.array(heights, dtype=np.float64)
-            state._cached_reading_offsets = np.array(reading_offsets, dtype=np.int32)
-            state._cached_zone_profiles = zone_profiles
-            state._cached_calibration_factor = calibration_factor(zone_profiles)
-            state._cached_containers_by_site_and_waste = containers_by_site_and_waste
-            state._cached_containers_by_site = containers_by_site
-            state._cached_arrays = True
+        arrays = state.arrays
 
         measurements: list[Measurement] = []
         collection_events: list[CollectionEvent] = []
@@ -259,15 +190,15 @@ class SyntheticDataSimulator:
             [state.levels.get(c.id, 0.0) for c in containers], dtype=np.float64
         )
         batteries = np.array(
-            [state.batteries[d.id] for d in state._cached_devices], dtype=np.float64
+            [state.batteries[d.id] for d in arrays.devices], dtype=np.float64
         )
 
         # 1. Llenado (ver simulator/generators/filling.py)
         zone_mults = zone_multipliers(
-            state._cached_zone_profiles,
+            arrays.zone_profiles,
             timestamp,
-            state._cached_calibration_factor,
-            zone_multiplier,
+            arrays.calibration_factor,
+            neighborhood_multiplier,
         )
         global_mult = (
             self.config.high_demand_multiplier
@@ -275,8 +206,8 @@ class SyntheticDataSimulator:
             else global_demand_multiplier
         )
         increments = filling_increments(
-            state._cached_demand_bases,
-            state._cached_waste_factors,
+            arrays.demand_bases,
+            arrays.waste_factors,
             zone_mults,
             global_mult,
             self.config,
@@ -287,8 +218,8 @@ class SyntheticDataSimulator:
             increments,
             containers,
             state.opposing_site_by_site_id,
-            state._cached_containers_by_site_and_waste,
-            state._cached_containers_by_site,
+            arrays.containers_by_site_and_waste,
+            arrays.containers_by_site,
         )
 
         # 2. Collections (Simulación con Flota de Camiones)
@@ -308,7 +239,7 @@ class SyntheticDataSimulator:
             ]
             containers_by_site_dict = {
                 str(site_id): [items[idx] for idx in indices]
-                for site_id, indices in state._cached_containers_by_site.items()
+                for site_id, indices in arrays.containers_by_site.items()
             }
 
             truck_events = self.truck_fleet.step(
@@ -323,7 +254,7 @@ class SyntheticDataSimulator:
                 levels[idx] = ev["level_after"]
                 collected[idx] = True
                 reading_timestamp = timestamp + timedelta(
-                    minutes=int(state._cached_reading_offsets[idx])
+                    minutes=int(arrays.reading_offsets[idx])
                 )
                 collection_events.append(
                     CollectionEvent(
@@ -373,7 +304,7 @@ class SyntheticDataSimulator:
             for idx in collected_indices:
                 container = containers[idx]
                 reading_timestamp = timestamp + timedelta(
-                    minutes=int(state._cached_reading_offsets[idx])
+                    minutes=int(arrays.reading_offsets[idx])
                 )
                 kind = "partial" if is_partial[idx] else "total"
                 collection_events.append(
@@ -419,7 +350,7 @@ class SyntheticDataSimulator:
         sigmas = np.where(is_noisy_anomaly, 6.5, 1.2)
         ultrasonic_noises = self.np_rng.normal(0.0, sigmas)
 
-        empty_distances = state._cached_heights
+        empty_distances = arrays.heights
         calculated_distances = (
             empty_distances * (1.0 - levels / 100.0) + ultrasonic_noises
         )
@@ -443,7 +374,7 @@ class SyntheticDataSimulator:
         final_batteries = np.where(low_battery, force_low_vals, normal_batteries)
         final_batteries = np.round(final_batteries, 2)
 
-        for idx, device in enumerate(state._cached_devices):
+        for idx, device in enumerate(arrays.devices):
             state.batteries[device.id] = float(final_batteries[idx])
 
         # Signal RSSI
@@ -473,10 +404,10 @@ class SyntheticDataSimulator:
         for idx, container in enumerate(containers):
             state.levels[container.id] = float(levels[idx])
 
-            site = state._cached_sites[idx]
-            device = state._cached_devices[idx]
+            site = arrays.sites[idx]
+            device = arrays.devices[idx]
             reading_timestamp = timestamp + timedelta(
-                minutes=int(state._cached_reading_offsets[idx])
+                minutes=int(arrays.reading_offsets[idx])
             )
 
             measurement = Measurement(

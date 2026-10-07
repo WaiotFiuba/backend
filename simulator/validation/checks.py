@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from simulator.simulation.engine import SimulationResult
+from simulator.simulation.state import SimulationResult
 
 
 @dataclass(frozen=True)
