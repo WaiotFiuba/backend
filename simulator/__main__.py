@@ -148,7 +148,7 @@ def main() -> None:
 
 
 def _deliver_to_backend(args, result) -> dict[str, object]:
-    from simulator.transport.backend_http import (
+    from simulator.transport.telemetry_sender import (
         BackendDeliveryError,
         StreamingInterrupted,
         send_result_batch,
@@ -186,7 +186,7 @@ def _load_backend_topology(
     limit: int | None,
     token: str | None,
 ):
-    from simulator.loaders.backend_http import (
+    from simulator.transport.topology_client import (
         BackendConnectionError,
         load_topology_from_backend_api,
     )

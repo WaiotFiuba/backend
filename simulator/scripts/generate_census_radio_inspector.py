@@ -1095,7 +1095,7 @@ def main():
     radios_by_code = {}
     comuna_population_acc = defaultdict(int)
 
-    csv_path = ROOT / "datos" / "radios_caba_filtrado.csv"
+    csv_path = ROOT / "datos" / "simulator" / "demography" / "radios_caba_filtrado.csv"
     with open(csv_path, mode="r", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -1136,7 +1136,7 @@ def main():
             }
 
     # 2. Cargar TODOS los 28.267 contenedores reales
-    contenedores_path = ROOT / "db" / "datos" / "contenedores_negros.json"
+    contenedores_path = ROOT / "datos" / "digital_twin" / "contenedores_negros.json"
     with open(contenedores_path, "r", encoding="utf-8") as fh:
         raw_features = json.load(fh)["features"]
 

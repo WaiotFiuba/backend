@@ -188,7 +188,7 @@ El simulador se ejecuta localmente para evitar pagar un worker continuo.
 En el backend local, configurar:
 
 ```env
-SIMULATOR_BACKEND_URL=https://your-backend.onrender.com
+BACKEND_URL=https://your-backend.onrender.com
 SIMULATOR_POLL_SECONDS=2
 SIMULATOR_BATCH_SIZE=500
 SIMULATOR_CONTAINER_LIMIT=2000

@@ -1,7 +1,22 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Literal
+from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
+
+
+class SimulationStatus(StrEnum):
+    """Estados de una sesion de simulacion, tal como los expone la API."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPING = "stopping"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+    @property
+    def is_finished(self) -> bool:
+        return self in (SimulationStatus.COMPLETED, SimulationStatus.FAILED)
 
 
 class SimulationZoneState(BaseModel):
@@ -16,7 +31,7 @@ class SimulationSession(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: int
-    status: Literal["pending", "running", "paused", "stopping", "completed", "failed"]
+    status: SimulationStatus
     scenario: dict[str, object]
     speedup: float
     global_demand_current: float
@@ -36,20 +51,6 @@ class SimulationSession(BaseModel):
     zone_overrides: list[
         SimulationZoneState
     ]  # Parses nested dictionaries automatically
-
-
-class ZoneDemand(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    neighborhood: str
-    commune: str | None
-    population: int
-    year: int
-    source: str
-    area_km2: float
-    density_per_km2: float
-    density_factor: float
-    multiplier_effective: float
 
 
 class Site(BaseModel):

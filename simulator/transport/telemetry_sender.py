@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from urllib.request import Request, urlopen
 
 from simulator.domain.entities import Measurement
 from simulator.exporters.files import api_payload_from_measurement
-from simulator.simulation.engine import SimulationResult
+from simulator.simulation.state import SimulationResult
 
 
 class BackendDeliveryError(RuntimeError):
@@ -99,6 +100,23 @@ def send_measurements_batch(
     )
 
     return report.freeze()
+
+
+async def deliver_tick_measurements(
+    measurements: list[Measurement],
+    backend_url: str,
+    batch_size: int,
+) -> DeliveryReport:
+    """Envia las mediciones de un tick y espera la confirmacion del backend."""
+    if not measurements:
+        return DeliveryReport(sent=0, updated=0, not_found=0, requests=0)
+
+    return await asyncio.to_thread(
+        send_measurements_batch,
+        measurements,
+        backend_url,
+        batch_size=batch_size,
+    )
 
 
 def stream_result(

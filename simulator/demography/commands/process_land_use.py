@@ -1,13 +1,13 @@
 """
-app/commands/process_land_use.py
-────────────────────────────────
+simulator/demography/commands/process_land_use.py
+─────────────────────────────────────────────────
 Comando para procesar el relevamiento de usos del suelo de BA Data,
 geocodificar las parcelas utilizando la traza de calles (desde PostGIS o fallback GeoJSON),
 asignarlas a sus radios censales y derivar perfiles de demanda para el simulador.
 
 Orden de ingesta:
   1. PostGIS (tabla 'calles') si la base de datos está disponible.
-  2. Fallback offline a 'db/datos/calles.geojson'.
+  2. Fallback offline a 'datos/digital_twin/calles.geojson'.
 
 Lee los umbrales y multiplicadores base desde:
   simulator/config/zone_profiles.yaml
@@ -36,7 +36,10 @@ from shapely.strtree import STRtree
 
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+# Raiz del repo (simulator/demography/commands/ -> 3 niveles arriba de simulator/).
+ROOT = Path(__file__).resolve().parents[3]
+# El mismo YAML de perfiles que usa el ZoneClassifier.
+ZONE_PROFILES_YAML = ROOT / "simulator" / "config" / "zone_profiles.yaml"
 
 TITULOS_REGEX = re.compile(
     r"\b(AV|AVENIDA|CALLE|PASAJE|PJE|AUT|AUTOPISTA|BV|BOULEVARD|PQUE|PARQUE|DR|DRA|DOCTOR|DOCTORA|"
@@ -63,8 +66,12 @@ KNOWN_ALIASES = {
 
 def _resolve_file(filename: str) -> Path | None:
     candidates = [
+        ROOT / "datos" / "digital_twin" / filename,
+        ROOT / "datos" / "simulator" / "demography" / filename,
         ROOT / "db" / "datos" / filename,
         ROOT / "datos" / filename,
+        Path("/app/datos/digital_twin") / filename,
+        Path("/app/datos/simulator/demography") / filename,
         Path("/app/db/datos") / filename,
         Path("/app/datos") / filename,
         Path("/datos") / filename,
@@ -109,6 +116,45 @@ def _load_yaml_config(
             )
 
     return thresholds, category_weights
+
+
+def _barrios_by_radio(
+    radio_codes: list[str], geometries: list, barrios_path: Path | None
+) -> dict[str, str]:
+    """
+    Barrio de cada radio censal: el del polígono de barrio (barrios.geojson) que
+    cubre la mayor parte del radio, en mayúsculas como en el relevamiento.
+    Devuelve {} si no está el archivo.
+    """
+    if not barrios_path or not barrios_path.exists():
+        print(
+            "[WARNING] No se encontró barrios.geojson: el barrio de cada radio "
+            "sale de sus parcelas."
+        )
+        return {}
+
+    with open(barrios_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    polygons, names = [], []
+    for feature in data.get("features", []):
+        name = str((feature.get("properties") or {}).get("nombre") or "").strip()
+        if not name or not feature.get("geometry"):
+            continue
+        polygon = shape(feature["geometry"])
+        polygons.append(polygon if polygon.is_valid else polygon.buffer(0))
+        names.append(name.upper())
+
+    tree = STRtree(polygons)
+    barrios: dict[str, str] = {}
+    for code, radio in zip(radio_codes, geometries):
+        best_name, best_area = None, 0.0
+        for i in tree.query(radio):
+            area = polygons[i].intersection(radio).area
+            if area > best_area:
+                best_name, best_area = names[i], area
+        if best_name:
+            barrios[code] = best_name
+    return barrios
 
 
 def _norm_text(text: str) -> str:
@@ -401,29 +447,24 @@ async def process_land_use_async(
         Path(radios_csv) if radios_csv else _resolve_file("radios_caba_filtrado.csv")
     )
 
-    config_path = (
-        Path(config_yaml)
-        if config_yaml
-        else (
-            ROOT
-            / "app"
-            / "digital_twin"
-            / "synthetic_data"
-            / "config"
-            / "zone_profiles.yaml"
-        )
-    )
+    config_path = Path(config_yaml) if config_yaml else ZONE_PROFILES_YAML
 
     out_radio = (
         Path(output_radio_csv)
         if output_radio_csv
-        else (ROOT / "db" / "datos" / "land_use_by_radio.csv")
+        else (ROOT / "datos" / "simulator" / "land_use" / "land_use_by_radio.csv")
     )
     out_barrio = (
         Path(output_barrio_csv)
         if output_barrio_csv
-        else (ROOT / "db" / "datos" / "land_use_by_barrio.csv")
+        else (ROOT / "datos" / "simulator" / "land_use" / "land_use_by_barrio.csv")
     )
+
+    if out_radio.exists() and not force:
+        print(
+            f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar)."
+        )
+        return {"status": "already_exists", "output_radio": str(out_radio)}
 
     if not land_use_path or not land_use_path.exists():
         print(
@@ -436,12 +477,6 @@ async def process_land_use_async(
             f"[WARNING] No se encontró el archivo de radios: {radios_path}. Omitiendo."
         )
         return {"status": "skipped", "reason": "radios_csv_missing"}
-
-    if out_radio.exists() and not force:
-        print(
-            f"[INFO] '{out_radio.name}' ya existe. Omitiendo reprocesamiento (usar --force para regenerar)."
-        )
-        return {"status": "already_exists", "output_radio": str(out_radio)}
 
     thresholds, category_weights = _load_yaml_config(config_path)
 
@@ -467,6 +502,12 @@ async def process_land_use_async(
 
     tree = STRtree(geometries)
     radio_dept_map = dict(zip(radio_codes, radio_depts))
+    # El barrio de cada radio sale del mapa de barrios. Las parcelas del
+    # relevamiento se ubican por dirección y algunas caen en un radio vecino, y
+    # los radios sin parcelas quedaban con el nombre de su comuna.
+    radio_barrio_map = _barrios_by_radio(
+        radio_codes, geometries, _resolve_file("barrios.geojson")
+    )
 
     # 2. Cargar calles (PostGIS primero, fallback GeoJSON)
     calles_dict, calles_token_dict, source = await _load_streets_from_db_or_geojson(
@@ -546,7 +587,9 @@ async def process_land_use_async(
     for r_code in radio_codes:
         dept_name = radio_dept_map.get(r_code, "UNKNOWN")
         seen_b = radio_barrios_seen.get(r_code, {})
-        barrio = max(seen_b.items(), key=lambda x: x[1])[0] if seen_b else dept_name
+        barrio = radio_barrio_map.get(r_code) or (
+            max(seen_b.items(), key=lambda x: x[1])[0] if seen_b else dept_name
+        )
         counts = radio_counts.get(r_code, {})
         total_p = sum(counts.values())
 
@@ -584,7 +627,9 @@ async def process_land_use_async(
             }
         )
 
-    for target_path in set([out_radio, ROOT / "datos" / "land_use_by_radio.csv"]):
+    for target_path in set(
+        [out_radio, ROOT / "datos" / "simulator" / "land_use" / "land_use_by_radio.csv"]
+    ):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
             "radio_code",
@@ -638,7 +683,12 @@ async def process_land_use_async(
             }
         )
 
-    for target_path in set([out_barrio, ROOT / "datos" / "land_use_by_barrio.csv"]):
+    for target_path in set(
+        [
+            out_barrio,
+            ROOT / "datos" / "simulator" / "land_use" / "land_use_by_barrio.csv",
+        ]
+    ):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = [
             "barrio",

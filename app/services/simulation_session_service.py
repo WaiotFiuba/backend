@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from simulator.simulation.scenario import scenario_from_mapping
+from app.core.simulation_status import ACTIVE_STATUSES, SimulationStatus
 from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.saved_configuration import SavedConfiguration
@@ -17,6 +19,7 @@ from app.schemas.digital_twin import (
     SavedConfigurationCreate,
     SavedConfigurationRead,
     SavedConfigurationUpdate,
+    ScenarioInput,
     SimulationControlsUpdate,
     SimulationCreate,
     SimulationRead,
@@ -25,7 +28,7 @@ from app.schemas.digital_twin import (
 )
 from app.services.digital_twin_ingest_service import reset_database_container_levels
 
-ACTIVE_STATUSES = ("pending", "running", "paused", "stopping")
+logger = logging.getLogger(__name__)
 
 
 async def create_simulation(
@@ -46,7 +49,7 @@ async def create_simulation(
         .all()
     )
     for s in active_sessions:
-        s.status = "completed"
+        s.status = SimulationStatus.COMPLETED
         s.finished_at = datetime.now(UTC)
         s.error_message = "Detenida por inicio de nueva simulacion."
     if active_sessions:
@@ -54,25 +57,24 @@ async def create_simulation(
 
     await reset_database_container_levels(db)
 
+    scenario_data = dict(payload.scenario)
+    if payload.start_time is not None:
+        scenario_data["start"] = payload.start_time
     try:
-        scenario_data = dict(payload.scenario)
-        if payload.start_time is not None:
-            scenario_data["start"] = payload.start_time
-        if (
-            "frequency_minutes" not in scenario_data
-            and payload.transition_minutes is not None
-        ):
-            scenario_data["frequency_minutes"] = payload.transition_minutes
-        config = scenario_from_mapping(scenario_data)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        scenario = ScenarioInput.model_validate(scenario_data).model_dump(
+            mode="json", exclude_unset=True
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_url=False, include_context=False),
+        ) from exc
     await _validate_neighborhoods(
         db,
         [item.neighborhood for item in payload.zone_overrides],
     )
-    scenario = _scenario_record(config)
     session = SimulationSession(
-        status="pending",
+        status=SimulationStatus.PENDING,
         scenario=scenario,
         speedup=payload.speedup,
         global_demand_current=payload.global_demand_multiplier,
@@ -80,7 +82,8 @@ async def create_simulation(
         global_demand_target=payload.global_demand_multiplier,
         transition_minutes=payload.transition_minutes,
         simulated_time=None,
-        total_periods=config.periods,
+        # El simulador reporta los periodos reales al arrancar la sesion.
+        total_periods=0,
         created_by=user_id,
     )
     db.add(session)
@@ -155,9 +158,16 @@ async def set_simulation_status(
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
     allowed = {
-        "pause": ({"running"}, "paused"),
-        "resume": ({"paused"}, "running"),
-        "stop": ({"pending", "running", "paused"}, "stopping"),
+        "pause": ({SimulationStatus.RUNNING}, SimulationStatus.PAUSED),
+        "resume": ({SimulationStatus.PAUSED}, SimulationStatus.RUNNING),
+        "stop": (
+            {
+                SimulationStatus.PENDING,
+                SimulationStatus.RUNNING,
+                SimulationStatus.PAUSED,
+            },
+            SimulationStatus.STOPPING,
+        ),
     }
     valid_from, target = allowed[action]
     if session.status not in valid_from:
@@ -165,8 +175,8 @@ async def set_simulation_status(
             status_code=409,
             detail=f"No se puede ejecutar {action} desde estado {session.status}.",
         )
-    if action == "stop" and session.status == "pending":
-        session.status = "completed"
+    if action == "stop" and session.status == SimulationStatus.PENDING:
+        session.status = SimulationStatus.COMPLETED
         session.finished_at = datetime.now(UTC)
     else:
         session.status = target
@@ -224,14 +234,16 @@ async def update_simulation_progress(
     measurements_sent: int = 0,
     collections_generated: int = 0,
     alarms_generated: int = 0,
-    status: str | None = None,
+    status: SimulationStatus | None = None,
+    scenario: dict[str, object] | None = None,
+    total_periods: int | None = None,
 ) -> SimulationRead:
     session = await db.get(SimulationSession, simulation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
     if status is not None:
         session.status = status
-        if status == "running" and session.started_at is None:
+        if status == SimulationStatus.RUNNING and session.started_at is None:
             session.started_at = datetime.now(UTC)
     if simulated_time is not None:
         session.simulated_time = simulated_time
@@ -239,6 +251,10 @@ async def update_simulation_progress(
         session.current_period = current_period
     if global_demand_current is not None:
         session.global_demand_current = global_demand_current
+    if scenario is not None:
+        session.scenario = scenario
+    if total_periods is not None:
+        session.total_periods = total_periods
     session.measurements_sent += measurements_sent
     session.collections_generated += collections_generated
     session.alarms_generated += alarms_generated
@@ -249,7 +265,7 @@ async def update_simulation_progress(
 async def finish_simulation_session(
     db: AsyncSession,
     simulation_id: int,
-    status: str,
+    status: SimulationStatus,
     error_message: str | None = None,
 ) -> SimulationRead:
     session = await db.get(SimulationSession, simulation_id)
@@ -267,11 +283,9 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
     result = await db.execute(
         update(SimulationSession)
-        .where(
-            SimulationSession.status.in_(("running", "paused", "stopping", "pending"))
-        )
+        .where(SimulationSession.status.in_(ACTIVE_STATUSES))
         .values(
-            status="failed",
+            status=SimulationStatus.FAILED,
             error_message="El worker se reinicio durante la simulacion.",
             finished_at=datetime.now(UTC),
         )
@@ -284,13 +298,7 @@ async def fail_interrupted_sessions(db: AsyncSession) -> int:
 
 async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
     try:
-
-        def check_barrios_exists(sync_conn):
-            inspector = inspect(sync_conn)
-            return inspector.has_table("barrios")
-
-        has_barrios = await db.run_sync(check_barrios_exists)
-        if not has_barrios:
+        if not await _has_barrios_table(db):
             return []
 
         active = await _active_session(db)
@@ -310,19 +318,17 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
             await db.execute(
                 select(NeighborhoodDemographic)
                 .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
-                .options(
-                    joinedload(NeighborhoodDemographic.neighborhood).joinedload(
-                        Barrio.comuna
-                    )
-                )
+                .options(joinedload(NeighborhoodDemographic.neighborhood))
                 .order_by(Barrio.nombre)
             )
         ).scalars()
         return [
             ZoneDemandRead(
                 neighborhood=row.neighborhood.nombre,
-                commune=str(row.neighborhood.comuna.comuna)
-                if row.neighborhood.comuna
+                # barrios.comuna trae el número de comuna; la tabla comunas ya
+                # no se importa.
+                commune=str(row.neighborhood.comuna_id)
+                if row.neighborhood.comuna_id is not None
                 else None,
                 population=row.population,
                 year=row.year,
@@ -335,6 +341,7 @@ async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
             for row in rows
         ]
     except Exception:
+        logger.exception("No se pudo listar la demanda por barrio.")
         return []
 
 
@@ -440,16 +447,20 @@ async def _zone_overrides(
     )
 
 
+async def _has_barrios_table(db: AsyncSession) -> bool:
+    """La tabla barrios es opcional (datos de CABA). AsyncSession.run_sync le
+    pasa a la función una Session, no una conexión: inspect() necesita la
+    conexión de esa sesión."""
+    return await db.run_sync(
+        lambda session: inspect(session.connection()).has_table("barrios")
+    )
+
+
 async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
     if not names:
         return
 
-    def check_barrios_exists(sync_conn):
-        inspector = inspect(sync_conn)
-        return inspector.has_table("barrios")
-
-    has_barrios = await db.run_sync(check_barrios_exists)
-    if not has_barrios:
+    if not await _has_barrios_table(db):
         raise HTTPException(
             status_code=422,
             detail={"unknown_neighborhoods": names},
@@ -511,17 +522,6 @@ async def _simulation_read(
             for item in overrides
         ],
     )
-
-
-def _scenario_record(config) -> dict[str, object]:
-    return {
-        key: value.isoformat()
-        if isinstance(value, datetime)
-        else list(value)
-        if isinstance(value, tuple)
-        else value
-        for key, value in config.__dict__.items()
-    }
 
 
 def _as_utc(value: datetime) -> datetime:

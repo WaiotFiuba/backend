@@ -8,11 +8,11 @@ from simulator.domain.entities import (
     Device,
     Site,
 )
-from app.services.map.street_pairing import (
-    build_opposing_sites_map,
+from simulator.geo.addresses import (
     normalize_street_name,
     parse_street_address,
 )
+from simulator.simulation.opposing_sites import build_opposing_sites_map
 from simulator.simulation.engine import (
     SyntheticDataSimulator,
 )

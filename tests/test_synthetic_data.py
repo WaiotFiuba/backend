@@ -8,10 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
 from simulator.exporters.files import export_simulation
-from simulator.loaders.backend_http import (
-    BackendConnectionError,
-    load_topology_from_backend_api,
-)
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import (
     ScenarioConfig,
@@ -22,15 +18,17 @@ from simulator.topology import (
     topology_from_backend_api,
     topology_from_backend_records,
 )
-from simulator.transport.backend_http import (
+from simulator.transport.telemetry_sender import (
     DeliveryReport,
     StreamingInterrupted,
+    deliver_tick_measurements,
     send_measurements_batch,
     send_result_batch,
     stream_result,
 )
-from simulator.transport.delivery_pipeline import (
-    deliver_tick_measurements,
+from simulator.transport.topology_client import (
+    BackendConnectionError,
+    load_topology_from_backend_api,
 )
 from simulator.worker import (
     _remaining_tick_delay,
@@ -187,6 +185,19 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(topology.devices[0].id, "imei-456")
         self.assertEqual(topology.initial_levels["456"], 28)
 
+    def test_containers_without_site_get_their_own_site(self) -> None:
+        # Regresion: str(None) los agrupaba a todos en un sitio "None".
+        topology = topology_from_backend_api(
+            [
+                {"id": cid, "site_id": None, "latitude": -34.61, "longitude": -58.42}
+                for cid in (1, 2)
+            ]
+        )
+
+        self.assertEqual(
+            sorted(site.id for site in topology.sites), ["SITE-1", "SITE-2"]
+        )
+
     def test_measurement_export_uses_backend_metadata(self) -> None:
         topology = topology_from_backend_api(
             [
@@ -293,7 +304,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "simulator.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=URLError("[Errno 111] Connection refused"),
         ):
             with self.assertRaises(BackendConnectionError) as context:
@@ -320,7 +331,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         ]
 
         with patch(
-            "simulator.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=responses,
         ) as urlopen_mock:
             topology = load_topology_from_backend_api("http://backend", page_size=1)
@@ -497,7 +508,7 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
                 runnable,
             ),
             patch(
-                "simulator.transport.delivery_pipeline.send_measurements_batch",
+                "simulator.transport.telemetry_sender.send_measurements_batch",
                 return_value=DeliveryReport(
                     sent=2,
                     updated=2,

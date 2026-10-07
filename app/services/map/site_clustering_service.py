@@ -251,7 +251,7 @@ def _split_by_distance(
     if len(containers) <= 1:
         return [containers]
 
-    from app.services.map.street_pairing import (
+    from app.services.map.address_parser import (
         parse_street_address,
     )
 

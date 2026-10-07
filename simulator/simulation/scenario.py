@@ -29,9 +29,10 @@ class ScenarioConfig:
     collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6)
     collection_days: tuple[int, ...] = (0, 1, 2, 3, 4)
     no_collection_days: tuple[int, ...] = (5, 6)
-    collection_probability: float = 0.85
-    partial_collection_probability: float = 0.12
-    omitted_collection_probability: float = 0.03
+    collection_probability: float = 0.98  # valores para la recoleccion secundaria
+    partial_collection_probability: float = (
+        0.03  # valores para la recoleccion secundaria
+    )
     high_demand_multiplier: float = 1.0
     overflow_stress_multiplier: float = 1.0
     noisy_sensor_probability: float = 0.0
@@ -198,6 +199,19 @@ def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
     valid_fields = {f.name for f in dataclasses.fields(ScenarioConfig)}
     filtered = {k: v for k, v in normalized.items() if k in valid_fields}
     return ScenarioConfig(**filtered)
+
+
+def scenario_to_record(config: ScenarioConfig) -> dict[str, object]:
+    """Escenario efectivo (con los defaults del simulador) como dict guardable en
+    JSON. El worker se lo reporta al backend al iniciar cada sesion."""
+    return {
+        key: value.isoformat()
+        if isinstance(value, datetime)
+        else list(value)
+        if isinstance(value, tuple)
+        else value
+        for key, value in config.__dict__.items()
+    }
 
 
 def _periods_between(start: datetime, end: datetime, frequency_minutes: int) -> int:

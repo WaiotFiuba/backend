@@ -168,6 +168,14 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
+simulator = [
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyproj" },
+    { name = "pyyaml" },
+    { name = "shapely" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -200,6 +208,14 @@ dev = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.5" },
+]
+simulator = [
+    { name = "numpy", specifier = ">=2.5.0" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.6.1" },
+    { name = "pyproj", specifier = ">=3.8.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "shapely", specifier = ">=2.1.2" },
 ]
 
 [[package]]

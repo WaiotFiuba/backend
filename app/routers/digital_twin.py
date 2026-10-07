@@ -21,8 +21,10 @@ from app.schemas.digital_twin import (
     TelemetryIngestPayload,
     TelemetryIngestResult,
     ZoneDemandRead,
+    ZoneProfileLayerPayload,
 )
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
+from app.services.map.zone_profile_service import save_zone_profiles_geojson
 from app.services.simulation_session_service import (
     create_saved_configuration,
     create_simulation,
@@ -178,95 +180,6 @@ async def delete_configuration_endpoint(
     await delete_saved_configuration(db, current_user.id, config_id)
 
 
-@router.get("/depots")
-async def get_depots_endpoint() -> dict:
-    """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
-    from simulator.trucks.truck_depots import (
-        DEPOTS_BY_ZONE,
-        TRANSFER_STATIONS,
-    )
-
-    return {
-        "bases": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in DEPOTS_BY_ZONE.values()
-        ],
-        "transfer_stations": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in TRANSFER_STATIONS
-        ],
-    }
-
-
-@router.get("/trucks/active")
-async def get_active_trucks_endpoint() -> list[dict]:
-    """Retorna el estado de la flota de camiones recolectores en tiempo real."""
-    from simulator.trucks.truck_engine import (
-        get_latest_truck_snapshot,
-    )
-
-    return get_latest_truck_snapshot()
-
-
-@router.get("/routes/{route_id}")
-async def get_route_details_endpoint(route_id: str) -> dict:
-    """Retorna los tramos y waypoints de un circuito de recolección."""
-    from fastapi import HTTPException
-    from simulator.trucks.truck_routes import load_all_collection_routes
-
-    routes = load_all_collection_routes()
-    clean_id = route_id.split(".")[0].strip()
-    route = routes.get(clean_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Circuito no encontrado")
-
-    is_green_route = "Contenedores Verdes" in route.service_name
-    if (
-        not is_green_route
-        and not route.total_distance_m
-        and clean_id != "RODRIGO_BUENO"
-    ):
-        try:
-            from simulator.trucks.drpp_solver import optimize_circuit_route
-
-            sol = optimize_circuit_route(clean_id)
-            route.total_distance_m = sol.total_distance_m
-            route.collection_distance_m = sol.collection_distance_m
-            route.deadheading_distance_m = sol.deadheading_distance_m
-            route.repeated_segments_count = sol.repeated_segments_count
-            route.street_sequence = sol.street_sequence
-        except Exception:
-            pass
-
-    return {
-        "route_id": route.route_id,
-        "zone": route.zone,
-        "service_name": route.service_name,
-        "site_ids": route.site_ids,
-        "waypoints": route.waypoints,
-        "segments_count": len(route.segments),
-        "total_distance_m": route.total_distance_m,
-        "collection_distance_m": route.collection_distance_m,
-        "deadheading_distance_m": route.deadheading_distance_m,
-        "repeated_segments_count": route.repeated_segments_count,
-        "street_sequence": route.street_sequence,
-    }
-
-
 # Endpoints utilizados por el Simulator Worker (sin acceso directo a BD)
 @router.get("/worker/active-session", response_model=SimulationRead | None)
 async def read_worker_active_session(
@@ -294,13 +207,6 @@ async def worker_update_progress(
     payload: SimulationProgressUpdate,
     db: MapDbDep,
 ) -> SimulationRead:
-    if payload.trucks is not None:
-        from simulator.trucks.truck_engine import (
-            set_latest_truck_snapshot,
-        )
-
-        set_latest_truck_snapshot(payload.trucks)
-
     return await update_simulation_progress(
         db=db,
         simulation_id=simulation_id,
@@ -311,6 +217,8 @@ async def worker_update_progress(
         collections_generated=payload.collections_generated,
         alarms_generated=payload.alarms_generated,
         status=payload.status,
+        scenario=payload.scenario,
+        total_periods=payload.total_periods,
     )
 
 
@@ -328,6 +236,18 @@ async def worker_finish_simulation(
         status=payload.status,
         error_message=payload.error_message,
     )
+
+
+@router.put("/worker/simulations/{simulation_id}/zone-profiles")
+async def worker_publish_zone_profiles(
+    simulation_id: int,
+    payload: ZoneProfileLayerPayload,
+    db: MapDbDep,
+) -> dict[str, int]:
+    """El simulador publica la capa de perfiles de zona con la que corre la
+    sesion (segun su zone_profiles.yaml). Reemplaza la capa anterior."""
+    features = await save_zone_profiles_geojson(db, simulation_id, payload.model_dump())
+    return {"features": features}
 
 
 def _log_telemetry_ingest(mode: str, result: TelemetryIngestResult) -> None:

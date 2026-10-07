@@ -4,12 +4,16 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from simulator.trucks.truck_depots import (
     get_depot_for_zone,
 )
-from simulator.trucks.truck_routes import TruckRoute
+from simulator.trucks.truck_routes import TruckRoute, build_collection_routes
+
+if TYPE_CHECKING:
+    from simulator.simulation.scenario import ScenarioConfig
+    from simulator.topology import SimulationTopology
 
 logger = logging.getLogger(__name__)
 
@@ -157,27 +161,14 @@ class TruckFleetSimulator:
             truck.current_site_idx = end_idx
 
             if sites_to_collect:
-                last_site = str(sites_to_collect[-1]).split("|")[-1]
-                if last_site in self.sites_dict:
-                    s_lat, s_lon = self.sites_dict[last_site]
-                    truck.latitude = round(s_lat, 6)
-                    truck.longitude = round(s_lon, 6)
-                elif str(sites_to_collect[-1]) in self.sites_dict:
-                    s_lat, s_lon = self.sites_dict[str(sites_to_collect[-1])]
-                    truck.latitude = round(s_lat, 6)
-                    truck.longitude = round(s_lon, 6)
+                last_site = self.sites_dict.get(str(sites_to_collect[-1]))
+                if last_site is not None:
+                    truck.latitude = round(last_site[0], 6)
+                    truck.longitude = round(last_site[1], 6)
 
             for stop in scheduled_stops:
                 site_id = stop["site_id"]
-                raw_id = str(site_id).split("|")[-1]
-                site_containers = (
-                    containers_by_site.get(str(site_id))
-                    or containers_by_site.get(raw_id)
-                    or containers_by_site.get(f"contenedores_verdes|{raw_id}")
-                    or containers_by_site.get(f"contenedores_negros|{raw_id}")
-                    or containers_by_site.get(f"SITE-{raw_id}")
-                    or []
-                )
+                site_containers = containers_by_site.get(str(site_id), [])
                 seen_c_ids = set()
                 for c in site_containers:
                     c_id = c.get("id")
@@ -244,35 +235,52 @@ class TruckFleetSimulator:
         return result
 
 
-_LATEST_TRUCK_SNAPSHOT: list[dict] | None = None
-_DEMO_FLEET_SIMULATOR: TruckFleetSimulator | None = None
-_LAST_DEMO_STEP_TIME: float | None = None
+def build_truck_fleet(
+    topology: SimulationTopology, config: ScenarioConfig, rng: random.Random
+) -> TruckFleetSimulator:
+    """Flota de la sesión: un camión por ruta, con las rutas armadas con los
+    sitios de esta topología.
 
-
-def set_latest_truck_snapshot(snapshot: list[dict]) -> None:
-    global _LATEST_TRUCK_SNAPSHOT
-    _LATEST_TRUCK_SNAPSHOT = snapshot
-
-
-def get_latest_truck_snapshot() -> list[dict]:
-    global _LATEST_TRUCK_SNAPSHOT, _DEMO_FLEET_SIMULATOR
-    if _LATEST_TRUCK_SNAPSHOT is not None:
-        return _LATEST_TRUCK_SNAPSHOT
-
-    if _DEMO_FLEET_SIMULATOR is None:
-        from simulator.trucks.truck_routes import load_routes_from_csv
-
-        routes = load_routes_from_csv()
-        sites_dict = {}
-        if "RODRIGO_BUENO" in routes and routes["RODRIGO_BUENO"].waypoints:
-            sites_dict = {
-                s_id: routes["RODRIGO_BUENO"].waypoints[i]
-                for i, s_id in enumerate(routes["RODRIGO_BUENO"].site_ids)
-                if i < len(routes["RODRIGO_BUENO"].waypoints)
-            }
-        _DEMO_FLEET_SIMULATOR = TruckFleetSimulator(
-            routes=routes, sites_dict=sites_dict
+    Las paradas quedan con el id de sitio del backend, el mismo con el que el
+    engine agrupa los contenedores. Cada sitio agrupa contenedores de un solo
+    tipo (el backend arma los sitios por tipo de residuo): los de contenedores
+    verdes van a las rutas de secos y el resto a las de húmedos. Los sitios sin
+    contenedores no van a ninguna ruta.
+    """
+    sites_with_containers = {str(c.site_id) for c in topology.containers}
+    green_site_ids = {
+        str(c.site_id)
+        for c in topology.containers
+        if _is_recyclable_container({"waste_type": c.waste_type})
+    }
+    site_records = [
+        {
+            "id": s.id,
+            "address": s.address,
+            "name": s.name,
+            "latitude": s.latitude,
+            "longitude": s.longitude,
+        }
+        for s in topology.sites
+    ]
+    routes = build_collection_routes(
+        black_container_sites=[
+            s
+            for s in site_records
+            if s["id"] in sites_with_containers and s["id"] not in green_site_ids
+        ],
+        green_container_sites=[s for s in site_records if s["id"] in green_site_ids],
+    )
+    if sites_with_containers and not any(r.site_ids for r in routes.values()):
+        raise ValueError(
+            "Ninguna ruta de recolección quedó con paradas: revisar los CSV de "
+            "rutas en datos/simulator/routes/."
         )
-
-    # El camión permanece estacionado en la base (AT_DEPOT) hasta que el usuario inicie la simulación desde el frontend
-    return _DEMO_FLEET_SIMULATOR.get_trucks_snapshot()
+    return TruckFleetSimulator(
+        routes=routes,
+        sites_dict={s.id: (s.latitude, s.longitude) for s in topology.sites},
+        collection_hours=config.collection_hours,
+        no_collection_days=config.no_collection_days,
+        collection_threshold_pct=0.0,
+        rng=rng,
+    )

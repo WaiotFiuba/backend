@@ -7,7 +7,6 @@ services:
       - .env
     volumes:
       - ./app:/app/app
-      - ./simulator:/app/simulator
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./db:/app/db
@@ -66,20 +65,16 @@ services:
   simulator:
     profiles:
       - map
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
     env_file:
       - .env
     environment:
-      SIMULATOR_BACKEND_URL: http://api:8000
+      BACKEND_URL: http://api:8000
     volumes:
-      - ./app:/app/app
       - ./simulator:/app/simulator
       - ./datos:/app/datos
-      - ./db:/app/db
-    command: >
-      sh -c "
-      exec uv run python -m simulator.worker
-      "
     depends_on:
       api:
         condition: service_started

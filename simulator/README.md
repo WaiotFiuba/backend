@@ -18,8 +18,7 @@ con la base original, y actualizan el estado actual del contenedor cuando coinci
 - `simulation/scenario.py`: carga y valida escenarios YAML o JSON.
 - `worker.py`: ejecuta la única sesión activa y aplica controles en vivo.
 - `generators/`: demanda, sensores, recolecciones, anomalías y topología sintética.
-- `loaders/`: carga contenedores reales desde el backend.
-- `transport/`: envío HTTP individual o por lotes.
+- `transport/`: comunicación HTTP con el backend: control de la sesión, carga de contenedores (topología) y envío de telemetría.
 - `exporters/`: exportación CSV, Parquet y payloads de API.
 - `validation/`: validaciones del resultado generado.
 - `config/semana_normal.yaml`: escenario base documentado.
@@ -310,7 +309,7 @@ La especificación interactiva está disponible en `http://localhost:8000/docs`.
 
 | Variable | Default | Uso |
 | --- | --- | --- |
-| `SIMULATOR_BACKEND_URL` | `http://api:8000` | URL interna utilizada por el worker |
+| `BACKEND_URL` | `http://api:8000` | URL interna utilizada por el worker |
 | `SIMULATOR_POLL_SECONDS` | `2` | Frecuencia de consulta de sesión y controles |
 | `SIMULATOR_BATCH_SIZE` | `250` | Mediciones enviadas por request |
 | `SIMULATOR_CONTAINER_LIMIT` | sin límite | Cantidad máxima de contenedores que el worker carga en la topología |

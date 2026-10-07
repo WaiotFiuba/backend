@@ -4,7 +4,7 @@ import pytest
 from shapely.geometry import box
 from shapely.ops import transform as shapely_transform
 
-from app.core.config import get_settings
+from simulator.config.settings import get_settings
 from simulator.density_processor import (
     CensusRadio,
     DensityProcessor,

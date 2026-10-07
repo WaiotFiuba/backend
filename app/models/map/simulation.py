@@ -17,13 +17,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.map_database import MapBase
+from app.core.simulation_status import SimulationStatus
 
 
 class SimulationSession(MapBase):
     __tablename__ = "simulation_sessions"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default=SimulationStatus.PENDING
+    )
     scenario: Mapped[dict] = mapped_column(JSON, nullable=False)
     speedup: Mapped[float] = mapped_column(DOUBLE_PRECISION, nullable=False, default=60)
     global_demand_current: Mapped[float] = mapped_column(

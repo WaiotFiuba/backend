@@ -1,3 +1,4 @@
+import csv
 from datetime import datetime
 
 import pytest
@@ -12,6 +13,7 @@ from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import SimulationTopology
 from simulator.zone_classifier import (
     DEFAULT_PROFILE,
+    ZoneClassifier,
     get_zone_classifier,
 )
 
@@ -58,13 +60,10 @@ def test_zone_classifier_radio_lookup():
 def test_zone_classifier_barrio_lookup_fallback():
     classifier = get_zone_classifier()
 
-    # Búsqueda por nombre de barrio
-    profile_palermo = classifier.get_profile("PALERMO")
-    assert profile_palermo.demand_multiplier > 0
-
-    # Búsqueda con Comuna
-    profile_comuna14 = classifier.get_profile("COMUNA 14")
-    assert profile_comuna14.demand_multiplier > 0
+    # Búsqueda por nombre de barrio (la usa la topología sintética del CLI)
+    profile_palermo = classifier.get_profile("Palermo")
+    assert profile_palermo.barrio == "PALERMO"
+    assert profile_palermo != DEFAULT_PROFILE
 
 
 def test_zone_classifier_unknown_fallback():
@@ -212,7 +211,7 @@ def test_zone_multiplier_override_composes_over_automatic_zone_classifier():
     overridden = {
         m.container_id: m.fill_level_pct
         for m in override_sim.run_tick(
-            tick_time, zone_multiplier=lambda zone: overrides.get(zone, 1.0)
+            tick_time, neighborhood_multiplier=lambda name: overrides.get(name, 1.0)
         ).measurements
     }
 
@@ -232,3 +231,86 @@ def test_zone_classifier_calibration_loading():
     assert hasattr(classifier, "calibration_tolerance_pct")
     assert 0.8 <= classifier.calibration_target <= 1.2
     assert 0.0 <= classifier.calibration_tolerance_pct <= 50.0
+
+
+def _classifier_with_radios(tmp_path, rows):
+    path = tmp_path / "land_use_by_radio.csv"
+    fields = [
+        "radio_code",
+        "barrio",
+        "zone_type",
+        "res_multifamily_pct",
+        "res_singlefamily_pct",
+        "commercial_pct",
+        "office_pct",
+        "industrial_pct",
+        "demand_multiplier",
+        "weekend_factor",
+    ]
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, 0) for field in fields})
+    return ZoneClassifier(land_use_radio_csv=path)
+
+
+def _week(profile):
+    return [[profile.effective_multiplier(h, d) for h in range(24)] for d in range(7)]
+
+
+def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
+    # La curva horaria y semanal de cada radio es la mezcla de las curvas de
+    # sus tipos de uso, ponderada por % de parcelas x basura que genera cada
+    # tipo; el volumen semanal sigue siendo su demand_multiplier.
+    classifier = _classifier_with_radios(
+        tmp_path,
+        [
+            {
+                "radio_code": "puro",
+                "barrio": "X",
+                "zone_type": "commercial",
+                "commercial_pct": 100,
+                "demand_multiplier": 1.4,
+                "weekend_factor": 1.2,
+            },
+            {
+                "radio_code": "mixto",
+                "barrio": "X",
+                "zone_type": "commercial",
+                "commercial_pct": 50,
+                "res_multifamily_pct": 50,
+                "demand_multiplier": 1.25,
+                "weekend_factor": 0.9,
+            },
+        ],
+    )
+    commercial = classifier.get_profile("commercial")
+    multifamily = classifier.get_profile("residential_multifamily")
+    puro = classifier.get_profile("puro")
+    mixto = classifier.get_profile("mixto")
+
+    # El radio puro tiene exactamente la curva de su tipo.
+    for d in range(7):
+        for h in range(24):
+            assert puro.effective_multiplier(h, d) / 1.4 == pytest.approx(
+                commercial.effective_multiplier(h, d) / commercial.demand_multiplier
+            )
+
+    # El mixto mezcla: 50% x 1,4 (comercial) contra 50% x 1,1 (multifamiliar).
+    w_comm = 0.5 * 1.4 / (0.5 * 1.4 + 0.5 * 1.1)
+    for d, h in ((1, 8), (5, 13), (6, 21)):
+        expected = (
+            w_comm
+            * commercial.effective_multiplier(h, d)
+            / commercial.demand_multiplier
+            + (1 - w_comm)
+            * multifamily.effective_multiplier(h, d)
+            / multifamily.demand_multiplier
+        )
+        assert mixto.effective_multiplier(h, d) / 1.25 == pytest.approx(expected)
+
+    # Media semanal = demand_multiplier (la calibración global no cambia).
+    for profile, dm in ((puro, 1.4), (mixto, 1.25)):
+        week = _week(profile)
+        assert sum(map(sum, week)) / (7 * 24) == pytest.approx(dm)

@@ -1,17 +1,9 @@
-from __future__ import annotations
-
-import csv
-import logging
-from dataclasses import dataclass, field
-from pathlib import Path
-
-import yaml
-
 """
 zone_classifier.py
 ──────────────────
 Clasifica la zona de cada sitio/contenedor a partir del Relevamiento de Usos
-del Suelo de CABA (BA Data 2022-2024) procesado por scripts/process_land_use.py.
+del Suelo de CABA (BA Data 2022-2024) procesado por
+simulator/demography/commands/process_land_use.py.
 
 Toda la modulación horaria, semanal, factores fin de semana y multiplicadores
 base se leen dinámicamente de 'config/zone_profiles.yaml'.
@@ -26,29 +18,21 @@ Flujo de resolución:
   3. El ZoneClassifier busca el radio censal en 'land_use_by_radio.csv' y obtiene su
      ZoneProfile específico (distinguiendo residencial multifamiliar/edificios,
      unifamiliar/casas, comercial, oficinas, industrial).
-  4. Si se consulta por nombre de barrio (fallback) o tipo de zona directo,
-     utiliza los perfiles de configuración de 'zone_profiles.yaml'.
+  4. Si se consulta por tipo de zona directo (o por nombre de barrio, como hace
+     la topología sintética del CLI), usa los perfiles de 'zone_profiles.yaml' o
+     de 'land_use_by_barrio.csv'.
 """
 
-logger = logging.getLogger(__name__)
+from __future__ import annotations
 
-COMUNA_BARRIO_FALLBACK: dict[str, str] = {
-    "COMUNA 1": "SAN NICOLAS",
-    "COMUNA 2": "RECOLETA",
-    "COMUNA 3": "BALVANERA",
-    "COMUNA 4": "LA BOCA",
-    "COMUNA 5": "ALMAGRO",
-    "COMUNA 6": "CABALLITO",
-    "COMUNA 7": "FLORES",
-    "COMUNA 8": "VILLA SOLDATI",
-    "COMUNA 9": "LINIERS",
-    "COMUNA 10": "FLORESTA",
-    "COMUNA 11": "VILLA GRAL. MITRE",
-    "COMUNA 12": "COGHLAN",
-    "COMUNA 13": "BELGRANO",
-    "COMUNA 14": "PALERMO",
-    "COMUNA 15": "CHACARITA",
-}
+import csv
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,6 +53,11 @@ class ZoneProfile:
     weekday_factors: dict[int, float] = field(
         default_factory=dict
     )  # del YAML de perfiles
+    # Curva propia (día x hora, 7x24) con media 1 en la semana. La arma el
+    # clasificador mezclando las curvas de los tipos de uso del suelo del radio
+    # o barrio; si está, reemplaza a hour_weights x weekday_factors en
+    # effective_multiplier (que quedan solo para mostrar la curva).
+    shape: tuple[tuple[float, ...], ...] | None = None
 
     _temporal_norm: float | None = field(default=None, init=False, repr=False)
     _cached_hour_weights: tuple[float, ...] | None = field(
@@ -140,18 +129,36 @@ class ZoneProfile:
         Precalcula y cachea la matriz 7x24 para acceso ultra rápido O(1).
         """
         if self._cached_matrix is None:
-            norm = self.temporal_normalization_factor
-            matrix = []
-            for wd in range(7):
-                wf = self.get_weekday_factor(wd)
-                matrix.append(
-                    tuple(
-                        self.demand_multiplier * (self.get_hour_weight(h) * wf / norm)
-                        for h in range(24)
-                    )
+            if self.shape is not None:
+                self._cached_matrix = tuple(
+                    tuple(self.demand_multiplier * value for value in day)
+                    for day in self.shape
                 )
-            self._cached_matrix = tuple(matrix)
+            else:
+                norm = self.temporal_normalization_factor
+                matrix = []
+                for wd in range(7):
+                    wf = self.get_weekday_factor(wd)
+                    matrix.append(
+                        tuple(
+                            self.demand_multiplier
+                            * (self.get_hour_weight(h) * wf / norm)
+                            for h in range(24)
+                        )
+                    )
+                self._cached_matrix = tuple(matrix)
         return self._cached_matrix[weekday % 7][hour % 24]
+
+
+# Tipos de uso del suelo que se mezclan en la curva de cada radio o barrio, con
+# la columna de su porcentaje en los CSV de land_use.
+LAND_USE_TYPES: tuple[tuple[str, str], ...] = (
+    ("residential_multifamily", "res_multifamily_pct"),
+    ("residential_singlefamily", "res_singlefamily_pct"),
+    ("commercial", "commercial_pct"),
+    ("office", "office_pct"),
+    ("industrial", "industrial_pct"),
+)
 
 
 # Perfil por defecto cuando no se puede determinar la zona
@@ -184,7 +191,7 @@ class ZoneClassifier:
         classifier = ZoneClassifier()
         profile = classifier.get_profile("20980101")  # por radio censal
         profile_b = classifier.get_profile("PALERMO")  # por barrio
-        mult = classifier.get_multiplier("20980101", hour=8, weekday=5)
+        mult = profile.effective_multiplier(hour=8, weekday=5)
     """
 
     def __init__(
@@ -199,6 +206,10 @@ class ZoneClassifier:
         self._zone_weekday_factors: dict[str, dict[int, float]] = {}
         self._zone_base_multipliers: dict[str, float] = {}
         self._zone_weekend_factors: dict[str, float] = {}
+        # Cuánta basura genera cada tipo de uso (category_demand_weights del YAML):
+        # pondera la mezcla de curvas, igual que el demand_multiplier de cada radio.
+        self._category_waste_weights: dict[str, float] = {}
+        self._type_profiles: dict[str, ZoneProfile] = {}
         # Calibración global: leída del YAML, usada por el engine para normalizar zone_mults
         self.calibration_target: float = 1.0
         self.calibration_tolerance_pct: float = 10.0
@@ -290,77 +301,123 @@ class ZoneClassifier:
             self._zone_base_multipliers[zone_type] = base_mult
             self._zone_weekend_factors[zone_type] = weekend_fac
 
+        for category, weights in (data.get("category_demand_weights") or {}).items():
+            self._category_waste_weights[category] = float(
+                weights.get("demand_multiplier", 1.0)
+            )
+
         logger.info(f"  {len(self._zone_hour_weights)} zone_types cargados del YAML")
 
     def _load_land_use_radio_csv(self, path: Path) -> None:
         logger.info(f"Cargando usos del suelo por radio censal desde: {path}")
         with open(path, encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
+            for row in csv.DictReader(fh):
                 r_code = row["radio_code"].strip()
-                barrio = row.get("barrio", "").strip().upper()
-                zone_type = row["zone_type"].strip()
-
-                profile = ZoneProfile(
-                    zone_key=r_code,
-                    barrio=barrio,
-                    zone_type=zone_type,
-                    res_multifamily_pct=float(row.get("res_multifamily_pct", 0)),
-                    res_singlefamily_pct=float(row.get("res_singlefamily_pct", 0)),
-                    commercial_pct=float(row.get("commercial_pct", 0)),
-                    office_pct=float(row.get("office_pct", 0)),
-                    industrial_pct=float(row.get("industrial_pct", 0)),
-                    demand_multiplier=float(
-                        row.get(
-                            "demand_multiplier",
-                            self._zone_base_multipliers.get(zone_type, 1.0),
-                        )
-                    ),
-                    weekend_factor=float(
-                        row.get(
-                            "weekend_factor",
-                            self._zone_weekend_factors.get(zone_type, 0.75),
-                        )
-                    ),
-                    hour_weights=self._zone_hour_weights.get(zone_type, {}),
-                    weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
+                self._radio_profiles[r_code] = self._profile_from_land_use_row(
+                    row, zone_key=r_code
                 )
-                self._radio_profiles[r_code] = profile
 
         logger.info(f"  {len(self._radio_profiles):,} radios censales cargados")
 
     def _load_land_use_barrio_csv(self, path: Path) -> None:
         with open(path, encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
+            for row in csv.DictReader(fh):
                 barrio = row["barrio"].strip().upper()
-                zone_type = row["zone_type"].strip()
-
-                profile = ZoneProfile(
-                    zone_key=barrio,
-                    barrio=barrio,
-                    zone_type=zone_type,
-                    res_multifamily_pct=float(row.get("res_multifamily_pct", 0)),
-                    res_singlefamily_pct=float(row.get("res_singlefamily_pct", 0)),
-                    commercial_pct=float(row.get("commercial_pct", 0)),
-                    office_pct=float(row.get("office_pct", 0)),
-                    industrial_pct=float(row.get("industrial_pct", 0)),
-                    demand_multiplier=float(
-                        row.get(
-                            "demand_multiplier",
-                            self._zone_base_multipliers.get(zone_type, 1.0),
-                        )
-                    ),
-                    weekend_factor=float(
-                        row.get(
-                            "weekend_factor",
-                            self._zone_weekend_factors.get(zone_type, 0.75),
-                        )
-                    ),
-                    hour_weights=self._zone_hour_weights.get(zone_type, {}),
-                    weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
+                self._barrio_profiles[barrio] = self._profile_from_land_use_row(
+                    row, zone_key=barrio
                 )
-                self._barrio_profiles[barrio] = profile
+
+    def _profile_from_land_use_row(
+        self, row: dict[str, str], zone_key: str
+    ) -> ZoneProfile:
+        """Perfil de un radio o barrio con su mezcla de usos del suelo. La curva
+        horaria y semanal es la mezcla de las curvas de sus tipos de uso (ver
+        _mixed_shape); el volumen es su demand_multiplier."""
+        zone_type = row["zone_type"].strip()
+        shape = self._mixed_shape(row)
+        if shape is None:
+            # Sin porcentajes: la curva del tipo de zona.
+            hour_weights = self._zone_hour_weights.get(zone_type, {})
+            weekday_factors = self._zone_weekday_factors.get(zone_type, {})
+        else:
+            # Para mostrar en el mapa: la curva de un día hábil promedio y el
+            # factor de cada día respecto de ese promedio.
+            weekday_mean = sum(sum(day) / 24 for day in shape[:5]) / 5
+            hour_weights = {
+                h: round(sum(shape[d][h] for d in range(5)) / 5, 3) for h in range(24)
+            }
+            weekday_factors = {
+                d: round(sum(shape[d]) / 24 / weekday_mean, 3) for d in range(7)
+            }
+        return ZoneProfile(
+            zone_key=zone_key,
+            barrio=row.get("barrio", "").strip().upper(),
+            zone_type=zone_type,
+            res_multifamily_pct=float(row.get("res_multifamily_pct", 0)),
+            res_singlefamily_pct=float(row.get("res_singlefamily_pct", 0)),
+            commercial_pct=float(row.get("commercial_pct", 0)),
+            office_pct=float(row.get("office_pct", 0)),
+            industrial_pct=float(row.get("industrial_pct", 0)),
+            demand_multiplier=float(
+                row.get(
+                    "demand_multiplier",
+                    self._zone_base_multipliers.get(zone_type, 1.0),
+                )
+            ),
+            weekend_factor=float(
+                row.get(
+                    "weekend_factor",
+                    self._zone_weekend_factors.get(zone_type, 0.75),
+                )
+            ),
+            hour_weights=hour_weights,
+            weekday_factors=weekday_factors,
+            shape=shape,
+        )
+
+    def _mixed_shape(self, row: dict[str, str]) -> tuple[tuple[float, ...], ...] | None:
+        """Curva 7x24 (media 1 en la semana) mezclando las curvas de los tipos de
+        uso del suelo del radio, cada uno con peso = su porcentaje de parcelas x
+        la basura que genera (la misma ponderación que su demand_multiplier).
+        None si el radio no tiene porcentajes."""
+        weights = {
+            zone_type: float(row.get(column) or 0)
+            * self._category_waste_weights.get(zone_type, 1.0)
+            for zone_type, column in LAND_USE_TYPES
+        }
+        total = sum(weights.values())
+        if total <= 0:
+            return None
+        mixed = [[0.0] * 24 for _ in range(7)]
+        for zone_type, weight in weights.items():
+            if weight <= 0:
+                continue
+            type_curve = self._type_profile(zone_type)
+            for d in range(7):
+                for h in range(24):
+                    mixed[d][h] += (
+                        weight / total * type_curve.effective_multiplier(h, d)
+                    )
+        return tuple(tuple(day) for day in mixed)
+
+    def _type_profile(self, zone_type: str) -> ZoneProfile:
+        """Perfil puro de un tipo de uso (curva del YAML, volumen 1), cacheado."""
+        if zone_type not in self._type_profiles:
+            self._type_profiles[zone_type] = ZoneProfile(
+                zone_key=zone_type,
+                barrio=zone_type,
+                zone_type=zone_type,
+                res_multifamily_pct=0.0,
+                res_singlefamily_pct=0.0,
+                commercial_pct=0.0,
+                office_pct=0.0,
+                industrial_pct=0.0,
+                demand_multiplier=1.0,
+                weekend_factor=self._zone_weekend_factors.get(zone_type, 0.75),
+                hour_weights=self._zone_hour_weights.get(zone_type, {}),
+                weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
+            )
+        return self._type_profiles[zone_type]
 
     # ── API pública ────────────────────────────────────────────────────────────
 
@@ -369,27 +426,6 @@ class ZoneClassifier:
         code = str(radio_code).strip()
         if code in self._radio_profiles:
             return self._radio_profiles[code]
-        return DEFAULT_PROFILE
-
-    def has_profile_for_radio(self, radio_code: str) -> bool:
-        """True si el radio tiene perfil propio (land_use_by_radio.csv), no el default."""
-        return str(radio_code).strip() in self._radio_profiles
-
-    def get_profile_for_barrio(self, barrio: str) -> ZoneProfile:
-        """Retorna el ZoneProfile para un nombre de barrio (o comuna)."""
-        key = barrio.strip().upper()
-        if key in self._barrio_profiles:
-            return self._barrio_profiles[key]
-
-        if key in COMUNA_BARRIO_FALLBACK:
-            fallback_barrio = COMUNA_BARRIO_FALLBACK[key]
-            if fallback_barrio in self._barrio_profiles:
-                return self._barrio_profiles[fallback_barrio]
-
-        for stored_barrio, profile in self._barrio_profiles.items():
-            if stored_barrio in key or key in stored_barrio:
-                return profile
-
         return DEFAULT_PROFILE
 
     def get_profile(self, zone_identifier: str) -> ZoneProfile:
@@ -430,20 +466,9 @@ class ZoneClassifier:
                 weekday_factors=self._zone_weekday_factors.get(low_key, {}),
             )
 
-        # 3. Búsqueda por barrio
-        upper_key = key.upper()
-        if upper_key in self._barrio_profiles:
-            return self._barrio_profiles[upper_key]
-
-        # 4. Fallback de búsqueda difusa por barrio
-        return self.get_profile_for_barrio(upper_key)
-
-    def get_multiplier(self, zone_identifier: str, hour: int, weekday: int) -> float:
-        """
-        Retorna el multiplicador efectivo para una zona (radio censal o barrio),
-        hora del día y día de la semana.
-        """
-        return self.get_profile(zone_identifier).effective_multiplier(hour, weekday)
+        # 3. Búsqueda por nombre exacto de barrio (la topología sintética del CLI
+        # usa barrios como zona)
+        return self._barrio_profiles.get(key.upper(), DEFAULT_PROFILE)
 
     def summary(self) -> dict[str, int]:
         """Distribución de zone_types de los radios censales cargados."""
@@ -462,4 +487,15 @@ def get_zone_classifier() -> ZoneClassifier:
     global _cached_classifier
     if _cached_classifier is None:
         _cached_classifier = ZoneClassifier()
+    return _cached_classifier
+
+
+def reload_zone_classifier() -> ZoneClassifier:
+    """Vuelve a crear el ZoneClassifier, releyendo zone_profiles.yaml.
+
+    El worker la llama al iniciar cada sesion, asi los cambios del YAML se
+    aplican en la simulacion siguiente sin reiniciar el proceso.
+    """
+    global _cached_classifier
+    _cached_classifier = ZoneClassifier()
     return _cached_classifier
