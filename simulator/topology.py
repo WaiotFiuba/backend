@@ -60,29 +60,20 @@ def topology_from_backend_records(
         site_id = (
             str(record.site_id) if record.site_id is not None else f"SITE-{record.id}"
         )
+        # La demanda y la zona salen del radio censal dominante del contenedor
+        # (density_processor). Si no se cargó el dataset de radios censales,
+        # no hay demands y se usa lo que manda el backend.
         demand_info = demands.get(record.id)
-        calculated_demand = (
-            demand_info.hourly_fill_pct
-            if demand_info is not None
-            else record.demand_base
-        )
         if site_id not in sites_by_id:
-            zone_name = (
-                demand_info.radio_code
-                if (demand_info and demand_info.radio_code)
-                else (
-                    demand_info.department_name
-                    if (demand_info and demand_info.department_name != "UNKNOWN")
-                    else (record.zone or "")
-                )
-            )
             sites_by_id[site_id] = Site(
                 id=site_id,
                 name=record.site_name or "",
-                zone=zone_name,
+                zone=demand_info.radio_code if demand_info else (record.zone or ""),
                 latitude=record.latitude,
                 longitude=record.longitude,
-                demand_base=calculated_demand,
+                demand_base=(
+                    demand_info.hourly_fill_pct if demand_info else record.demand_base
+                ),
                 address=record.address,
             )
 
@@ -146,11 +137,13 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
                 )
 
     container_id = item["id"]
-    site_id = item["site_id"]
+    site_id = item.get("site_id")
 
     return BackendContainerRecord(
         id=int(container_id),
-        site_id=str(site_id),
+        # Sin sitio queda None (y la topología le arma uno propio): str(None)
+        # agrupaba a todos los contenedores sin sitio en un sitio "None".
+        site_id=str(site_id) if site_id is not None else None,
         site_name=str(item["site_name"]) if item.get("site_name") else None,
         address=str(item["address"]) if item.get("address") else None,
         latitude=float(item["latitude"]),

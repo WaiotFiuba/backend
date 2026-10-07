@@ -1,17 +1,9 @@
-from __future__ import annotations
-
-import csv
-import logging
-from dataclasses import dataclass, field
-from pathlib import Path
-
-import yaml
-
 """
 zone_classifier.py
 ──────────────────
 Clasifica la zona de cada sitio/contenedor a partir del Relevamiento de Usos
-del Suelo de CABA (BA Data 2022-2024) procesado por scripts/process_land_use.py.
+del Suelo de CABA (BA Data 2022-2024) procesado por
+simulator/demography/commands/process_land_use.py.
 
 Toda la modulación horaria, semanal, factores fin de semana y multiplicadores
 base se leen dinámicamente de 'config/zone_profiles.yaml'.
@@ -26,29 +18,21 @@ Flujo de resolución:
   3. El ZoneClassifier busca el radio censal en 'land_use_by_radio.csv' y obtiene su
      ZoneProfile específico (distinguiendo residencial multifamiliar/edificios,
      unifamiliar/casas, comercial, oficinas, industrial).
-  4. Si se consulta por nombre de barrio (fallback) o tipo de zona directo,
-     utiliza los perfiles de configuración de 'zone_profiles.yaml'.
+  4. Si se consulta por tipo de zona directo (o por nombre de barrio, como hace
+     la topología sintética del CLI), usa los perfiles de 'zone_profiles.yaml' o
+     de 'land_use_by_barrio.csv'.
 """
 
-logger = logging.getLogger(__name__)
+from __future__ import annotations
 
-COMUNA_BARRIO_FALLBACK: dict[str, str] = {
-    "COMUNA 1": "SAN NICOLAS",
-    "COMUNA 2": "RECOLETA",
-    "COMUNA 3": "BALVANERA",
-    "COMUNA 4": "LA BOCA",
-    "COMUNA 5": "ALMAGRO",
-    "COMUNA 6": "CABALLITO",
-    "COMUNA 7": "FLORES",
-    "COMUNA 8": "VILLA SOLDATI",
-    "COMUNA 9": "LINIERS",
-    "COMUNA 10": "FLORESTA",
-    "COMUNA 11": "VILLA GRAL. MITRE",
-    "COMUNA 12": "COGHLAN",
-    "COMUNA 13": "BELGRANO",
-    "COMUNA 14": "PALERMO",
-    "COMUNA 15": "CHACARITA",
-}
+import csv
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -184,7 +168,7 @@ class ZoneClassifier:
         classifier = ZoneClassifier()
         profile = classifier.get_profile("20980101")  # por radio censal
         profile_b = classifier.get_profile("PALERMO")  # por barrio
-        mult = classifier.get_multiplier("20980101", hour=8, weekday=5)
+        mult = profile.effective_multiplier(hour=8, weekday=5)
     """
 
     def __init__(
@@ -371,27 +355,6 @@ class ZoneClassifier:
             return self._radio_profiles[code]
         return DEFAULT_PROFILE
 
-    def has_profile_for_radio(self, radio_code: str) -> bool:
-        """True si el radio tiene perfil propio (land_use_by_radio.csv), no el default."""
-        return str(radio_code).strip() in self._radio_profiles
-
-    def get_profile_for_barrio(self, barrio: str) -> ZoneProfile:
-        """Retorna el ZoneProfile para un nombre de barrio (o comuna)."""
-        key = barrio.strip().upper()
-        if key in self._barrio_profiles:
-            return self._barrio_profiles[key]
-
-        if key in COMUNA_BARRIO_FALLBACK:
-            fallback_barrio = COMUNA_BARRIO_FALLBACK[key]
-            if fallback_barrio in self._barrio_profiles:
-                return self._barrio_profiles[fallback_barrio]
-
-        for stored_barrio, profile in self._barrio_profiles.items():
-            if stored_barrio in key or key in stored_barrio:
-                return profile
-
-        return DEFAULT_PROFILE
-
     def get_profile(self, zone_identifier: str) -> ZoneProfile:
         """
         Resuelve el perfil ya sea por código de radio censal, nombre de barrio
@@ -430,20 +393,9 @@ class ZoneClassifier:
                 weekday_factors=self._zone_weekday_factors.get(low_key, {}),
             )
 
-        # 3. Búsqueda por barrio
-        upper_key = key.upper()
-        if upper_key in self._barrio_profiles:
-            return self._barrio_profiles[upper_key]
-
-        # 4. Fallback de búsqueda difusa por barrio
-        return self.get_profile_for_barrio(upper_key)
-
-    def get_multiplier(self, zone_identifier: str, hour: int, weekday: int) -> float:
-        """
-        Retorna el multiplicador efectivo para una zona (radio censal o barrio),
-        hora del día y día de la semana.
-        """
-        return self.get_profile(zone_identifier).effective_multiplier(hour, weekday)
+        # 3. Búsqueda por nombre exacto de barrio (la topología sintética del CLI
+        # usa barrios como zona)
+        return self._barrio_profiles.get(key.upper(), DEFAULT_PROFILE)
 
     def summary(self) -> dict[str, int]:
         """Distribución de zone_types de los radios censales cargados."""

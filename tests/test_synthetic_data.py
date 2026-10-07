@@ -185,6 +185,19 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(topology.devices[0].id, "imei-456")
         self.assertEqual(topology.initial_levels["456"], 28)
 
+    def test_containers_without_site_get_their_own_site(self) -> None:
+        # Regresion: str(None) los agrupaba a todos en un sitio "None".
+        topology = topology_from_backend_api(
+            [
+                {"id": cid, "site_id": None, "latitude": -34.61, "longitude": -58.42}
+                for cid in (1, 2)
+            ]
+        )
+
+        self.assertEqual(
+            sorted(site.id for site in topology.sites), ["SITE-1", "SITE-2"]
+        )
+
     def test_measurement_export_uses_backend_metadata(self) -> None:
         topology = topology_from_backend_api(
             [

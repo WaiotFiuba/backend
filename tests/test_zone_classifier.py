@@ -58,13 +58,10 @@ def test_zone_classifier_radio_lookup():
 def test_zone_classifier_barrio_lookup_fallback():
     classifier = get_zone_classifier()
 
-    # Búsqueda por nombre de barrio
-    profile_palermo = classifier.get_profile("PALERMO")
-    assert profile_palermo.demand_multiplier > 0
-
-    # Búsqueda con Comuna
-    profile_comuna14 = classifier.get_profile("COMUNA 14")
-    assert profile_comuna14.demand_multiplier > 0
+    # Búsqueda por nombre de barrio (la usa la topología sintética del CLI)
+    profile_palermo = classifier.get_profile("Palermo")
+    assert profile_palermo.barrio == "PALERMO"
+    assert profile_palermo != DEFAULT_PROFILE
 
 
 def test_zone_classifier_unknown_fallback():

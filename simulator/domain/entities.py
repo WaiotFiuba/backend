@@ -53,20 +53,6 @@ class SimulationSession(BaseModel):
     ]  # Parses nested dictionaries automatically
 
 
-class ZoneDemand(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    neighborhood: str
-    commune: str | None
-    population: int
-    year: int
-    source: str
-    area_km2: float
-    density_per_km2: float
-    density_factor: float
-    multiplier_effective: float
-
-
 class Site(BaseModel):
     model_config = ConfigDict(frozen=True)
 
