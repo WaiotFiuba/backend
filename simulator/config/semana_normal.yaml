@@ -27,14 +27,13 @@ reading_jitter_minutes: 10
 # Horas del dia en las que puede ocurrir una recoleccion (Noche 21-05 y Refuerzo 11-16).
 collection_hours: [21, 22, 23, 0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 16]
 
-# Probabilidad de recolectar si el contenedor supera el umbral interno.
-collection_probability: 0.85
+# Metodo secundario de recoleccion (solo si no se pudo armar la flota de camiones):
+# probabilidad de que un sitio se recolecte en su turno de la noche.
+collection_probability: 0.98
 
-# Probabilidad de que una recoleccion sea parcial en vez de total.
-partial_collection_probability: 0.12
-
-# Probabilidad de omitir una recoleccion programada.
-omitted_collection_probability: 0.03
+# Metodo secundario: probabilidad de que la recoleccion de un contenedor sea
+# parcial (baja 25-55 puntos) en vez de vaciarlo.
+partial_collection_probability: 0.03
 
 # Multiplicador general de demanda. Valores > 1 llenan mas rapido.
 high_demand_multiplier: 1.0

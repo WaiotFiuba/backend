@@ -271,6 +271,11 @@ def build_truck_fleet(
         ],
         green_container_sites=[s for s in site_records if s["id"] in green_site_ids],
     )
+    if sites_with_containers and not any(r.site_ids for r in routes.values()):
+        raise ValueError(
+            "Ninguna ruta de recolección quedó con paradas: revisar los CSV de "
+            "rutas en datos/simulator/routes/."
+        )
     return TruckFleetSimulator(
         routes=routes,
         sites_dict={s.id: (s.latitude, s.longitude) for s in topology.sites},

@@ -89,8 +89,11 @@ class SyntheticDataSimulator:
         self.truck_fleet = None
         try:
             self.truck_fleet = build_truck_fleet(topology, self.config, self.rng)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("No se pudo inicializar la flota de camiones: %s", e)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "No se pudo armar la flota de camiones: la sesión sigue con el "
+                "método secundario de recolección, sin camiones."
+            )
 
         return self.state
 
@@ -187,7 +190,7 @@ class SyntheticDataSimulator:
         )
 
         # 2. Recolección (ver simulator/generators/collections.py): con la flota
-        # de camiones o, si no se pudo armar, con el modelo probabilístico viejo.
+        # de camiones o, si no se pudo armar, con el método secundario.
         level_before_collection = levels.copy()
         if self.truck_fleet is not None:
             collection = collect_with_trucks(

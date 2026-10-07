@@ -29,9 +29,8 @@ class ScenarioConfig:
     collection_hours: tuple[int, ...] = (21, 22, 23, 0, 1, 2, 3, 4, 5, 6)
     collection_days: tuple[int, ...] = (0, 1, 2, 3, 4)
     no_collection_days: tuple[int, ...] = (5, 6)
-    collection_probability: float = 0.85
-    partial_collection_probability: float = 0.12
-    omitted_collection_probability: float = 0.03
+    collection_probability: float = 0.98 # valores para la recoleccion secundaria
+    partial_collection_probability: float = 0.03  # valores para la recoleccion secundaria
     high_demand_multiplier: float = 1.0
     overflow_stress_multiplier: float = 1.0
     noisy_sensor_probability: float = 0.0
