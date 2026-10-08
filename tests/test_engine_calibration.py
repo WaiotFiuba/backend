@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from simulator.generators.filling import calibration_factor
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
+from simulator.simulation.state import build_container_arrays, waste_type_factor
 from simulator.topology import Container, Device, SimulationTopology, Site
 from simulator.zone_classifier import get_zone_classifier
 
@@ -61,10 +62,63 @@ class TestCalibrationKeepsDailyCurve(unittest.TestCase):
         generated = {}
         for hour in (3, 21):
             sim.state.levels["1"] = 0.0
-            sim.run_tick(datetime(2026, 10, 5, hour, 0))
+            sim.run_tick(datetime(2026, 10, 5, hour, 0))  # noqa: DTZ001
             generated[hour] = sim.state.levels["1"]
 
         self.assertGreater(generated[21], 2 * generated[3])
+
+
+class TestWasteTypeFactors(unittest.TestCase):
+    def test_recyclable_backend_waste_type_uses_recyclable_factor(self):
+        config = ScenarioConfig()
+
+        self.assertEqual(
+            waste_type_factor(
+                "RSU Fraccion Seca (Reciclables)", config.waste_type_factors
+            ),
+            config.waste_type_factors["reciclables"],
+        )
+        self.assertEqual(
+            waste_type_factor(
+                "RSU Fracci\u00f3n Seca (Reciclables)",
+                config.waste_type_factors,
+            ),
+            config.waste_type_factors["reciclables"],
+        )
+
+    def test_container_arrays_apply_recyclable_factor(self):
+        site = Site(
+            id="S1",
+            name="Sitio verde",
+            zone="UNKNOWN",
+            latitude=-34.6,
+            longitude=-58.4,
+            demand_base=2.0,
+        )
+        container = Container(
+            id="C1",
+            site_id="S1",
+            name="RSU Fraccion Seca - Carga Lateral",
+            waste_type="RSU Fraccion Seca (Reciclables)",
+            height_cm=145,
+        )
+        device = Device(id="D1", container_id="C1")
+        topology = SimulationTopology(
+            sites=[site],
+            containers=[container],
+            devices=[device],
+            initial_levels={"C1": 0.0},
+        )
+
+        arrays = build_container_arrays(
+            topology=topology,
+            site_by_id={"S1": site},
+            device_by_container_id={"C1": device},
+            reading_offsets={"D1": 0},
+            config=ScenarioConfig(),
+        )
+
+        self.assertEqual(arrays.waste_factors[0], 0.75)
 
 
 if __name__ == "__main__":

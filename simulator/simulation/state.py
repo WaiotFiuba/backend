@@ -22,6 +22,21 @@ from simulator.topology import SimulationTopology
 from simulator.zone_classifier import ZoneProfile, get_zone_classifier
 
 
+def waste_type_factor(waste_type: str, factors: dict[str, float]) -> float:
+    if waste_type in factors:
+        return factors[waste_type]
+
+    name = waste_type.casefold()
+    if "vidrio" in name and "vidrio" in factors:
+        return factors["vidrio"]
+    if any(token in name for token in ("recicl", "seca", "verde")) and "reciclables" in factors:
+        return factors["reciclables"]
+    if any(token in name for token in ("humed", "húmed")) and "residuos_humedos" in factors:
+        return factors["residuos_humedos"]
+
+    return 1.0
+
+
 @dataclass(frozen=True)
 class SimulationResult:
     sites: list[Site]
@@ -87,7 +102,9 @@ def build_container_arrays(
         sites.append(site)
         devices.append(device)
         demand_bases.append(site.demand_base)
-        waste_factors.append(config.waste_type_factors.get(container.waste_type, 1.0))
+        waste_factors.append(
+            waste_type_factor(container.waste_type, config.waste_type_factors)
+        )
         heights.append(container.height_cm)
         offsets.append(reading_offsets[device.id])
         zone_profiles.append(zone_classifier.get_profile(site.zone))

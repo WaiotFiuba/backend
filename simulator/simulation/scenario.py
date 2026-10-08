@@ -43,7 +43,7 @@ class ScenarioConfig:
     api_payloads: bool = False
     waste_type_factors: dict[str, float] = field(
         default_factory=lambda: {
-            "reciclables": 0.75,
+            "reciclables": 0.55,
             "residuos_humedos": 1.0,
             "vidrio": 0.55,
         }
