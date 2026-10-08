@@ -24,3 +24,6 @@ Dockerfile* text eol=lf
 *.db binary
 *.sqlite binary
 *.sqlite3 binary
+
+# Downloaded seed datasets are mirrored from release assets.
+datos/** -text -eol

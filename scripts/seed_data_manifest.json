@@ -1,0 +1,101 @@
+{
+  "base_url": "https://github.com/WaiotFiuba/backend/releases/download/seed-data-v1",
+  "files": [
+    {
+      "path": "datos/digital_twin/cajones-para-carga-y-descarga.csv",
+      "asset": "cajones-para-carga-y-descarga.csv",
+      "sha256": "3e45d68a6cab9ccb7e06dad3e3349f9bdbe2eb757fb1104bd9cd2fc35ba25619",
+      "size": 204193
+    },
+    {
+      "path": "datos/digital_twin/callejero.csv",
+      "asset": "callejero.csv",
+      "sha256": "4d85966509246406b91dc3dea0ffcf4d11de9ec18bd9687ae54144466000e0bd",
+      "size": 10626934
+    },
+    {
+      "path": "datos/digital_twin/ciclovias.csv",
+      "asset": "ciclovias.csv",
+      "sha256": "589905970625833013f7a2452bd739e7fdc0da3094c6974c2f44837e65f57dfd",
+      "size": 490193
+    },
+    {
+      "path": "datos/digital_twin/contenedores_negros.json",
+      "asset": "contenedores_negros.json",
+      "sha256": "45c6aa8175fe4d15c7dd0dcc10626b589ee7bc69231dcf46ffef4aa922e168da",
+      "size": 10871746
+    },
+    {
+      "path": "datos/digital_twin/contenedores_verdes.json",
+      "asset": "contenedores_verdes.json",
+      "sha256": "14068ccca6dd108d6a6f77d0d7cfbc585b2396551a5b62b4ddd01a7e351e3e56",
+      "size": 2468763
+    },
+    {
+      "path": "datos/digital_twin/estacionamiento_via_publica.csv",
+      "asset": "estacionamiento_via_publica.csv",
+      "sha256": "f1e22a2121afa2e33d728697a1e67b29a3d4b3be5217f1fa0df5c61b922e61e3",
+      "size": 11794783
+    },
+    {
+      "path": "datos/digital_twin/garajes-comerciales.csv",
+      "asset": "garajes-comerciales.csv",
+      "sha256": "73773a8cc2964324f49b12d13c64874c8bbc1acf450dfe7f9632e2bd40dfdd97",
+      "size": 301882
+    },
+    {
+      "path": "datos/digital_twin/mobiliario-urbano.csv",
+      "asset": "mobiliario-urbano.csv",
+      "sha256": "43c07e668eec9834e2af4b58b9c6159297e927b5956751cc1ca1963add653371",
+      "size": 1198337
+    },
+    {
+      "path": "datos/digital_twin/restricciones_contenedores.csv",
+      "asset": "restricciones_contenedores.csv",
+      "sha256": "aa04e26e5096eacf36064d2df830c17afcaed01fb8d64eee0898c0cfc7efbdb3",
+      "size": 5801716
+    },
+    {
+      "path": "datos/digital_twin/waste_types.json",
+      "asset": "waste_types.json",
+      "sha256": "ddbf0e54fc497603d55d1006c62a753b17d7a3d184a97cae30b8a27da81dd53c",
+      "size": 467
+    },
+    {
+      "path": "datos/simulator/demography/radios_caba_filtrado.csv",
+      "asset": "radios_caba_filtrado.csv",
+      "sha256": "8f137569c56495ebe8bce1b58b6dcfb8765438090cc00a3f15de7b39d5a61117",
+      "size": 1224474
+    },
+    {
+      "path": "datos/simulator/land_use/land_use_by_barrio.csv",
+      "asset": "land_use_by_barrio.csv",
+      "sha256": "1bb1768aad7c7c4f59199e778218b5ddd7503b70f05b800a4eac3c1f5684e1f1",
+      "size": 3909
+    },
+    {
+      "path": "datos/simulator/land_use/land_use_by_radio.csv",
+      "asset": "land_use_by_radio.csv",
+      "sha256": "828836fe96df6c472ec6948d4e09771802228925059aa8ab028ed84ebf4a2dd9",
+      "size": 349171
+    },
+    {
+      "path": "datos/simulator/routes/collection_schedule.json",
+      "asset": "collection_schedule.json",
+      "sha256": "d75fb8312cbe6df9d0ded1dcdfcc0f95ef14f49567309754cb6f7d92769567aa",
+      "size": 7224905
+    },
+    {
+      "path": "datos/simulator/routes/rutas_recoleccion_residuos_humedos.csv",
+      "asset": "rutas_recoleccion_residuos_humedos.csv",
+      "sha256": "60fe63f1e3a27b5ae33bdba7a3fd81b557336958cb574f36d2e958b5adcc6d6b",
+      "size": 2566946
+    },
+    {
+      "path": "datos/simulator/routes/rutas_recoleccion_residuos_secos.csv",
+      "asset": "rutas_recoleccion_residuos_secos.csv",
+      "sha256": "210a65baf7d2acf0c065f1ad894445a385ee091da226175e99e16695579114cb",
+      "size": 542015
+    }
+  ]
+}
