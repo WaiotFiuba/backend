@@ -768,6 +768,47 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
             whatif_svc._optimized_mapping.clear()
             whatif_svc._virtual_levels.clear()
 
+    def test_build_redistribution_move_metrics(self):
+        """Verifica que cada movimiento calcule la descongestión neta y los niveles antes/después."""
+        from app.schemas.map.optimization import SiteUtilizationMetric
+        from app.services.map.optimization_service import _build_redistribution_move
+
+        donor = SiteUtilizationMetric(
+            site_id=1,
+            site_name="Sitio Donante",
+            latitude=-34.6,
+            longitude=-58.4,
+            container_count=2,
+            avg_fill_level=20.0,
+            peak_fill_rate=0.0,
+            overflow_frequency=0,
+            utilization_score=0.2,
+            category="low",
+        )
+        receiver = SiteUtilizationMetric(
+            site_id=2,
+            site_name="Sitio Receptor",
+            latitude=-34.61,
+            longitude=-58.41,
+            container_count=1,
+            avg_fill_level=90.0,
+            peak_fill_rate=0.8,
+            overflow_frequency=3,
+            utilization_score=0.9,
+            category="critical",
+        )
+
+        move = _build_redistribution_move(
+            container_id=10, donor=donor, receiver=receiver, dist=1.2
+        )
+
+        self.assertEqual(move.container_id, 10)
+        self.assertEqual(move.donor_fill_before, 20.0)
+        self.assertEqual(move.donor_fill_after, 40.0)
+        self.assertEqual(move.receiver_fill_before, 90.0)
+        self.assertEqual(move.receiver_fill_after, 45.0)
+        self.assertEqual(move.net_decongestion_pct, -25.0)
+
 
 if __name__ == "__main__":
     unittest.main()
