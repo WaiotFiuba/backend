@@ -1,29 +1,15 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.core.database import init_db
-from app.core.map_database import init_map_db
 from app.routers.auth import router as auth_router
 from app.routers.digital_twin import router as digital_twin_router
 from app.routers.map import router as map_router
 from app.routers.users import router as users_router
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = get_settings()
-    if settings.auto_create_db and settings.app_env.lower() != "production":
-        await init_db()
-        if settings.auto_create_map_db and settings.enable_map_db:
-            await init_map_db()
-
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
+# El esquema de la base lo crean las migraciones de Alembic (alembic upgrade
+# head), no la app al arrancar.
+app = FastAPI()
 
 settings = get_settings()
 cors_allowed_origins = [

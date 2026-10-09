@@ -32,6 +32,7 @@ from app.models.map.site_projection import (  # noqa: F401
     SiteProjectionRun,
 )
 from app.models.map.waste_type import WasteType  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
