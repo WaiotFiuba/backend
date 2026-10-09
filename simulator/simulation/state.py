@@ -29,9 +29,15 @@ def waste_type_factor(waste_type: str, factors: dict[str, float]) -> float:
     name = waste_type.casefold()
     if "vidrio" in name and "vidrio" in factors:
         return factors["vidrio"]
-    if any(token in name for token in ("recicl", "seca", "verde")) and "reciclables" in factors:
+    if (
+        any(token in name for token in ("recicl", "seca", "verde"))
+        and "reciclables" in factors
+    ):
         return factors["reciclables"]
-    if any(token in name for token in ("humed", "húmed")) and "residuos_humedos" in factors:
+    if (
+        any(token in name for token in ("humed", "húmed"))
+        and "residuos_humedos" in factors
+    ):
         return factors["residuos_humedos"]
 
     return 1.0
