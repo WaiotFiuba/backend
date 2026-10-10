@@ -86,6 +86,24 @@ class RedistributionMove(BaseModel):
     from_lng: float | None = None
     to_lat: float | None = None
     to_lng: float | None = None
+    donor_fill_before: float | None = Field(
+        None, description="Nivel promedio de llenado del donante antes del movimiento"
+    )
+    donor_fill_after: float | None = Field(
+        None,
+        description="Nivel promedio de llenado del donante tras ceder el contenedor",
+    )
+    receiver_fill_before: float | None = Field(
+        None, description="Nivel promedio de llenado del receptor antes del movimiento"
+    )
+    receiver_fill_after: float | None = Field(
+        None,
+        description="Nivel promedio de llenado del receptor tras recibir el contenedor",
+    )
+    net_decongestion_pct: float | None = Field(
+        None,
+        description="Balance neto de descongestión entre la suma de los 2 sitios (ΔReceptor + ΔDonante)",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
