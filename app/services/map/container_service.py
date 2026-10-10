@@ -126,11 +126,16 @@ async def _latest_change_cursor(db: AsyncSession) -> int:
 
 async def get_all_containers(
     db: AsyncSession,
-    limit: int = 500,
-    offset: int = 0,
+    limit: int | None = 500,
+    offset: int | None = 0,
 ) -> list[ContainersMapOutputSchema]:
+    """Contenedores activos ordenados por id; `limit=None` devuelve todos."""
     result = await db.execute(
-        _base_select().order_by(Container.id).limit(limit).offset(offset)
+        _base_select()
+        .where(Container.deleted_at.is_(None))
+        .order_by(Container.id)
+        .limit(limit)
+        .offset(offset)
     )
     rows = result.mappings().all()
     return [_row_to_container(row) for row in rows]

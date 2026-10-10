@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
@@ -23,7 +23,9 @@ from app.schemas.digital_twin import (
     ZoneDemandRead,
     ZoneProfileLayerPayload,
 )
+from app.schemas.map.container import ContainersMapOutputSchema
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
+from app.services.map.container_service import get_all_containers
 from app.services.map.zone_profile_service import save_zone_profiles_geojson
 from app.services.simulation_session_service import (
     create_saved_configuration,
@@ -189,6 +191,16 @@ async def read_worker_active_session(
         return await get_active_simulation(db)
     except Exception:
         return None
+
+
+@router.get("/worker/containers", response_model=list[ContainersMapOutputSchema])
+async def read_worker_containers(
+    db: MapDbDep,
+    limit: Annotated[int | None, Query(ge=1)] = None,
+    offset: Annotated[int | None, Query(ge=0)] = None,
+) -> list[ContainersMapOutputSchema]:
+    """Topología de contenedores para el simulador, que no se autentica."""
+    return await get_all_containers(db, limit=limit, offset=offset)
 
 
 @router.post("/worker/fail-interrupted")
