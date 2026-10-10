@@ -1,6 +1,12 @@
 name: Release production backend
 
+# Con cada push a main (o a mano desde Actions) despliega en los dos lugares:
+# - Render + Supabase, como hasta ahora;
+# - la VM de Oracle Cloud (ver deploy_oracle.md).
+# Los dos deploys son independientes: si falla uno, el otro sigue.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -11,19 +17,11 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    name: Migrate Supabase and deploy Render
+  tests:
+    name: Tests
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
-
     steps:
-      - name: Validate branch
-        run: |
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "Production releases must be run from main. Current ref: ${GITHUB_REF}"
-            exit 1
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -41,6 +39,26 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+  render:
+    name: Migrate Supabase and deploy Render
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
       - name: Run Alembic migrations
         env:
           APP_ENV: production
@@ -53,3 +71,44 @@ jobs:
           RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
         run: |
           curl --fail --show-error --silent --request POST "${RENDER_BACKEND_DEPLOY_HOOK_URL}"
+
+  oracle:
+    name: Deploy Oracle VM
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${ORACLE_SSH_KEY}" > ~/.ssh/oracle_deploy
+          chmod 600 ~/.ssh/oracle_deploy
+          printf '%s\n' "${ORACLE_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+
+      # La clave del usuario deploy tiene un comando forzado en la VM: solo
+      # puede correr /usr/local/bin/waiotfiuba-deploy, que deja el código en
+      # origin/main y reconstruye con docker compose.
+      - name: Deploy
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+        run: |
+          ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "deploy@${ORACLE_HOST}"
+
+      # Al arrancar, la API corre las migraciones y el seed: puede tardar.
+      - name: Check API
+        env:
+          ORACLE_API_URL: ${{ vars.ORACLE_API_URL }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 10 "${ORACLE_API_URL}/" > /dev/null; then
+              echo "API respondiendo en ${ORACLE_API_URL}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "La API no respondió en 5 minutos"
+          exit 1
