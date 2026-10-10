@@ -734,6 +734,17 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(data_single["name"], "Sitio Endpoint Test")
                 self.assertEqual(data_single["current_level"], 60)
                 self.assertEqual(len(data_single["containers"]), 1)
+
+                # 5. Historial: el prefijo "fuente|id" se acepta; un id no numérico
+                # devuelve 422 en lugar de caer silenciosamente al sitio 1.
+                res_history = await client.get(
+                    "/map/sites/contenedores_negros|1/history"
+                )
+                self.assertEqual(res_history.status_code, 200)
+                self.assertEqual(res_history.json()["site_id"], 1)
+
+                res_invalid = await client.get("/map/sites/abc/history")
+                self.assertEqual(res_invalid.status_code, 422)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
 
