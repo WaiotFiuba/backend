@@ -18,7 +18,7 @@ class BackendConnectionError(RuntimeError):
 
 def load_topology_from_backend_api(
     backend_url: str,
-    containers_path: str = "/map/containers/",
+    containers_path: str = "/digital-twin/worker/containers",
     limit: int | None = None,
     page_size: int = 1000,
     timeout_seconds: float = 10,

@@ -8,9 +8,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
+from app.core.thresholds import get_level_thresholds
 from app.models.map.container import Container
 from app.models.map.site import Site
-from app.schemas.map.config import MapCenter, MapConfigResponse
+from app.schemas.map.config import (
+    LevelThresholdsResponse,
+    MapCenter,
+    MapConfigResponse,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
@@ -71,9 +76,17 @@ async def get_map_config(db: MapDbDep) -> MapConfigResponse:
         bounds = None
         zoom = 13
 
+    thresholds = get_level_thresholds()
+
     return MapConfigResponse(
         city_name=city_name,
         center=center,
         default_zoom=zoom,
         bounds=bounds,
+        thresholds=LevelThresholdsResponse(
+            normal=thresholds.normal,
+            high=thresholds.high,
+            critical=thresholds.critical,
+            full=thresholds.full,
+        ),
     )

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     map_db_pool_size: int = 5
     map_db_max_overflow: int = 0
     cors_allowed_origins: str = "*"
+    level_threshold_normal: int = 40
+    level_threshold_high: int = 70
+    level_threshold_critical: int = 80
     enable_map_db: bool = False
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"
