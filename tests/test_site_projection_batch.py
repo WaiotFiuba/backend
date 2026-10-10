@@ -57,6 +57,13 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         )
 
     monkeypatch.setattr(service, "project_site_level", fake_project_site_level)
+    history_calls = []
+
+    async def fake_history(**kwargs):
+        history_calls.append(kwargs)
+        return {1: ["site-1-history"], 2: ["site-2-history"]}
+
+    monkeypatch.setattr(service, "get_site_level_series", fake_history)
     db = SimpleNamespace()
     result = await service.project_sites(
         db,
@@ -67,6 +74,13 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert [site.target_point.predicted_level for site in result.sites] == [51, 52]
     assert all(site.target_point.timestamp.hour == 15 for site in result.sites)
     assert all(call["as_of"] == as_of and call["db"] is db for call in calls)
+    assert [call["history"] for call in calls] == [
+        ["site-1-history"],
+        ["site-2-history"],
+    ]
+    assert len(history_calls) == 1
+    assert history_calls[0]["site_ids"] == [1, 2]
+    assert history_calls[0]["end_time"] == as_of
     assert all(call["stop_at_full"] is False for call in calls)
     assert result.target_at == target_at
 

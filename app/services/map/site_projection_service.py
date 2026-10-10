@@ -17,7 +17,10 @@ from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
 )
-from app.services.map.site_projection_history_service import get_site_level_series
+from app.services.map.site_projection_history_service import (
+    SiteLevelBucket,
+    get_site_level_series,
+)
 from app.services.map.site_projection_models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
@@ -40,6 +43,7 @@ async def project_site_level(
     lookback_days: int = 14,
     stop_at_full: bool = True,
     as_of: datetime | None = None,
+    history: list[SiteLevelBucket] | None = None,
 ) -> SiteProjectionResponse:
     numeric_site_id = _parse_site_id(site_id)
     current_level = await _get_current_site_level(
@@ -48,14 +52,16 @@ async def project_site_level(
         level_aggregation=level_aggregation,
     )
     generated_at = _as_utc(as_of) if as_of is not None else await _projection_clock(db)
-    history_by_site = await get_site_level_series(
-        db=db,
-        site_ids=[numeric_site_id],
-        interval_minutes=interval_minutes,
-        level_aggregation=level_aggregation,
-        lookback_days=lookback_days,
-        end_time=generated_at,
-    )
+    if history is None:
+        history_by_site = await get_site_level_series(
+            db=db,
+            site_ids=[numeric_site_id],
+            interval_minutes=interval_minutes,
+            level_aggregation=level_aggregation,
+            lookback_days=lookback_days,
+            end_time=generated_at,
+        )
+        history = history_by_site.get(numeric_site_id, [])
     features = await _get_site_features(db, numeric_site_id)
     forecaster = get_forecaster(model_key)
     if forecaster is None:
@@ -77,7 +83,7 @@ async def project_site_level(
         request,
         ForecastContext(
             current_level=current_level,
-            history=history_by_site.get(numeric_site_id, []),
+            history=history,
             site_features=features,
             generated_at=generated_at,
         ),
@@ -142,6 +148,15 @@ async def project_sites(
         horizon_hours = ceil((target_at - as_of).total_seconds() / 3600) + 1
 
     unique_site_ids = sorted(set(request.site_ids))
+    generated_at = as_of if as_of is not None else await _projection_clock(db)
+    history_by_site = await get_site_level_series(
+        db=db,
+        site_ids=unique_site_ids,
+        interval_minutes=request.interval_minutes,
+        level_aggregation=request.level_aggregation,
+        lookback_days=request.lookback_days,
+        end_time=generated_at,
+    )
     projections: list[SiteProjectionResponse] = []
     for site_id in unique_site_ids:
         projections.append(
@@ -155,7 +170,8 @@ async def project_sites(
                 level_aggregation=request.level_aggregation,
                 lookback_days=request.lookback_days,
                 stop_at_full=False if target_at else request.stop_at_full,
-                as_of=as_of,
+                as_of=generated_at,
+                history=history_by_site.get(site_id, []),
             )
         )
 
