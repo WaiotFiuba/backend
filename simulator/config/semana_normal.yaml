@@ -51,6 +51,6 @@ waste_type_factors:
   vidrio: 0.55
 
 # Solo se usa si se corre sin --from-backend. En modo backend, la topologia
-# sale del endpoint /map/containers/.
+# sale del endpoint /digital-twin/worker/containers.
 synthetic_site_count: 3
 synthetic_containers_per_site: 2
