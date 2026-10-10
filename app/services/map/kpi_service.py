@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.thresholds import get_level_thresholds
 from app.models.map.container import Container
 from app.models.map.optimization import (
     OptimizationWhatIfLevel,
@@ -17,6 +18,34 @@ from app.schemas.map.kpis import (
     NetworkKpiSummaryResponse,
     WhatIfKpiComparisonResponse,
 )
+
+
+def _category_count_columns(avg_level) -> list:
+    """Conteo de sitios por categoría de nivel según los umbrales centralizados."""
+    t = get_level_thresholds()
+    return [
+        func.coalesce(func.sum(case((avg_level >= t.critical, 1), else_=0)), 0).label(
+            "critical_count"
+        ),
+        func.coalesce(
+            func.sum(
+                case(((avg_level >= t.high) & (avg_level < t.critical), 1), else_=0)
+            ),
+            0,
+        ).label("high_count"),
+        func.coalesce(
+            func.sum(
+                case(((avg_level >= t.normal) & (avg_level < t.high), 1), else_=0)
+            ),
+            0,
+        ).label("normal_count"),
+        func.coalesce(
+            func.sum(case(((avg_level > 0) & (avg_level < t.normal), 1), else_=0)), 0
+        ).label("low_count"),
+        func.coalesce(func.sum(case((avg_level == 0, 1), else_=0)), 0).label(
+            "idle_count"
+        ),
+    ]
 
 
 async def get_real_network_kpis(db: AsyncSession) -> NetworkKpiSummaryResponse:
@@ -51,51 +80,7 @@ async def get_real_network_kpis(db: AsyncSession) -> NetworkKpiSummaryResponse:
         func.coalesce(
             func.avg(site_levels_cte.c.avg_level * site_levels_cte.c.avg_level), 0.0
         ).label("mean_sq"),
-        func.coalesce(
-            func.sum(case((site_levels_cte.c.avg_level >= 85, 1), else_=0)), 0
-        ).label("critical_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (site_levels_cte.c.avg_level >= 70)
-                        & (site_levels_cte.c.avg_level < 85),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("high_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (site_levels_cte.c.avg_level >= 40)
-                        & (site_levels_cte.c.avg_level < 70),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("normal_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (site_levels_cte.c.avg_level > 0)
-                        & (site_levels_cte.c.avg_level < 40),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("low_count"),
-        func.coalesce(
-            func.sum(case((site_levels_cte.c.avg_level == 0, 1), else_=0)), 0
-        ).label("idle_count"),
+        *_category_count_columns(site_levels_cte.c.avg_level),
     )
 
     row = (await db.execute(agg_stmt)).one()
@@ -174,48 +159,7 @@ async def get_whatif_network_kpis(
         func.coalesce(
             func.avg(whatif_cte.c.avg_level * whatif_cte.c.avg_level), 0.0
         ).label("mean_sq"),
-        func.coalesce(
-            func.sum(case((whatif_cte.c.avg_level >= 85, 1), else_=0)), 0
-        ).label("critical_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (whatif_cte.c.avg_level >= 70) & (whatif_cte.c.avg_level < 85),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("high_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (whatif_cte.c.avg_level >= 40) & (whatif_cte.c.avg_level < 70),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("normal_count"),
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (whatif_cte.c.avg_level > 0) & (whatif_cte.c.avg_level < 40),
-                        1,
-                    ),
-                    else_=0,
-                )
-            ),
-            0,
-        ).label("low_count"),
-        func.coalesce(
-            func.sum(case((whatif_cte.c.avg_level == 0, 1), else_=0)), 0
-        ).label("idle_count"),
+        *_category_count_columns(whatif_cte.c.avg_level),
     )
 
     row = (await db.execute(agg_stmt)).one()
