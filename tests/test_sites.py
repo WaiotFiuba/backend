@@ -567,6 +567,71 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res_low_zoom[0].count, 2)
             self.assertEqual(res_low_zoom[0].avg_level, 50.0)
 
+    async def test_real_map_excludes_soft_deleted_containers(self):
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio con baja",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+
+            # Dos contenedores activos (20% y 80%) y uno dado de baja al 100%.
+            for container_id, level, deleted_at in (
+                (1, 20, None),
+                (2, 80, None),
+                (3, 100, datetime(2026, 1, 1, tzinfo=UTC)),
+            ):
+                session.add(
+                    Container(
+                        id=container_id,
+                        site_id=1,
+                        serie_id=f"C{container_id}",
+                        latitude=-34.6000,
+                        longitude=-58.4000,
+                        geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                        current_level=level,
+                        change_version=10,
+                        available=True,
+                        container_type=ct,
+                        deleted_at=deleted_at,
+                    )
+                )
+            await session.commit()
+
+            site = await get_site_by_id(session, site_id=1, level_aggregation="max")
+            self.assertEqual(site.container_count, 2)
+            self.assertEqual(site.current_level, 80)
+            self.assertEqual({c.id for c in site.containers}, {1, 2})
+
+            changes = await get_site_changes(session, after=0)
+            self.assertEqual(changes.sites[0].container_count, 2)
+
+            bbox = {
+                "lat_min": -34.61,
+                "lat_max": -34.59,
+                "lng_min": -58.41,
+                "lng_max": -58.39,
+            }
+            high_zoom = await get_sites_clustered(db=session, zoom=18, **bbox)
+            self.assertEqual(high_zoom[0].container_count, 2)
+            self.assertEqual(high_zoom[0].current_level, 50)
+
+            low_zoom = await get_sites_clustered(db=session, zoom=14, **bbox)
+            self.assertEqual(low_zoom[0].count, 2)
+            self.assertEqual(low_zoom[0].avg_level, 50.0)
+
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient
 
