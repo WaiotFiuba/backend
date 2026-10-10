@@ -292,7 +292,11 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
             )
             await session.commit()
 
-        app.dependency_overrides[get_map_db] = lambda: self.session_maker()
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
         try:
             transport = ASGITransport(app=app)
             async with AsyncClient(
