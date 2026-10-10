@@ -89,6 +89,9 @@ async def _run_session(
     settings = get_settings()
     simulation_id = session.id
     logger.info("Iniciando simulacion %s.", simulation_id)
+    # Avisar que la tomamos antes de prepararla: el backend vence las sesiones
+    # que nadie toma en poco tiempo.
+    await client.update_progress(simulation_id, {"claimed": True})
     try:
         config = scenario_from_mapping(session.scenario)
         # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla.

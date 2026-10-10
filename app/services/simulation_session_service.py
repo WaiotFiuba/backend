@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.config import get_settings
 from app.core.simulation_status import ACTIVE_STATUSES, SimulationStatus
 from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
@@ -228,6 +229,7 @@ async def update_simulation_controls(
 async def update_simulation_progress(
     db: AsyncSession,
     simulation_id: int,
+    claimed: bool = False,
     simulated_time: datetime | None = None,
     current_period: int | None = None,
     global_demand_current: float | None = None,
@@ -241,6 +243,11 @@ async def update_simulation_progress(
     session = await db.get(SimulationSession, simulation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    # Una sesion terminada (por ejemplo, vencida en pending) no se revive.
+    if session.status not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="La simulacion ya finalizo.")
+    if claimed and session.claimed_at is None:
+        session.claimed_at = datetime.now(UTC)
     if status is not None:
         session.status = status
         if status == SimulationStatus.RUNNING and session.started_at is None:
@@ -271,6 +278,9 @@ async def finish_simulation_session(
     session = await db.get(SimulationSession, simulation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    # Si ya termino, se conserva su estado y su mensaje.
+    if session.status not in ACTIVE_STATUSES:
+        return await get_simulation(db, simulation_id)
     session.status = status
     session.error_message = error_message
     session.finished_at = datetime.now(UTC)
@@ -430,7 +440,46 @@ async def _active_session(db: AsyncSession) -> SimulationSession | None:
         .order_by(SimulationSession.id.desc())
         .limit(1)
     )
-    return result.scalar_one_or_none()
+    session = result.scalar_one_or_none()
+    if session is None:
+        return None
+    settings = get_settings()
+    reason = pending_expiry_reason(
+        session.status,
+        session.created_at,
+        session.claimed_at,
+        datetime.now(UTC),
+        timedelta(seconds=settings.simulation_claim_timeout_seconds),
+        timedelta(minutes=settings.simulation_startup_timeout_minutes),
+    )
+    if reason is not None:
+        # Se vence aca, al leerla, sin una tarea aparte.
+        session.status = SimulationStatus.FAILED
+        session.finished_at = datetime.now(UTC)
+        session.error_message = reason
+        await db.commit()
+        return None
+    return session
+
+
+def pending_expiry_reason(
+    status: str,
+    created_at: datetime | None,
+    claimed_at: datetime | None,
+    now: datetime,
+    claim_timeout: timedelta,
+    startup_timeout: timedelta,
+) -> str | None:
+    """Por que vencio una sesion en pending, o None si sigue vigente."""
+    if status != SimulationStatus.PENDING or created_at is None:
+        return None
+    if claimed_at is None:
+        if now - _as_utc(created_at) > claim_timeout:
+            return "Ningun simulador tomo la simulacion."
+        return None
+    if now - _as_utc(claimed_at) > startup_timeout:
+        return "El simulador no termino de preparar la simulacion."
+    return None
 
 
 async def _zone_overrides(

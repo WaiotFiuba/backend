@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     auto_create_db: bool = True
     auto_create_map_db: bool = False
     cors_allowed_origins: str = "*"
+    simulation_claim_timeout_seconds: int = 60
+    simulation_startup_timeout_minutes: int = 10
     enable_map_db: bool = False
     map_database_url: str = (
         "postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map"

@@ -210,6 +210,7 @@ async def worker_update_progress(
     return await update_simulation_progress(
         db=db,
         simulation_id=simulation_id,
+        claimed=payload.claimed,
         simulated_time=payload.simulated_time,
         current_period=payload.current_period,
         global_demand_current=payload.global_demand_current,
