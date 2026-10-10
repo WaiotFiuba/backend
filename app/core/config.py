@@ -11,17 +11,11 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "development"
-    database_url: str = "sqlite+aiosqlite:///./dev.db"
     secret_key: str = "change-me"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
-    db_echo: bool = False
-    db_pool_size: int = 5
-    db_max_overflow: int = 0
     map_db_pool_size: int = 5
     map_db_max_overflow: int = 0
-    auto_create_db: bool = True
-    auto_create_map_db: bool = False
     cors_allowed_origins: str = "*"
     enable_map_db: bool = False
     map_database_url: str = (

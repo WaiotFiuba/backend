@@ -45,9 +45,6 @@ jobs:
         env:
           APP_ENV: production
           ENABLE_MAP_DB: "true"
-          AUTO_CREATE_DB: "false"
-          AUTO_CREATE_MAP_DB: "false"
-          DATABASE_URL: ${{ secrets.PRODUCTION_MAP_DATABASE_URL }}
           MAP_DATABASE_URL: ${{ secrets.PRODUCTION_MAP_DATABASE_URL }}
         run: uv run alembic upgrade head
 
