@@ -4,6 +4,7 @@ from sqlalchemy import case, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.thresholds import get_level_thresholds
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.neighborhood import Neighborhood
@@ -294,10 +295,11 @@ async def get_container_by_id(db: AsyncSession, container_id: int) -> Container:
 
 
 async def get_container_stats(db: AsyncSession) -> dict:
+    critical = get_level_thresholds().critical
     stmt = select(
         func.count(Container.id).label("total"),
         func.sum(case((Container.available, 1), else_=0)).label("available"),
-        func.sum(case((Container.current_level >= 80, 1), else_=0)).label(
+        func.sum(case((Container.current_level >= critical, 1), else_=0)).label(
             "alert_level"
         ),
         func.avg(Container.current_level).label("avg_fill"),
@@ -341,7 +343,7 @@ async def get_all_containers_paginated(
     if type and type != "all":
         filters.append(ContainerType.name.ilike(f"%{type}%"))
     if only_alerts:
-        filters.append(Container.current_level >= 80)
+        filters.append(Container.current_level >= get_level_thresholds().critical)
 
     if filters:
         stmt = stmt.where(*filters)
