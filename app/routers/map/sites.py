@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
+from app.core.thresholds import get_level_thresholds
 from app.schemas.map.site import (
     SiteChanges,
     SiteCluster,
@@ -113,7 +114,9 @@ async def get_single_site_projection(
     ),
     horizon_hours: Annotated[int, Query(ge=1, le=168)] = 24,
     interval_minutes: Annotated[int, Query(ge=15, le=1440)] = 60,
-    critical_level: Annotated[int, Query(ge=1, le=100)] = 80,
+    critical_level: Annotated[int, Query(ge=1, le=100)] = (
+        get_level_thresholds().critical
+    ),
     level_aggregation: Annotated[Literal["avg", "max"], Query()] = "avg",
     lookback_days: Annotated[int, Query(ge=1, le=365)] = 14,
     stop_at_full: Annotated[bool, Query()] = True,

@@ -23,6 +23,20 @@ def test_thresholds_can_be_overridden_from_settings():
     assert (thresholds.normal, thresholds.high, thresholds.critical) == (30, 60, 90)
 
 
+def test_projection_defaults_use_critical_threshold():
+    from app.schemas.map.site_projection import (
+        SiteProjectionEvaluationRequest,
+        SiteProjectionRunRequest,
+    )
+    from app.services.map.site_projection_models import ForecastRequest
+
+    critical = get_level_thresholds().critical
+
+    assert SiteProjectionRunRequest().critical_level == critical
+    assert SiteProjectionEvaluationRequest().critical_level == critical
+    assert ForecastRequest(site_id=1).critical_level == critical
+
+
 @pytest.mark.parametrize(
     ("normal", "high", "critical"),
     [
