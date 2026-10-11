@@ -555,6 +555,56 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 projection.points[0].timestamp, latest + timedelta(hours=1)
             )
 
+    async def test_site_history_without_active_simulation(self):
+        """Con sensores reales no hay simulación: el historial igual devuelve datos."""
+        async with self.session_maker() as session:
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio Historial",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                )
+            )
+            await session.flush()
+            session.add(
+                Container(
+                    id=1,
+                    site_id=1,
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    current_level=40,
+                )
+            )
+            first = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+            latest = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
+            for reading_id, (reading_date, level) in enumerate(
+                [(first, 20), (latest, 40)], start=1
+            ):
+                session.add(
+                    DataLevel(
+                        id=reading_id,
+                        reading_date=reading_date,
+                        container_id=1,
+                        container_current_level=level,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    )
+                )
+            await session.commit()
+
+            history = await get_site_level_history(session, site_id=1)
+
+            self.assertEqual([p.avg_level for p in history.points], [20, 40])
+            self.assertEqual(history.window_start.replace(tzinfo=UTC), first)
+            self.assertEqual(history.window_end, latest)
+
     async def test_get_sites_clustered_bbox(self):
         async with self.session_maker() as session:
             wt = WasteType(id=1, name="RSU Fracción Húmeda")

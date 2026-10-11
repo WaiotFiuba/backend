@@ -21,7 +21,7 @@ from app.schemas.map.site import (
     SiteMapOutputSchema,
 )
 from app.services.map.container_service import _zoom_to_grid_size
-from app.services.simulation_session_service import get_active_simulation_session
+from app.services.map.reference_time_service import get_reference_time
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -486,24 +486,9 @@ async def get_site_level_history(
             status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
         )
 
-    active_session = await get_active_simulation_session(db)
-    if active_session is None or active_session.simulated_time is None:
-        return SiteLevelHistory(site_id=site_id)
-
-    # Inicio de la simulacion: el escenario efectivo que reporta el simulador al
-    # arrancar la sesion siempre lo incluye.
-    scenario_start = (active_session.scenario or {}).get("start")
-    if not scenario_start:
-        return SiteLevelHistory(site_id=site_id, simulation_id=active_session.id)
-    window_start = _as_utc(datetime.fromisoformat(str(scenario_start)))
-    window_end = _as_utc(active_session.simulated_time)
-    if window_end < window_start:
-        return SiteLevelHistory(
-            site_id=site_id,
-            simulation_id=active_session.id,
-            window_start=window_start,
-            window_end=window_end,
-        )
+    # Las últimas `limit` lecturas hasta la última registrada, haya o no una
+    # simulación activa (con sensores reales no la hay).
+    window_end = await get_reference_time(db)
 
     stmt = (
         select(
@@ -526,7 +511,6 @@ async def get_site_level_history(
         .where(
             Container.site_id == site_id,
             DataLevel.container_current_level.is_not(None),
-            DataLevel.reading_date >= window_start,
             DataLevel.reading_date <= window_end,
         )
         .group_by(DataLevel.reading_date)
@@ -538,8 +522,7 @@ async def get_site_level_history(
 
     return SiteLevelHistory(
         site_id=site_id,
-        simulation_id=active_session.id,
-        window_start=window_start,
+        window_start=rows[0].timestamp if rows else None,
         window_end=window_end,
         points=[
             SiteLevelHistoryPoint(

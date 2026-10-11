@@ -68,7 +68,6 @@ class SiteLevelHistoryPoint(BaseModel):
 
 class SiteLevelHistory(BaseModel):
     site_id: int
-    simulation_id: int | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
     points: list[SiteLevelHistoryPoint] = Field(default_factory=list)
