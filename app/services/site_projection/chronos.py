@@ -14,6 +14,8 @@ from app.services.site_projection.models import (
     ForecastPoint,
     ForecastRequest,
     ForecastResult,
+)
+from app.services.site_projection.utils import (
     _as_utc,
     _ceil_to_next_interval,
     _clamp_level,
