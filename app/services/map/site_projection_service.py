@@ -44,13 +44,15 @@ async def project_site_level(
     stop_at_full: bool = True,
     as_of: datetime | None = None,
     history: list[SiteLevelBucket] | None = None,
+    current_level: float | None = None,
 ) -> SiteProjectionResponse:
     numeric_site_id = _parse_site_id(site_id)
-    current_level = await _get_current_site_level(
-        db,
-        site_id=numeric_site_id,
-        level_aggregation=level_aggregation,
-    )
+    if current_level is None:
+        current_level = await _get_current_site_level(
+            db,
+            site_id=numeric_site_id,
+            level_aggregation=level_aggregation,
+        )
     generated_at = _as_utc(as_of) if as_of is not None else await _projection_clock(db)
     if history is None:
         history_by_site = await get_site_level_series(
@@ -149,6 +151,15 @@ async def project_sites(
 
     unique_site_ids = sorted(set(request.site_ids))
     generated_at = as_of if as_of is not None else await _projection_clock(db)
+    current_levels = await _get_current_site_levels(
+        db, unique_site_ids, request.level_aggregation
+    )
+    for site_id in unique_site_ids:
+        if site_id not in current_levels:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sitio no encontrado.",
+            )
     history_by_site = await get_site_level_series(
         db=db,
         site_ids=unique_site_ids,
@@ -172,6 +183,7 @@ async def project_sites(
                 stop_at_full=False if target_at else request.stop_at_full,
                 as_of=generated_at,
                 history=history_by_site.get(site_id, []),
+                current_level=current_levels[site_id],
             )
         )
 
@@ -219,6 +231,20 @@ async def _get_current_site_level(
     site_id: int,
     level_aggregation: LevelAggregation,
 ) -> float:
+    levels = await _get_current_site_levels(db, [site_id], level_aggregation)
+    if site_id not in levels:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sitio no encontrado.",
+        )
+    return levels[site_id]
+
+
+async def _get_current_site_levels(
+    db: AsyncSession,
+    site_ids: list[int],
+    level_aggregation: LevelAggregation,
+) -> dict[int, float]:
     level_expr = (
         func.coalesce(func.max(Container.current_level), 0)
         if level_aggregation == "max"
@@ -227,19 +253,14 @@ async def _get_current_site_level(
         )
     )
     stmt = (
-        select(level_expr.label("current_level"))
+        select(Site.id, level_expr.label("current_level"))
         .select_from(Site)
         .outerjoin(Container, Container.site_id == Site.id)
-        .where(Site.id == site_id, Site.deleted_at.is_(None))
+        .where(Site.id.in_(site_ids), Site.deleted_at.is_(None))
         .group_by(Site.id)
     )
-    value = await db.scalar(stmt)
-    if value is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sitio no encontrado.",
-        )
-    return float(value)
+    result = await db.execute(stmt)
+    return {int(row.id): float(row.current_level) for row in result.all()}
 
 
 def _build_run_summary(projections: list[SiteProjectionResponse]) -> dict:

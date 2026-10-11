@@ -64,6 +64,13 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         return {1: ["site-1-history"], 2: ["site-2-history"]}
 
     monkeypatch.setattr(service, "get_site_level_series", fake_history)
+    level_calls = []
+
+    async def fake_current_levels(_db, site_ids, level_aggregation):
+        level_calls.append((site_ids, level_aggregation))
+        return {1: 0.0, 2: 20.0}
+
+    monkeypatch.setattr(service, "_get_current_site_levels", fake_current_levels)
     db = SimpleNamespace()
     result = await service.project_sites(
         db,
@@ -81,6 +88,8 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert len(history_calls) == 1
     assert history_calls[0]["site_ids"] == [1, 2]
     assert history_calls[0]["end_time"] == as_of
+    assert level_calls == [([1, 2], "avg")]
+    assert [call["current_level"] for call in calls] == [0.0, 20.0]
     assert all(call["stop_at_full"] is False for call in calls)
     assert result.target_at == target_at
 
