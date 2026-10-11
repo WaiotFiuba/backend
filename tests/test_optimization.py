@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import event, select
@@ -304,6 +304,28 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
 
             # Sitio C (normal): score medio
             self.assertIn(3, by_id)
+
+    async def test_metrics_window_is_relative_to_the_latest_reading(self):
+        """La ventana se mide desde la última lectura, no desde el reloj del servidor."""
+        from app.services.map.optimization_service import (
+            compute_site_utilization_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)  # lecturas del 2026-09-01 10:00 UTC
+
+            result = await compute_site_utilization_metrics(
+                session, OptimizationConfig(window_days=7)
+            )
+
+            latest = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+            self.assertEqual(result.window_end.replace(tzinfo=UTC), latest)
+            self.assertEqual(
+                result.window_start.replace(tzinfo=UTC), latest - timedelta(days=7)
+            )
+            # Las lecturas del sitio B (90% y 95%) entran en la ventana.
+            by_id = {s.site_id: s for s in result.sites}
+            self.assertEqual(by_id[2].peak_fill_rate, 1.0)
 
     async def test_generate_plan_greedy_moves_from_low_to_high(self):
         """Verifica que el plan greedy mueve contenedores de sitios de bajo uso a saturados."""
