@@ -473,15 +473,18 @@ async def ingest_telemetry_batch(
     t_commit_end = time.perf_counter()
 
     total_time = t_commit_end - t_start
-    print(
-        f"[PERF DB INGEST] Total: {total_time:.3f}s | "
-        f"Cache: {t_cache - t_start:.3f}s | "
-        f"Prep dicts ({len(data_level_inserts)}): {t_dict_prep - t_cache:.3f}s | "
-        f"Insert DataLevel: {t_insert_end - t_insert_start:.3f}s | "
-        f"Update Container: {t_update_end - t_update_start:.3f}s | "
-        f"Update ChangeVersion IN: {t_change_version_end - t_change_version_start:.3f}s | "
-        f"Commit: {t_commit_end - t_commit_start:.3f}s",
-        flush=True,
+    logger.info(
+        "Ingesta (respaldo SQLAlchemy): total=%.3fs cache=%.3fs "
+        "preparacion(%d)=%.3fs insert_data_level=%.3fs update_containers=%.3fs "
+        "update_change_version=%.3fs commit=%.3fs",
+        total_time,
+        t_cache - t_start,
+        len(data_level_inserts),
+        t_dict_prep - t_cache,
+        t_insert_end - t_insert_start,
+        t_update_end - t_update_start,
+        t_change_version_end - t_change_version_start,
+        t_commit_end - t_commit_start,
     )
 
     # Actualizar niveles virtuales de what-if si hay un plan activo
