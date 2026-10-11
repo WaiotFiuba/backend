@@ -36,46 +36,72 @@ class SiteLevelBucket:
     has_collection_signal: bool
 
 
+# Tiempo máximo que se arrastra el último nivel de un contenedor que no reportó
+# en un bucket. Con lecturas horarias equivale a tolerar dos lecturas perdidas.
+DEFAULT_MAX_CARRY_MINUTES = 180
+
+
 def aggregate_site_measurements(
     samples: list[SiteMeasurementSample],
     interval_minutes: int,
     level_aggregation: LevelAggregation = "avg",
+    max_carry_minutes: int = DEFAULT_MAX_CARRY_MINUTES,
 ) -> dict[int, list[SiteLevelBucket]]:
-    grouped: dict[tuple[int, datetime], list[SiteMeasurementSample]] = defaultdict(list)
+    """Agrega las lecturas en buckets por sitio.
+
+    El nivel del sitio en cada bucket combina a todos sus contenedores: los que
+    reportaron en el bucket aportan su última lectura, y los que no, su último
+    nivel conocido si no tiene más de `max_carry_minutes` (LOCF). Sin esto, si
+    los contenedores reportan en momentos distintos, el promedio salta según
+    quién reportó en cada bucket y esos saltos se confunden con recolecciones o
+    con generación de residuos.
+    """
+    max_carry = timedelta(minutes=max_carry_minutes)
+    samples_by_site: dict[int, dict[datetime, list[SiteMeasurementSample]]] = (
+        defaultdict(lambda: defaultdict(list))
+    )
     for sample in samples:
-        grouped[
-            sample.site_id,
-            floor_to_interval(sample.timestamp, interval_minutes),
-        ].append(sample)
+        bucket_ts = floor_to_interval(sample.timestamp, interval_minutes)
+        samples_by_site[sample.site_id][bucket_ts].append(sample)
 
-    buckets_by_site: dict[int, list[SiteLevelBucket]] = defaultdict(list)
-    for (site_id, timestamp), bucket_samples in grouped.items():
-        levels = [sample.level for sample in bucket_samples]
-        avg_level = sum(levels) / len(levels)
-        max_level = max(levels)
-        min_level = min(levels)
-        level = max_level if level_aggregation == "max" else avg_level
-
-        buckets_by_site[site_id].append(
-            SiteLevelBucket(
-                site_id=site_id,
-                timestamp=timestamp,
-                level=round(level, 2),
-                avg_level=round(avg_level, 2),
-                max_level=round(max_level, 2),
-                min_level=round(min_level, 2),
-                measurement_count=len(bucket_samples),
-                container_count=len({sample.container_id for sample in bucket_samples}),
-                has_collection_signal=any(
-                    sample.garbage_collection_alarm for sample in bucket_samples
-                ),
+    buckets_by_site: dict[int, list[SiteLevelBucket]] = {}
+    for site_id, samples_by_bucket in samples_by_site.items():
+        # Último nivel conocido de cada contenedor y el bucket en que se midió.
+        last_known: dict[int, tuple[datetime, float]] = {}
+        site_buckets: list[SiteLevelBucket] = []
+        for bucket_ts in sorted(samples_by_bucket):
+            bucket_samples = sorted(
+                samples_by_bucket[bucket_ts], key=lambda sample: sample.timestamp
             )
-        )
+            for sample in bucket_samples:
+                last_known[sample.container_id] = (bucket_ts, sample.level)
 
-    return {
-        site_id: sorted(buckets, key=lambda bucket: bucket.timestamp)
-        for site_id, buckets in buckets_by_site.items()
-    }
+            levels = [
+                level
+                for measured_at, level in last_known.values()
+                if bucket_ts - measured_at <= max_carry
+            ]
+            avg_level = sum(levels) / len(levels)
+            max_level = max(levels)
+            level = max_level if level_aggregation == "max" else avg_level
+            site_buckets.append(
+                SiteLevelBucket(
+                    site_id=site_id,
+                    timestamp=bucket_ts,
+                    level=round(level, 2),
+                    avg_level=round(avg_level, 2),
+                    max_level=round(max_level, 2),
+                    min_level=round(min(levels), 2),
+                    measurement_count=len(bucket_samples),
+                    container_count=len(levels),
+                    has_collection_signal=any(
+                        sample.garbage_collection_alarm for sample in bucket_samples
+                    ),
+                )
+            )
+        buckets_by_site[site_id] = site_buckets
+
+    return buckets_by_site
 
 
 def floor_to_interval(timestamp: datetime, interval_minutes: int) -> datetime:
