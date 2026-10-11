@@ -39,6 +39,12 @@ class ContainerCacheMeta:
 _cache_by_id: dict[int, ContainerCacheMeta] = {}
 _cache_by_imei: dict[str, ContainerCacheMeta] = {}
 _cache_loaded: bool = False
+_cache_loaded_at: float = 0.0
+
+# Si llega una lectura de un contenedor que no está en la caché (por ejemplo, uno
+# creado después de cargarla), la caché se recarga en el próximo batch, como
+# máximo una vez por este intervalo.
+CACHE_MISS_RELOAD_SECONDS = 60.0
 
 DATA_LEVEL_COLS = [
     "message_time",
@@ -75,15 +81,28 @@ DATA_LEVEL_COLS = [
 ]
 
 
-async def ensure_cache(db: AsyncSession):
+def invalidate_container_cache() -> None:
+    """Fuerza a recargar la caché de contenedores en el próximo batch."""
     global _cache_loaded
-    if _cache_loaded and len(_cache_by_id) >= 20000:
+    _cache_loaded = False
+
+
+async def ensure_cache(db: AsyncSession):
+    """Carga la caché de contenedores activos una sola vez (o tras invalidarla)."""
+    global _cache_loaded, _cache_loaded_at
+    if _cache_loaded:
         return
     _cache_by_id.clear()
     _cache_by_imei.clear()
-    query = select(Container).options(
-        joinedload(Container.container_type).selectinload(ContainerType.waste_types),
-        joinedload(Container.neighborhood),
+    query = (
+        select(Container)
+        .options(
+            joinedload(Container.container_type).selectinload(
+                ContainerType.waste_types
+            ),
+            joinedload(Container.neighborhood),
+        )
+        .where(Container.deleted_at.is_(None))
     )
     result = await db.execute(query)
     containers = result.scalars().all()
@@ -112,16 +131,16 @@ async def ensure_cache(db: AsyncSession):
         if meta.device_imei:
             _cache_by_imei[meta.device_imei] = meta
     _cache_loaded = True
+    _cache_loaded_at = time.monotonic()
     logger.info("Caché de telemetría cargada con %d contenedores.", len(_cache_by_id))
 
 
 async def reset_database_container_levels(db: AsyncSession) -> None:
     """Reinicia los niveles de los contenedores en memoria y en la base de datos de forma segura."""
-    global _cache_loaded
     # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
         meta.current_level = 0
-    _cache_loaded = False
+    invalidate_container_cache()
 
     # 2. Resetear en la base de datos los niveles de los contenedores a 0
     try:
@@ -353,6 +372,9 @@ async def ingest_telemetry_batch(
         updated += 1
 
     t_dict_prep = time.perf_counter()
+
+    if not_found and time.monotonic() - _cache_loaded_at > CACHE_MISS_RELOAD_SECONDS:
+        invalidate_container_cache()
 
     # Try high-performance native asyncpg COPY + Staging Table in PostgreSQL
     try:
