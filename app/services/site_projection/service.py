@@ -113,6 +113,11 @@ async def project_site_level(
         SiteProjectionPoint(
             timestamp=point.timestamp,
             predicted_level=point.predicted_level,
+            predicted_volume_m3=_estimate_site_volume(
+                volume_snapshot,
+                current_level,
+                point.predicted_level,
+            ),
             lower_bound=point.lower_bound,
             upper_bound=point.upper_bound,
             reaches_critical=point.predicted_level >= critical_level,
@@ -356,6 +361,19 @@ async def _get_current_site_volumes(
         else SiteVolumeSnapshot()
         for site_id in site_ids
     }
+
+
+def _estimate_site_volume(
+    snapshot: SiteVolumeSnapshot,
+    starting_level: float,
+    predicted_level: float,
+) -> float | None:
+    if snapshot.current_volume_m3 is None or snapshot.capacity_m3 is None:
+        return None
+    volume = snapshot.current_volume_m3 + (
+        predicted_level - starting_level
+    ) * snapshot.capacity_m3 / 100
+    return round(min(max(volume, 0.0), snapshot.capacity_m3), 3)
 
 
 def _build_run_summary(projections: list[SiteProjectionResponse]) -> dict:

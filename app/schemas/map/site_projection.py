@@ -42,6 +42,10 @@ class SiteProjectionBatchRequest(BaseModel):
 class SiteProjectionPoint(BaseModel):
     timestamp: datetime
     predicted_level: float
+    predicted_volume_m3: float | None = Field(
+        default=None,
+        description="Estimacion basada en el cambio de nivel del sitio y su capacidad.",
+    )
     lower_bound: float | None = None
     upper_bound: float | None = None
     reaches_critical: bool = False

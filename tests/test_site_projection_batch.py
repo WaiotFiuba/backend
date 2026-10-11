@@ -11,7 +11,7 @@ from app.schemas.map.site_projection import (
     SiteProjectionResponse,
 )
 from app.services.site_projection import service
-from app.services.site_projection.models import ForecastResult
+from app.services.site_projection.models import ForecastPoint, ForecastResult
 
 
 def test_projection_routes_keep_batch_and_evaluations_without_run_lookup():
@@ -215,6 +215,10 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
     assert [site.points[0].predicted_level for site in result.sites] == [21, 41]
     assert [site.current_volume_m3 for site in result.sites] == [0.6, 1.2]
     assert [site.capacity_m3 for site in result.sites] == [3.0, 3.0]
+    assert [site.points[0].predicted_volume_m3 for site in result.sites] == [
+        0.63,
+        1.23,
+    ]
 
 
 @pytest.mark.asyncio
@@ -235,3 +239,34 @@ async def test_current_volume_uses_each_container_capacity_and_requires_complete
         2: service.SiteVolumeSnapshot(),
         3: service.SiteVolumeSnapshot(),
     }
+
+
+@pytest.mark.asyncio
+async def test_projected_volume_uses_current_volume_and_one_site_forecast():
+    as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
+    result = await service.project_site_level(
+        object(),
+        site_id=1,
+        as_of=as_of,
+        current_level=50,
+        volume_snapshot=service.SiteVolumeSnapshot(2.2, 5.0),
+        history=[],
+        site_features={},
+        forecast_result=ForecastResult(
+            site_id=1,
+            model_key="baseline_operational",
+            generated_at=as_of,
+            points=[
+                ForecastPoint(
+                    timestamp=as_of + timedelta(hours=1),
+                    predicted_level=60,
+                    confidence=0.7,
+                )
+            ],
+        ),
+    )
+
+    assert result.points[0].predicted_volume_m3 == 2.7
+    assert service._estimate_site_volume(service.SiteVolumeSnapshot(), 50, 60) is None
+    assert service._estimate_site_volume(service.SiteVolumeSnapshot(4.8, 5), 20, 40) == 5
+    assert service._estimate_site_volume(service.SiteVolumeSnapshot(0.2, 5), 80, 20) == 0
