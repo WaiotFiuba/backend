@@ -45,6 +45,7 @@ async def project_site_level(
     as_of: datetime | None = None,
     history: list[SiteLevelBucket] | None = None,
     current_level: float | None = None,
+    site_features: dict[str, float | str] | None = None,
 ) -> SiteProjectionResponse:
     numeric_site_id = _parse_site_id(site_id)
     if current_level is None:
@@ -64,7 +65,8 @@ async def project_site_level(
             end_time=generated_at,
         )
         history = history_by_site.get(numeric_site_id, [])
-    features = await _get_site_features(db, numeric_site_id)
+    if site_features is None:
+        site_features = await _get_site_features(db, numeric_site_id)
     forecaster = get_forecaster(model_key)
     if forecaster is None:
         raise HTTPException(
@@ -86,7 +88,7 @@ async def project_site_level(
         ForecastContext(
             current_level=current_level,
             history=history,
-            site_features=features,
+            site_features=site_features,
             generated_at=generated_at,
         ),
     )
@@ -168,6 +170,7 @@ async def project_sites(
         lookback_days=request.lookback_days,
         end_time=generated_at,
     )
+    features_by_site = await _get_sites_features(db, unique_site_ids)
     projections: list[SiteProjectionResponse] = []
     for site_id in unique_site_ids:
         projections.append(
@@ -184,6 +187,7 @@ async def project_sites(
                 as_of=generated_at,
                 history=history_by_site.get(site_id, []),
                 current_level=current_levels[site_id],
+                site_features=features_by_site.get(site_id, {}),
             )
         )
 
@@ -287,21 +291,32 @@ async def _get_site_features(
     db: AsyncSession,
     site_id: int,
 ) -> dict[str, float | str]:
+    features_by_site = await _get_sites_features(db, [site_id])
+    return features_by_site.get(site_id, {})
+
+
+async def _get_sites_features(
+    db: AsyncSession,
+    site_ids: list[int],
+) -> dict[int, dict[str, float | str]]:
     result = await db.execute(
         select(
+            SiteFeature.site_id,
             SiteFeature.feature_key,
             SiteFeature.numeric_value,
             SiteFeature.category_value,
-        ).where(SiteFeature.site_id == site_id)
+        ).where(SiteFeature.site_id.in_(site_ids))
     )
-    features: dict[str, float | str] = {}
+    features_by_site: dict[int, dict[str, float | str]] = {}
     for row in result.all():
-        features[row.feature_key] = (
+        value = (
             float(row.numeric_value)
             if row.numeric_value is not None
             else row.category_value
         )
-    return {key: value for key, value in features.items() if value is not None}
+        if value is not None:
+            features_by_site.setdefault(int(row.site_id), {})[row.feature_key] = value
+    return features_by_site
 
 
 async def _projection_clock(db: AsyncSession) -> datetime:

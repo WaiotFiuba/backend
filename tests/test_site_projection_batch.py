@@ -71,6 +71,13 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         return {1: 0.0, 2: 20.0}
 
     monkeypatch.setattr(service, "_get_current_site_levels", fake_current_levels)
+    feature_calls = []
+
+    async def fake_features(_db, site_ids):
+        feature_calls.append(site_ids)
+        return {1: {"demand.density_factor": 1.2}}
+
+    monkeypatch.setattr(service, "_get_sites_features", fake_features)
     db = SimpleNamespace()
     result = await service.project_sites(
         db,
@@ -90,6 +97,11 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert history_calls[0]["end_time"] == as_of
     assert level_calls == [([1, 2], "avg")]
     assert [call["current_level"] for call in calls] == [0.0, 20.0]
+    assert feature_calls == [[1, 2]]
+    assert [call["site_features"] for call in calls] == [
+        {"demand.density_factor": 1.2},
+        {},
+    ]
     assert all(call["stop_at_full"] is False for call in calls)
     assert result.target_at == target_at
 
