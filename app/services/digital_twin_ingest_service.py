@@ -361,50 +361,55 @@ async def ingest_telemetry_batch(
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
         if hasattr(asyncpg_conn, "copy_records_to_table"):
-            if data_level_tuples:
-                await asyncpg_conn.copy_records_to_table(
-                    "data_level",
-                    records=data_level_tuples,
-                    columns=DATA_LEVEL_COLS,
-                )
-            if update_tuples:
-                await asyncpg_conn.execute(
-                    """
-                    CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
-                        id bigint,
-                        level integer,
-                        reading_date timestamptz,
-                        is_pickup boolean
-                    );
-                    TRUNCATE temp_container_updates;
-                    """
-                )
-                await asyncpg_conn.copy_records_to_table(
-                    "temp_container_updates",
-                    records=update_tuples,
-                    columns=["id", "level", "reading_date", "is_pickup"],
-                )
-                await asyncpg_conn.execute(
-                    """
-                    UPDATE containers AS c
-                    SET current_level = a.level,
-                        last_reading = a.reading_date,
-                        last_pickup = COALESCE(a.pickup_date, c.last_pickup),
-                        available = true,
-                        change_version = nextval('container_change_version_seq')
-                    FROM (
-                        SELECT
-                            id,
-                            (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
-                            max(reading_date) AS reading_date,
-                            max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
-                        FROM temp_container_updates
-                        GROUP BY id
-                    ) AS a
-                    WHERE c.id = a.id
-                      AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
-                    """
-                )
+            # Todo el camino rápido corre en una sola transacción: si algo falla a
+            # mitad de camino no queda nada insertado y el respaldo de abajo no
+            # duplica las lecturas. Si SQLAlchemy ya abrió una transacción en esta
+            # conexión, asyncpg usa un savepoint y el commit de abajo la cierra.
+            async with asyncpg_conn.transaction():
+                if data_level_tuples:
+                    await asyncpg_conn.copy_records_to_table(
+                        "data_level",
+                        records=data_level_tuples,
+                        columns=DATA_LEVEL_COLS,
+                    )
+                if update_tuples:
+                    await asyncpg_conn.execute(
+                        """
+                        CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
+                            id bigint,
+                            level integer,
+                            reading_date timestamptz,
+                            is_pickup boolean
+                        );
+                        TRUNCATE temp_container_updates;
+                        """
+                    )
+                    await asyncpg_conn.copy_records_to_table(
+                        "temp_container_updates",
+                        records=update_tuples,
+                        columns=["id", "level", "reading_date", "is_pickup"],
+                    )
+                    await asyncpg_conn.execute(
+                        """
+                        UPDATE containers AS c
+                        SET current_level = a.level,
+                            last_reading = a.reading_date,
+                            last_pickup = COALESCE(a.pickup_date, c.last_pickup),
+                            available = true,
+                            change_version = nextval('container_change_version_seq')
+                        FROM (
+                            SELECT
+                                id,
+                                (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
+                                max(reading_date) AS reading_date,
+                                max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
+                            FROM temp_container_updates
+                            GROUP BY id
+                        ) AS a
+                        WHERE c.id = a.id
+                          AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
+                        """
+                    )
             await db.commit()
 
             # Actualizar niveles virtuales de what-if si hay un plan activo
