@@ -15,16 +15,16 @@ from app.schemas.map.site_projection import (
     SiteProjectionModel,
     SiteProjectionModelsResponse,
 )
-from app.services.map.site_projection_evaluation_service import (
+from app.services.site_projection.evaluation import (
     create_site_projection_evaluation,
     get_site_projection_evaluation,
     get_site_projection_evaluation_report,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     list_projection_models,
 )
-from app.services.map.site_projection_service import project_sites
+from app.services.site_projection.service import project_sites
 
 router = APIRouter(prefix="/site-projections", tags=["site-projections"])
 

@@ -10,11 +10,14 @@ from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
 )
-from app.services.map import site_projection_service as service
+from app.services.site_projection import service
+from app.services.site_projection.models import ForecastResult
 
 
 def test_projection_routes_keep_batch_and_evaluations_without_run_lookup():
-    paths = {(method, route.path) for route in router.routes for method in route.methods}
+    paths = {
+        (method, route.path) for route in router.routes for method in route.methods
+    }
 
     assert ("POST", "/site-projections") in paths
     assert ("POST", "/site-projections/evaluations") in paths
@@ -78,10 +81,28 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         return {1: {"demand.density_factor": 1.2}}
 
     monkeypatch.setattr(service, "_get_sites_features", fake_features)
+    batch_calls = []
+
+    class FakeForecaster:
+        async def forecast_many(self, inputs):
+            batch_calls.append(inputs)
+            return {
+                request.site_id: ForecastResult(
+                    site_id=request.site_id,
+                    model_key="baseline_operational",
+                    generated_at=as_of,
+                    points=[],
+                )
+                for request, _context in inputs
+            }
+
+    monkeypatch.setattr(service, "get_forecaster", lambda _key: FakeForecaster())
     db = SimpleNamespace()
     result = await service.project_sites(
         db,
-        SiteProjectionBatchRequest(site_ids=[1, 2, 1], as_of=as_of, target_at=target_at),
+        SiteProjectionBatchRequest(
+            site_ids=[1, 2, 1], as_of=as_of, target_at=target_at
+        ),
     )
 
     assert [site.site_id for site in result.sites] == [1, 2]
@@ -102,6 +123,9 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         {"demand.density_factor": 1.2},
         {},
     ]
+    assert len(batch_calls) == 1
+    assert [request.site_id for request, _ in batch_calls[0]] == [1, 2]
+    assert all(call["forecast_result"] is not None for call in calls)
     assert all(call["stop_at_full"] is False for call in calls)
     assert result.target_at == target_at
 
@@ -140,3 +164,31 @@ async def test_batch_rejects_target_before_reference():
             SiteProjectionBatchRequest(site_ids=[1], as_of=as_of, target_at=as_of),
         )
     assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_batch_uses_baseline_forecast_many(monkeypatch):
+    async def current_levels(_db, _site_ids, _aggregation):
+        return {1: 20.0, 2: 40.0}
+
+    async def no_history(**_kwargs):
+        return {}
+
+    async def no_features(_db, _site_ids):
+        return {}
+
+    monkeypatch.setattr(service, "_get_current_site_levels", current_levels)
+    monkeypatch.setattr(service, "get_site_level_series", no_history)
+    monkeypatch.setattr(service, "_get_sites_features", no_features)
+
+    result = await service.project_sites(
+        object(),
+        SiteProjectionBatchRequest(
+            site_ids=[1, 2],
+            as_of=datetime(2026, 10, 10, 12, tzinfo=UTC),
+            horizon_hours=1,
+        ),
+    )
+
+    assert result.model_key == "baseline_operational"
+    assert [site.points[0].predicted_level for site in result.sites] == [21, 41]

@@ -17,17 +17,18 @@ from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
 )
-from app.services.map.site_projection_history_service import (
+from app.services.simulation_session_service import get_active_simulation_session
+from app.services.site_projection.history import (
     SiteLevelBucket,
     get_site_level_series,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
     ForecastRequest,
+    ForecastResult,
     get_forecaster,
 )
-from app.services.simulation_session_service import get_active_simulation_session
 
 LevelAggregation = Literal["avg", "max"]
 
@@ -46,6 +47,7 @@ async def project_site_level(
     history: list[SiteLevelBucket] | None = None,
     current_level: float | None = None,
     site_features: dict[str, float | str] | None = None,
+    forecast_result: ForecastResult | None = None,
 ) -> SiteProjectionResponse:
     numeric_site_id = _parse_site_id(site_id)
     if current_level is None:
@@ -67,31 +69,32 @@ async def project_site_level(
         history = history_by_site.get(numeric_site_id, [])
     if site_features is None:
         site_features = await _get_site_features(db, numeric_site_id)
-    forecaster = get_forecaster(model_key)
-    if forecaster is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Modelo de proyeccion desconocido: {model_key}",
-        )
+    if forecast_result is None:
+        forecaster = get_forecaster(model_key)
+        if forecaster is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Modelo de proyeccion desconocido: {model_key}",
+            )
 
-    request = ForecastRequest(
-        site_id=numeric_site_id,
-        horizon_hours=horizon_hours,
-        interval_minutes=interval_minutes,
-        critical_level=critical_level,
-        level_aggregation=level_aggregation,
-        lookback_days=lookback_days,
-        stop_at_full=stop_at_full,
-    )
-    result = await forecaster.forecast(
-        request,
-        ForecastContext(
-            current_level=current_level,
-            history=history,
-            site_features=site_features,
-            generated_at=generated_at,
-        ),
-    )
+        request = ForecastRequest(
+            site_id=numeric_site_id,
+            horizon_hours=horizon_hours,
+            interval_minutes=interval_minutes,
+            critical_level=critical_level,
+            level_aggregation=level_aggregation,
+            lookback_days=lookback_days,
+            stop_at_full=stop_at_full,
+        )
+        forecast_result = await forecaster.forecast(
+            request,
+            ForecastContext(
+                current_level=current_level,
+                history=history,
+                site_features=site_features,
+                generated_at=generated_at,
+            ),
+        )
 
     points = [
         SiteProjectionPoint(
@@ -104,15 +107,15 @@ async def project_site_level(
             confidence=point.confidence,
             reason=point.reason,
         )
-        for point in result.points
+        for point in forecast_result.points
     ]
     critical_at = _first_timestamp_at_or_above(points, critical_level)
     full_at = _first_timestamp_at_or_above(points, 100)
 
     return SiteProjectionResponse(
         site_id=numeric_site_id,
-        model_key=result.model_key,
-        generated_at=result.generated_at,
+        model_key=forecast_result.model_key,
+        generated_at=forecast_result.generated_at,
         current_level=current_level,
         horizon_hours=horizon_hours,
         interval_minutes=interval_minutes,
@@ -123,9 +126,11 @@ async def project_site_level(
         confidence=points[0].confidence if points else 0.0,
         reason=points[0].reason if points else "no_projection_points",
         critical_at=critical_at,
-        time_to_critical_hours=_hours_between(result.generated_at, critical_at),
+        time_to_critical_hours=_hours_between(
+            forecast_result.generated_at, critical_at
+        ),
         full_at=full_at,
-        time_to_full_hours=_hours_between(result.generated_at, full_at),
+        time_to_full_hours=_hours_between(forecast_result.generated_at, full_at),
         points=points,
     )
 
@@ -171,6 +176,34 @@ async def project_sites(
         end_time=generated_at,
     )
     features_by_site = await _get_sites_features(db, unique_site_ids)
+    forecaster = get_forecaster(request.model_key)
+    if forecaster is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Modelo de proyeccion desconocido: {request.model_key}",
+        )
+    batch_results = await forecaster.forecast_many(
+        [
+            (
+                ForecastRequest(
+                    site_id=site_id,
+                    horizon_hours=horizon_hours,
+                    interval_minutes=request.interval_minutes,
+                    critical_level=request.critical_level,
+                    level_aggregation=request.level_aggregation,
+                    lookback_days=request.lookback_days,
+                    stop_at_full=False if target_at else request.stop_at_full,
+                ),
+                ForecastContext(
+                    current_level=current_levels[site_id],
+                    history=history_by_site.get(site_id, []),
+                    site_features=features_by_site.get(site_id, {}),
+                    generated_at=generated_at,
+                ),
+            )
+            for site_id in unique_site_ids
+        ]
+    )
     projections: list[SiteProjectionResponse] = []
     for site_id in unique_site_ids:
         projections.append(
@@ -188,13 +221,18 @@ async def project_sites(
                 history=history_by_site.get(site_id, []),
                 current_level=current_levels[site_id],
                 site_features=features_by_site.get(site_id, {}),
+                forecast_result=batch_results[site_id],
             )
         )
 
     if target_at is not None:
         for projection in projections:
             projection.target_point = next(
-                (point for point in projection.points if _as_utc(point.timestamp) >= target_at),
+                (
+                    point
+                    for point in projection.points
+                    if _as_utc(point.timestamp) >= target_at
+                ),
                 None,
             )
             if projection.target_point is None:

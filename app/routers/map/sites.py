@@ -13,14 +13,14 @@ from app.schemas.map.site import (
     SiteMapOutputSchema,
 )
 from app.schemas.map.site_projection import SiteProjectionResponse
-from app.services.map.site_projection_models import DEFAULT_MODEL_KEY
-from app.services.map.site_projection_service import project_site_level
 from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
     get_sites_clustered,
 )
+from app.services.site_projection.models import DEFAULT_MODEL_KEY
+from app.services.site_projection.service import project_site_level
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 

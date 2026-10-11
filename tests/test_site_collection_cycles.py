@@ -1,11 +1,11 @@
 from datetime import UTC, datetime
 
-from app.services.map.site_collection_cycle_service import (
+from app.services.site_projection.collection_cycle import (
     CollectionCycleDetectionConfig,
     detect_collection_cycles,
     detect_collection_event,
 )
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 
 def bucket(

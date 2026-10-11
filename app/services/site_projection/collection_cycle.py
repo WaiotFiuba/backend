@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 CollectionDetectionReason = Literal["garbage_collection_alarm", "level_drop"]
 

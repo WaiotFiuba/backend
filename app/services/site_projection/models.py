@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Protocol
 
-from app.services.map.site_collection_cycle_service import detect_collection_event
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.collection_cycle import detect_collection_event
+from app.services.site_projection.history import SiteLevelBucket
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,11 @@ class SiteLevelForecaster(Protocol):
         through ForecastContext, keeping the API independent from a city schema.
         """
 
+    async def forecast_many(
+        self,
+        inputs: list[tuple[ForecastRequest, ForecastContext]],
+    ) -> dict[int, ForecastResult]: ...
+
 
 BASELINE_OPERATIONAL_MODEL = ForecastModelInfo(
     key="baseline_operational",
@@ -93,6 +98,15 @@ class BaselineOperationalForecaster:
     """Baseline interpretable: proyecta sumando incrementos historicos esperados."""
 
     model_info = BASELINE_OPERATIONAL_MODEL
+
+    async def forecast_many(
+        self,
+        inputs: list[tuple[ForecastRequest, ForecastContext]],
+    ) -> dict[int, ForecastResult]:
+        return {
+            request.site_id: await self.forecast(request, context)
+            for request, context in inputs
+        }
 
     async def forecast(
         self,
@@ -288,13 +302,13 @@ _MODEL_REGISTRY: dict[str, SiteLevelForecaster] = {
 def _get_registry() -> dict[str, SiteLevelForecaster]:
     if "chronos_2_small" not in _MODEL_REGISTRY:
         try:
-            from app.services.map.site_projection_chronos import (
+            from app.services.site_projection.chronos import (
                 CHRONOS_2_SMALL_MODEL,
                 Chronos2SmallForecaster,
             )
 
             _MODEL_REGISTRY[CHRONOS_2_SMALL_MODEL.key] = Chronos2SmallForecaster()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
     return _MODEL_REGISTRY
 
