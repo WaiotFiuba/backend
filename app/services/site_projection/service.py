@@ -9,6 +9,7 @@ from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
+from app.models.map.container_type import ContainerType
 from app.models.map.site import Site
 from app.models.map.site_projection import SiteFeature
 from app.schemas.map.site_projection import (
@@ -46,6 +47,8 @@ async def project_site_level(
     as_of: datetime | None = None,
     history: list[SiteLevelBucket] | None = None,
     current_level: float | None = None,
+    current_volume_m3: float | None = None,
+    current_volume_loaded: bool = False,
     site_features: dict[str, float | str] | None = None,
     forecast_result: ForecastResult | None = None,
 ) -> SiteProjectionResponse:
@@ -56,6 +59,10 @@ async def project_site_level(
             site_id=numeric_site_id,
             level_aggregation=level_aggregation,
         )
+    if not current_volume_loaded:
+        current_volume_m3 = (await _get_current_site_volumes(db, [numeric_site_id]))[
+            numeric_site_id
+        ]
     generated_at = _as_utc(as_of) if as_of is not None else await _projection_clock(db)
     if history is None:
         history_by_site = await get_site_level_series(
@@ -117,6 +124,7 @@ async def project_site_level(
         model_key=forecast_result.model_key,
         generated_at=forecast_result.generated_at,
         current_level=current_level,
+        current_volume_m3=current_volume_m3,
         horizon_hours=horizon_hours,
         interval_minutes=interval_minutes,
         critical_level=critical_level,
@@ -167,6 +175,7 @@ async def project_sites(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Sitio no encontrado.",
             )
+    current_volumes = await _get_current_site_volumes(db, unique_site_ids)
     history_by_site = await get_site_level_series(
         db=db,
         site_ids=unique_site_ids,
@@ -220,6 +229,8 @@ async def project_sites(
                 as_of=generated_at,
                 history=history_by_site.get(site_id, []),
                 current_level=current_levels[site_id],
+                current_volume_m3=current_volumes[site_id],
+                current_volume_loaded=True,
                 site_features=features_by_site.get(site_id, {}),
                 forecast_result=batch_results[site_id],
             )
@@ -303,6 +314,38 @@ async def _get_current_site_levels(
     )
     result = await db.execute(stmt)
     return {int(row.id): float(row.current_level) for row in result.all()}
+
+
+async def _get_current_site_volumes(
+    db: AsyncSession, site_ids: list[int]
+) -> dict[int, float | None]:
+    result = await db.execute(
+        select(Container.site_id, Container.current_level, ContainerType.volume_m3)
+        .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
+        .where(Container.site_id.in_(site_ids), Container.deleted_at.is_(None))
+    )
+    volumes: dict[int, float | None] = {site_id: None for site_id in site_ids}
+    invalid_sites: set[int] = set()
+    for row in result.all():
+        site_id = int(row.site_id)
+        capacity = row.volume_m3
+        if capacity is None or capacity <= 0:
+            invalid_sites.add(site_id)
+            volumes[site_id] = None
+            continue
+        if site_id in invalid_sites:
+            continue
+        if volumes[site_id] is None:
+            volumes[site_id] = 0.0
+        volumes[site_id] += (
+            min(max(float(row.current_level), 0.0), 100.0)
+            * float(capacity)
+            / 100
+        )
+    return {
+        site_id: round(volume, 3) if volume is not None else None
+        for site_id, volume in volumes.items()
+    }
 
 
 def _build_run_summary(projections: list[SiteProjectionResponse]) -> dict:

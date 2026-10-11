@@ -74,6 +74,11 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         return {1: 0.0, 2: 20.0}
 
     monkeypatch.setattr(service, "_get_current_site_levels", fake_current_levels)
+    async def fake_volumes(_db, site_ids):
+        assert site_ids == [1, 2]
+        return {1: 0.0, 2: 1.2}
+
+    monkeypatch.setattr(service, "_get_current_site_volumes", fake_volumes)
     feature_calls = []
 
     async def fake_features(_db, site_ids):
@@ -118,6 +123,7 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert history_calls[0]["end_time"] == as_of
     assert level_calls == [([1, 2], "avg")]
     assert [call["current_level"] for call in calls] == [0.0, 20.0]
+    assert [call["current_volume_m3"] for call in calls] == [0.0, 1.2]
     assert feature_calls == [[1, 2]]
     assert [call["site_features"] for call in calls] == [
         {"demand.density_factor": 1.2},
@@ -146,6 +152,10 @@ async def test_explicit_as_of_skips_simulation_clock(monkeypatch):
 
     monkeypatch.setattr(service, "_projection_clock", fail_if_called)
     monkeypatch.setattr(service, "_get_current_site_level", current_level)
+    async def volume(_db, _site_ids):
+        return {1: 1.5}
+
+    monkeypatch.setattr(service, "_get_current_site_volumes", volume)
     monkeypatch.setattr(service, "get_site_level_series", history)
     monkeypatch.setattr(service, "_get_site_features", features)
     as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
@@ -178,6 +188,10 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
         return {}
 
     monkeypatch.setattr(service, "_get_current_site_levels", current_levels)
+    async def volumes(_db, _site_ids):
+        return {1: 0.6, 2: 1.2}
+
+    monkeypatch.setattr(service, "_get_current_site_volumes", volumes)
     monkeypatch.setattr(service, "get_site_level_series", no_history)
     monkeypatch.setattr(service, "_get_sites_features", no_features)
 
@@ -192,3 +206,24 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
 
     assert result.model_key == "baseline_operational"
     assert [site.points[0].predicted_level for site in result.sites] == [21, 41]
+    assert [site.current_volume_m3 for site in result.sites] == [0.6, 1.2]
+
+
+@pytest.mark.asyncio
+async def test_current_volume_uses_each_container_capacity_and_requires_complete_data():
+    rows = [
+        SimpleNamespace(site_id=1, current_level=20, volume_m3=3.0),
+        SimpleNamespace(site_id=1, current_level=80, volume_m3=2.0),
+        SimpleNamespace(site_id=2, current_level=30, volume_m3=None),
+        SimpleNamespace(site_id=2, current_level=50, volume_m3=3.0),
+    ]
+
+    class FakeDB:
+        async def execute(self, _statement):
+            return SimpleNamespace(all=lambda: rows)
+
+    assert await service._get_current_site_volumes(FakeDB(), [1, 2, 3]) == {
+        1: 2.2,
+        2: None,
+        3: None,
+    }

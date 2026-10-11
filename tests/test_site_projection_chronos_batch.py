@@ -55,6 +55,10 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
             )
 
     monkeypatch.setattr(service, "_get_current_site_levels", current_levels)
+    async def volumes(_db, site_ids):
+        return {site_id: None for site_id in site_ids}
+
+    monkeypatch.setattr(service, "_get_current_site_volumes", volumes)
     monkeypatch.setattr(service, "get_site_level_series", site_history)
     monkeypatch.setattr(service, "_get_sites_features", site_features)
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", lambda: FakePipeline())

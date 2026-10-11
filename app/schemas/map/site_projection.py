@@ -55,6 +55,7 @@ class SiteProjectionResponse(BaseModel):
     model_key: str
     generated_at: datetime
     current_level: float
+    current_volume_m3: float | None = None
     horizon_hours: int
     interval_minutes: int
     critical_level: int
