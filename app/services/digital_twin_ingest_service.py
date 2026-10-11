@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 import time
 
-from sqlalchemy import func, select, insert, update
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -140,6 +140,21 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
             "Aviso: El reset SQL de contenedores tuvo un problema (%s).",
             e,
         )
+
+
+async def clear_level_readings(db: AsyncSession) -> None:
+    """Borra todas las lecturas de nivel (tabla data_level).
+
+    Se usa al iniciar una simulación nueva: las lecturas de corridas anteriores no
+    se reutilizan, y mezclarlas rompería el reloj de referencia (última lectura)
+    y las series históricas por sitio.
+    """
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await db.execute(text("TRUNCATE TABLE data_level"))
+    else:
+        await db.execute(delete(DataLevel))
+    logger.info("Lecturas de nivel borradas para iniciar una simulación nueva.")
 
 
 async def ingest_telemetry_batch(
