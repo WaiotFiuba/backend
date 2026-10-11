@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Literal
@@ -34,6 +35,12 @@ from app.services.site_projection.models import (
 LevelAggregation = Literal["avg", "max"]
 
 
+@dataclass(frozen=True)
+class SiteVolumeSnapshot:
+    current_volume_m3: float | None = None
+    capacity_m3: float | None = None
+
+
 async def project_site_level(
     db: AsyncSession,
     site_id: int | str,
@@ -47,8 +54,7 @@ async def project_site_level(
     as_of: datetime | None = None,
     history: list[SiteLevelBucket] | None = None,
     current_level: float | None = None,
-    current_volume_m3: float | None = None,
-    current_volume_loaded: bool = False,
+    volume_snapshot: SiteVolumeSnapshot | None = None,
     site_features: dict[str, float | str] | None = None,
     forecast_result: ForecastResult | None = None,
 ) -> SiteProjectionResponse:
@@ -59,8 +65,8 @@ async def project_site_level(
             site_id=numeric_site_id,
             level_aggregation=level_aggregation,
         )
-    if not current_volume_loaded:
-        current_volume_m3 = (await _get_current_site_volumes(db, [numeric_site_id]))[
+    if volume_snapshot is None:
+        volume_snapshot = (await _get_current_site_volumes(db, [numeric_site_id]))[
             numeric_site_id
         ]
     generated_at = _as_utc(as_of) if as_of is not None else await _projection_clock(db)
@@ -124,7 +130,8 @@ async def project_site_level(
         model_key=forecast_result.model_key,
         generated_at=forecast_result.generated_at,
         current_level=current_level,
-        current_volume_m3=current_volume_m3,
+        current_volume_m3=volume_snapshot.current_volume_m3,
+        capacity_m3=volume_snapshot.capacity_m3,
         horizon_hours=horizon_hours,
         interval_minutes=interval_minutes,
         critical_level=critical_level,
@@ -229,8 +236,7 @@ async def project_sites(
                 as_of=generated_at,
                 history=history_by_site.get(site_id, []),
                 current_level=current_levels[site_id],
-                current_volume_m3=current_volumes[site_id],
-                current_volume_loaded=True,
+                volume_snapshot=current_volumes[site_id],
                 site_features=features_by_site.get(site_id, {}),
                 forecast_result=batch_results[site_id],
             )
@@ -318,33 +324,37 @@ async def _get_current_site_levels(
 
 async def _get_current_site_volumes(
     db: AsyncSession, site_ids: list[int]
-) -> dict[int, float | None]:
+) -> dict[int, SiteVolumeSnapshot]:
     result = await db.execute(
         select(Container.site_id, Container.current_level, ContainerType.volume_m3)
         .outerjoin(ContainerType, Container.container_type_id == ContainerType.id)
         .where(Container.site_id.in_(site_ids), Container.deleted_at.is_(None))
     )
-    volumes: dict[int, float | None] = {site_id: None for site_id in site_ids}
+    volumes: dict[int, float] = {}
+    capacities: dict[int, float] = {}
     invalid_sites: set[int] = set()
     for row in result.all():
         site_id = int(row.site_id)
         capacity = row.volume_m3
         if capacity is None or capacity <= 0:
             invalid_sites.add(site_id)
-            volumes[site_id] = None
             continue
         if site_id in invalid_sites:
             continue
-        if volumes[site_id] is None:
-            volumes[site_id] = 0.0
-        volumes[site_id] += (
+        capacities[site_id] = capacities.get(site_id, 0.0) + float(capacity)
+        volumes[site_id] = volumes.get(site_id, 0.0) + (
             min(max(float(row.current_level), 0.0), 100.0)
             * float(capacity)
             / 100
         )
     return {
-        site_id: round(volume, 3) if volume is not None else None
-        for site_id, volume in volumes.items()
+        site_id: SiteVolumeSnapshot(
+            current_volume_m3=round(volumes[site_id], 3),
+            capacity_m3=round(capacities[site_id], 3),
+        )
+        if site_id in volumes and site_id not in invalid_sites
+        else SiteVolumeSnapshot()
+        for site_id in site_ids
     }
 
 
