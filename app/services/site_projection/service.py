@@ -20,6 +20,7 @@ from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
 )
+from app.services.map.reference_time_service import get_reference_time
 from app.services.simulation_session_service import get_active_simulation_session
 from app.services.site_projection.history import get_site_level_series
 from app.services.site_projection.models import (
@@ -532,7 +533,7 @@ async def _projection_clock(db: AsyncSession) -> datetime:
     active_session = await get_active_simulation_session(db)
     if active_session and active_session.simulated_time:
         return _as_utc(active_session.simulated_time)
-    return datetime.now(UTC)
+    return await get_reference_time(db)
 
 
 def _first_timestamp_at_or_above(

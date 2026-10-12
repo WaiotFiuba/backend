@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from app.models.map.data_level import DataLevel
 from app.models.map.optimization import RedistributionPlan as RedistributionPlanModel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
+from app.services.map.reference_time_service import get_reference_time
 from app.services.map.site_capacity_service import get_site_capacity_service
 from app.schemas.map.optimization import (
     OptimizationConfig,
@@ -86,7 +87,7 @@ async def compute_site_utilization_metrics(
     de data_level.
     """
     # Determinar ventana temporal
-    window_end = datetime.now(UTC)
+    window_end = await get_reference_time(db)
     window_start: datetime | None = None
     if config.window_days is not None:
         window_start = window_end - timedelta(days=config.window_days)

@@ -163,8 +163,10 @@ async def generate_containers(
     #     await db.commit()
 
     from app.core.map_migrations import seed_map_data
+    from app.services.digital_twin_ingest_service import invalidate_container_cache
 
     await seed_map_data()
+    invalidate_container_cache()
     return {"message": "Contenedores generados exitosamente"}
 
 

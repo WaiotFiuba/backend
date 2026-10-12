@@ -226,6 +226,22 @@ async def test_explicit_as_of_skips_simulation_clock(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_projection_clock_prefers_active_simulation_time(monkeypatch):
+    simulated_time = datetime(2026, 10, 10, 12, tzinfo=UTC)
+
+    async def active_session(_db):
+        return SimpleNamespace(simulated_time=simulated_time)
+
+    async def reference_time(_db):
+        raise AssertionError("readings clock used during active simulation")
+
+    monkeypatch.setattr(service, "get_active_simulation_session", active_session)
+    monkeypatch.setattr(service, "get_reference_time", reference_time)
+
+    assert await service._projection_clock(object()) == simulated_time
+
+
+@pytest.mark.asyncio
 async def test_batch_rejects_target_before_reference():
     as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
     with pytest.raises(HTTPException) as exc:
