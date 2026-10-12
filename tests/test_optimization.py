@@ -319,6 +319,34 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             # Sitio C (normal): score medio
             self.assertIn(3, by_id)
 
+    async def test_metrics_exclude_soft_deleted_containers(self):
+        from app.services.map.optimization_service import (
+            compute_site_utilization_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            session.add(
+                Container(
+                    id=99,
+                    site_id=1,
+                    latitude=-34.5800,
+                    longitude=-58.4100,
+                    current_level=100,
+                    container_type_id=1,
+                    deleted_at=datetime(2026, 9, 1, tzinfo=UTC),
+                    geom=WKTElement("POINT(-58.4100 -34.5800)", srid=4326),
+                )
+            )
+            await session.commit()
+
+            result = await compute_site_utilization_metrics(
+                session, OptimizationConfig()
+            )
+
+            site_a = next(s for s in result.sites if s.site_id == 1)
+            self.assertEqual(site_a.container_count, 2)  # sin el dado de baja
+
     async def test_metrics_window_is_relative_to_the_latest_reading(self):
         """La ventana se mide desde la última lectura, no desde el reloj del servidor."""
         from app.services.map.optimization_service import (

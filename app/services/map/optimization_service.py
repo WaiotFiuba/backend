@@ -161,7 +161,12 @@ async def compute_site_utilization_metrics(
                 func.round(cast(func.avg(Container.current_level), Numeric)), 0
             ).label("current_avg_level"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        # El filtro va en el ON para que los sitios sin contenedores activos
+        # sigan apareciendo (con 0 contenedores).
+        .outerjoin(
+            Container,
+            (Container.site_id == Site.id) & Container.deleted_at.is_(None),
+        )
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name)
