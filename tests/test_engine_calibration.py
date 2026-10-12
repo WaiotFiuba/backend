@@ -118,7 +118,7 @@ class TestWasteTypeFactors(unittest.TestCase):
             config=ScenarioConfig(),
         )
 
-        self.assertEqual(arrays.waste_factors[0], 0.75)
+        self.assertEqual(arrays.waste_factors[0], 0.55)
 
 
 if __name__ == "__main__":

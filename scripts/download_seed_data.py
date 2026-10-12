@@ -70,10 +70,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tag",
         default=None,
-        help=(
-            "Tag del release de WaiotFiuba/backend. "
-            "Ejemplo: --tag seed-data-v1."
-        ),
+        help=("Tag del release de WaiotFiuba/backend. Ejemplo: --tag seed-data-v1."),
     )
     parser.add_argument(
         "--force",

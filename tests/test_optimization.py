@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import event, select
@@ -304,6 +304,28 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
 
             # Sitio C (normal): score medio
             self.assertIn(3, by_id)
+
+    async def test_metrics_window_is_relative_to_the_latest_reading(self):
+        """La ventana se mide desde la última lectura, no desde el reloj del servidor."""
+        from app.services.map.optimization_service import (
+            compute_site_utilization_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)  # lecturas del 2026-09-01 10:00 UTC
+
+            result = await compute_site_utilization_metrics(
+                session, OptimizationConfig(window_days=7)
+            )
+
+            latest = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+            self.assertEqual(result.window_end.replace(tzinfo=UTC), latest)
+            self.assertEqual(
+                result.window_start.replace(tzinfo=UTC), latest - timedelta(days=7)
+            )
+            # Las lecturas del sitio B (90% y 95%) entran en la ventana.
+            by_id = {s.site_id: s for s in result.sites}
+            self.assertEqual(by_id[2].peak_fill_rate, 1.0)
 
     async def test_generate_plan_greedy_moves_from_low_to_high(self):
         """Verifica que el plan greedy mueve contenedores de sitios de bajo uso a saturados."""
@@ -767,6 +789,47 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
             whatif_svc._active_plan_id = None
             whatif_svc._optimized_mapping.clear()
             whatif_svc._virtual_levels.clear()
+
+    def test_build_redistribution_move_metrics(self):
+        """Verifica que cada movimiento calcule la descongestión neta y los niveles antes/después."""
+        from app.schemas.map.optimization import SiteUtilizationMetric
+        from app.services.map.optimization_service import _build_redistribution_move
+
+        donor = SiteUtilizationMetric(
+            site_id=1,
+            site_name="Sitio Donante",
+            latitude=-34.6,
+            longitude=-58.4,
+            container_count=2,
+            avg_fill_level=20.0,
+            peak_fill_rate=0.0,
+            overflow_frequency=0,
+            utilization_score=0.2,
+            category="low",
+        )
+        receiver = SiteUtilizationMetric(
+            site_id=2,
+            site_name="Sitio Receptor",
+            latitude=-34.61,
+            longitude=-58.41,
+            container_count=1,
+            avg_fill_level=90.0,
+            peak_fill_rate=0.8,
+            overflow_frequency=3,
+            utilization_score=0.9,
+            category="critical",
+        )
+
+        move = _build_redistribution_move(
+            container_id=10, donor=donor, receiver=receiver, dist=1.2
+        )
+
+        self.assertEqual(move.container_id, 10)
+        self.assertEqual(move.donor_fill_before, 20.0)
+        self.assertEqual(move.donor_fill_after, 40.0)
+        self.assertEqual(move.receiver_fill_before, 90.0)
+        self.assertEqual(move.receiver_fill_after, 45.0)
+        self.assertEqual(move.net_decongestion_pct, -25.0)
 
 
 if __name__ == "__main__":

@@ -585,6 +585,70 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.execute.await_count, 4)
         db.commit.assert_awaited_once()
 
+    def _reset_cache(self):
+        import app.services.digital_twin_ingest_service as ingest_svc
+
+        ingest_svc._cache_loaded = False
+        ingest_svc._cache_by_id.clear()
+        ingest_svc._cache_by_imei.clear()
+        return ingest_svc
+
+    async def test_container_cache_is_loaded_once_until_invalidated(self) -> None:
+        ingest_svc = self._reset_cache()
+        db = MagicMock()
+        db.execute = AsyncMock()
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = empty_result
+
+        await ingest_svc.ensure_cache(db)
+        await ingest_svc.ensure_cache(db)
+        self.assertEqual(db.execute.await_count, 1)
+        # Solo se cachean contenedores activos.
+        self.assertIn("deleted_at IS NULL", str(db.execute.await_args.args[0]))
+
+        ingest_svc.invalidate_container_cache()
+        await ingest_svc.ensure_cache(db)
+        self.assertEqual(db.execute.await_count, 2)
+
+    async def _ingest_unknown_container(self, cache_age_seconds: float):
+        import time
+
+        ingest_svc = self._reset_cache()
+        ingest_svc._cache_loaded = True
+        ingest_svc._cache_loaded_at = time.monotonic() - cache_age_seconds
+        db = MagicMock()
+        db.execute = AsyncMock()
+        db.commit = AsyncMock()
+        payload = TelemetryIngestPayload(
+            device_id="imei-desconocido",
+            container_id="999",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            telemetry=TelemetryValues(
+                fill_level_pct=50,
+                ultrasonic_distance_cm=75,
+                battery_pct=90,
+                signal_rssi_dbm=-80,
+                temperature_c=24,
+                acceleration_g=1,
+            ),
+        )
+
+        result = await ingest_telemetry_batch(db, [payload])
+
+        self.assertEqual(result.not_found, 1)
+        return ingest_svc._cache_loaded
+
+    async def test_unknown_container_reloads_an_old_cache(self) -> None:
+        cache_loaded = await self._ingest_unknown_container(cache_age_seconds=120)
+
+        self.assertFalse(cache_loaded)
+
+    async def test_unknown_container_keeps_a_recent_cache(self) -> None:
+        cache_loaded = await self._ingest_unknown_container(cache_age_seconds=5)
+
+        self.assertTrue(cache_loaded)
+
 
 class _FakeResponse:
     def __init__(self, payload):
