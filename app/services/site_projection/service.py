@@ -193,10 +193,12 @@ async def project_sites(
 
     unique_site_ids = sorted(set(request.site_ids))
     generated_at = as_of if as_of is not None else await _projection_clock(db)
+    skipped_site_ids: list[int] = []
     if as_of is not None:
         snapshots = await _get_site_snapshots_at(
-            db, unique_site_ids, as_of, request.level_aggregation
+            db, unique_site_ids, as_of, request.level_aggregation, skip_incomplete=True
         )
+        skipped_site_ids = sorted(set(unique_site_ids) - snapshots.keys())
         current_levels = {
             site_id: snapshot.level for site_id, snapshot in snapshots.items()
         }
@@ -214,15 +216,18 @@ async def project_sites(
                     detail="Sitio no encontrado.",
                 )
         current_volumes = await _get_current_site_volumes(db, unique_site_ids)
+    eligible_site_ids = [
+        site_id for site_id in unique_site_ids if site_id not in skipped_site_ids
+    ]
     history_by_site = await get_site_level_series(
         db=db,
-        site_ids=unique_site_ids,
+        site_ids=eligible_site_ids,
         interval_minutes=request.interval_minutes,
         level_aggregation=request.level_aggregation,
         lookback_days=request.lookback_days,
         end_time=generated_at,
     )
-    features_by_site = await _get_sites_features(db, unique_site_ids)
+    features_by_site = await _get_sites_features(db, eligible_site_ids)
     forecaster = get_forecaster(request.model_key)
     if forecaster is None:
         raise HTTPException(
@@ -248,9 +253,11 @@ async def project_sites(
                 snapshot_at=generated_at if as_of is not None else None,
             ),
         )
-        for site_id in unique_site_ids
+        for site_id in eligible_site_ids
     ]
-    batch_results = await forecaster.forecast_many(forecast_inputs)
+    batch_results = (
+        await forecaster.forecast_many(forecast_inputs) if forecast_inputs else {}
+    )
     projections = [
         build_site_projection_response(
             forecast_request,
@@ -280,7 +287,7 @@ async def project_sites(
 
     return SiteProjectionBatchResponse(
         model_key=request.model_key,
-        generated_at=projections[0].generated_at,
+        generated_at=generated_at,
         horizon_hours=horizon_hours,
         interval_minutes=request.interval_minutes,
         critical_level=request.critical_level,
@@ -290,6 +297,7 @@ async def project_sites(
         site_count=len(projections),
         summary=_build_run_summary(projections),
         sites=projections,
+        skipped_site_ids=skipped_site_ids,
         target_at=target_at,
     )
 
@@ -381,6 +389,7 @@ async def _get_site_snapshots_at(
     site_ids: list[int],
     as_of: datetime,
     level_aggregation: LevelAggregation,
+    skip_incomplete: bool = False,
 ) -> dict[int, SiteStartingSnapshot]:
     latest_level = (
         select(DataLevel.container_current_level)
@@ -445,7 +454,7 @@ async def _get_site_snapshots_at(
                 capacity_m3=round(capacity, 3),
             )
         snapshots[site_id] = SiteStartingSnapshot(level=level, volume=volume)
-    if incomplete_sites:
+    if incomplete_sites and not skip_incomplete:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Sitios sin lecturas completas anteriores a as_of: {sorted(incomplete_sites)}",

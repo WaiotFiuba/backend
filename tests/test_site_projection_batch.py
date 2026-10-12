@@ -87,7 +87,10 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     monkeypatch.setattr(service, "get_site_level_series", fake_history)
     snapshot_calls = []
 
-    async def fake_snapshots(_db, site_ids, snapshot_at, level_aggregation):
+    async def fake_snapshots(
+        _db, site_ids, snapshot_at, level_aggregation, skip_incomplete=False
+    ):
+        assert skip_incomplete is True
         snapshot_calls.append((site_ids, snapshot_at, level_aggregation))
         assert site_ids == [1, 2]
         return {
@@ -158,6 +161,41 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert all(call["forecast_result"] is not None for call in calls)
     assert all(call["stop_at_full"] is False for call in calls)
     assert result.target_at == target_at
+    assert result.skipped_site_ids == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("complete_site_ids", [[1], []])
+async def test_batch_skips_incomplete_snapshots(monkeypatch, complete_site_ids):
+    as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
+
+    async def snapshots(_db, _site_ids, _as_of, _aggregation, skip_incomplete=False):
+        assert skip_incomplete is True
+        return {
+            site_id: service.SiteStartingSnapshot(20, service.SiteVolumeSnapshot())
+            for site_id in complete_site_ids
+        }
+
+    async def history(**kwargs):
+        assert kwargs["site_ids"] == complete_site_ids
+        return {}
+
+    async def features(_db, site_ids):
+        assert site_ids == complete_site_ids
+        return {}
+
+    monkeypatch.setattr(service, "_get_site_snapshots_at", snapshots)
+    monkeypatch.setattr(service, "get_site_level_series", history)
+    monkeypatch.setattr(service, "_get_sites_features", features)
+
+    result = await service.project_sites(
+        object(), SiteProjectionBatchRequest(site_ids=[1, 2], as_of=as_of)
+    )
+
+    assert [site.site_id for site in result.sites] == complete_site_ids
+    assert result.skipped_site_ids == sorted({1, 2} - set(complete_site_ids))
+    assert result.site_count == len(complete_site_ids)
+    assert result.generated_at == as_of
 
 
 @pytest.mark.asyncio
@@ -484,5 +522,10 @@ async def test_explicit_as_of_reconstructs_levels_and_volume_from_past_readings(
                 await service._get_site_snapshots_at(db, [1, 2], as_of, "avg")
             assert exc.value.status_code == 422
             assert "2" in exc.value.detail
+
+            partial = await service._get_site_snapshots_at(
+                db, [1, 2], as_of, "avg", skip_incomplete=True
+            )
+            assert list(partial) == [1]
     finally:
         await engine.dispose()

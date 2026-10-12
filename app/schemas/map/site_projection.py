@@ -89,6 +89,10 @@ class SiteProjectionBatchResponse(BaseModel):
     site_count: int
     summary: dict | None = None
     sites: list[SiteProjectionResponse] = Field(default_factory=list)
+    skipped_site_ids: list[int] = Field(
+        default_factory=list,
+        description="Sitios omitidos por no tener lecturas completas hasta as_of.",
+    )
     target_at: datetime | None = None
 
 

@@ -73,7 +73,8 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
         for site_id, levels in {1: [10, 20, 30, 40], 2: [20, 30, 40, 50]}.items()
     }
 
-    async def snapshots(_db, site_ids, _as_of, _aggregation):
+    async def snapshots(_db, site_ids, _as_of, _aggregation, skip_incomplete=False):
+        assert skip_incomplete is True
         return {
             site_id: service.SiteStartingSnapshot(
                 level={1: 40.0, 2: 50.0, 3: 0.0}[site_id],
