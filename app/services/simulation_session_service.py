@@ -26,7 +26,10 @@ from app.schemas.digital_twin import (
     SimulationZoneState,
     ZoneDemandRead,
 )
-from app.services.digital_twin_ingest_service import reset_database_container_levels
+from app.services.digital_twin_ingest_service import (
+    clear_level_readings,
+    reset_database_container_levels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,7 @@ async def create_simulation(
         await db.flush()
 
     await reset_database_container_levels(db)
+    await clear_level_readings(db)
 
     scenario_data = dict(payload.scenario)
     if payload.start_time is not None:

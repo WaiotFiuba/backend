@@ -5,12 +5,13 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
-from sqlalchemy import BigInteger
+from sqlalchemy import BigInteger, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
 import app.services.simulation_session_service as svc
 from app.core.map_database import MapBase
+from app.models.map.data_level import DataLevel
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.schemas.digital_twin import SimulationCreate
 from simulator.simulation.scenario import (
@@ -60,6 +61,7 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                     tables=[
                         SimulationSession.__table__,
                         SimulationZoneOverride.__table__,
+                        DataLevel.__table__,
                     ],
                 )
             )
@@ -103,6 +105,28 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("seed", created.scenario)
         self.assertEqual(created.total_periods, 0)
+
+    async def test_new_simulation_clears_previous_readings(self):
+        async with self.session_maker() as db:
+            db.add(
+                DataLevel(
+                    id=1,
+                    reading_date=datetime(2026, 1, 1, 10, 0),
+                    container_current_level=50,
+                    fire_alarm=False,
+                    freeze_alarm=False,
+                    crash_alarm=False,
+                    garbage_collection_alarm=False,
+                    reported_low_consumption_voltage=False,
+                    reported_high_consumption_voltage=False,
+                )
+            )
+            await db.commit()
+
+        await self._create({"start": "2026-10-06T06:00:00"})
+
+        async with self.session_maker() as db:
+            self.assertEqual(await db.scalar(select(func.count(DataLevel.id))), 0)
 
     async def test_start_time_overrides_scenario_start(self):
         created = await self._create(
