@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,10 +11,14 @@ class OptimizationConfig(BaseModel):
 
     window_days: int | None = Field(
         None,
+        ge=1,
+        le=365,
         description="Días de historial a analizar. None = usar todo el disponible.",
     )
     max_distance_km: float = Field(
         2.0,
+        gt=0,
+        le=20,
         description="Distancia máxima en km para mover un contenedor entre sitios.",
     )
     min_utilization_donor: float = Field(
@@ -28,7 +33,7 @@ class OptimizationConfig(BaseModel):
         0.50,
         description="Nivel de utilización objetivo para todos los sitios.",
     )
-    algorithm: str = Field(
+    algorithm: Literal["lp", "greedy"] = Field(
         "greedy",
         description="Algoritmo de optimización: 'lp' (programación lineal) o 'greedy'.",
     )

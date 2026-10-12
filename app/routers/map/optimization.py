@@ -37,7 +37,10 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 async def get_optimization_metrics(
     db: MapDbDep,
     window_days: int | None = Query(
-        None, description="Días de historial a analizar. None = todo disponible."
+        None,
+        ge=1,
+        le=365,
+        description="Días de historial a analizar. None = todo disponible.",
     ),
 ) -> OptimizationMetricsResponse:
     config = OptimizationConfig(window_days=window_days)

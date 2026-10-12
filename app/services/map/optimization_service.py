@@ -865,7 +865,9 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
     return RedistributionPlanRead(
         id=plan.id,
         status=plan.status,
-        config=OptimizationConfig(**plan.config),
+        # model_construct: un plan guardado con otra versión del esquema se sigue
+        # pudiendo leer aunque su config ya no pase la validación actual.
+        config=OptimizationConfig.model_construct(**plan.config),
         moves=[RedistributionMove(**m) for m in moves_data],
         total_containers_moved=summary.get("total_containers_moved", 0),
         sites_emptied=summary.get("sites_emptied", 0),

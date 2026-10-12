@@ -93,6 +93,20 @@ class TestOptimizationConfig(unittest.TestCase):
         self.assertEqual(config.max_distance_km, 5.0)
         self.assertEqual(config.algorithm, "lp")
 
+    def test_invalid_values_are_rejected(self):
+        from pydantic import ValidationError
+
+        invalid = [
+            {"window_days": 0},
+            {"window_days": -7},
+            {"max_distance_km": 0},
+            {"max_distance_km": 50},
+            {"algorithm": "simulated_annealing"},
+        ]
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(ValidationError):
+                OptimizationConfig(**values)
+
 
 # ---------------------------------------------------------------------------
 # Tests de integración con DB in-memory (SQLite)
@@ -758,6 +772,16 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("id", data)
                 self.assertEqual(data["status"], "active_whatif")
                 self.assertIn("moves", data)
+
+                # Configuraciones inválidas: 422, no un 500 ni un plan absurdo.
+                res_bad_plan = await client.post(
+                    "/map/optimization/plan", json={"algorithm": "quantum"}
+                )
+                self.assertEqual(res_bad_plan.status_code, 422)
+                res_bad_metrics = await client.get(
+                    "/map/optimization/metrics", params={"window_days": 0}
+                )
+                self.assertEqual(res_bad_metrics.status_code, 422)
                 self.assertIn("original_mean_fill", data)
                 self.assertIn("original_std_fill", data)
                 self.assertIn("optimized_mean_fill", data)
