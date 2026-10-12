@@ -61,11 +61,9 @@ class BaselineOperationalForecaster:
         increment_profile = _build_increment_profile(history)
         confidence, reason = _confidence(history, increment_profile.global_increments)
 
-        # Si tengo historico, parto del ultimo nivel observado. Si no, uso el
-        # nivel actual que venga del estado operativo del sitio.
+        # El historico define los incrementos, pero la proyeccion parte del
+        # nivel actual del sitio (o de la instantanea solicitada).
         current_level = _clamp_level(context.current_level)
-        if history:
-            current_level = _clamp_level(history[-1].level)
 
         # Las features territoriales solo corrigen el fallback. Si el sitio ya
         # tiene suficiente historico propio, prefiero creerle a su serie real.
