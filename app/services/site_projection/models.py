@@ -36,6 +36,7 @@ class ForecastContext:
     history: list[SiteLevelBucket]
     site_features: dict[str, float | str]
     generated_at: datetime | None = None
+    snapshot_at: datetime | None = None
 
 
 @dataclass(frozen=True)

@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
+from app.services.site_projection.history import SiteLevelBucket, floor_to_interval
 from app.services.site_projection.models import (
     ForecastContext,
     ForecastModelInfo,
@@ -57,6 +59,32 @@ def _get_chronos_pipeline() -> Any:
     return _pipeline_instance
 
 
+def _history_with_snapshot(
+    context: ForecastContext, site_id: int, interval_minutes: int
+) -> list[SiteLevelBucket]:
+    history = sorted(context.history, key=lambda bucket: bucket.timestamp)
+    if context.snapshot_at is None:
+        return history
+
+    bucket_time = floor_to_interval(context.snapshot_at, interval_minutes)
+    if history and history[-1].timestamp == bucket_time:
+        return [*history[:-1], replace(history[-1], level=context.current_level)]
+    return [
+        *history,
+        SiteLevelBucket(
+            site_id=site_id,
+            timestamp=bucket_time,
+            level=context.current_level,
+            avg_level=context.current_level,
+            max_level=context.current_level,
+            min_level=context.current_level,
+            measurement_count=0,
+            container_count=0,
+            has_collection_signal=False,
+        ),
+    ]
+
+
 class Chronos2SmallForecaster:
     """Forecaster zero-shot basado en Amazon Chronos-2 Small."""
 
@@ -68,7 +96,9 @@ class Chronos2SmallForecaster:
         context: ForecastContext,
     ) -> ForecastResult:
         generated_at = _as_utc(context.generated_at or datetime.now(UTC))
-        history = sorted(context.history, key=lambda bucket: bucket.timestamp)
+        history = _history_with_snapshot(
+            context, request.site_id, request.interval_minutes
+        )
         steps = max(1, int(request.horizon_hours * 60 / request.interval_minutes))
         next_timestamp = _ceil_to_next_interval(generated_at, request.interval_minutes)
 
@@ -191,7 +221,9 @@ class Chronos2SmallForecaster:
             next_timestamp = _ceil_to_next_interval(
                 generated_at, request.interval_minutes
             )
-            history = sorted(context.history, key=lambda bucket: bucket.timestamp)
+            history = _history_with_snapshot(
+                context, request.site_id, request.interval_minutes
+            )
             if len(history) < 4:
                 results[request.site_id] = self._fallback_forecast(
                     request,
@@ -297,9 +329,10 @@ class Chronos2SmallForecaster:
         next_timestamp: datetime,
         reason: str,
     ) -> ForecastResult:
-        current = _clamp_level(
-            context.current_level if not context.history else context.history[-1].level
+        history = _history_with_snapshot(
+            context, request.site_id, request.interval_minutes
         )
+        current = _clamp_level(history[-1].level if history else context.current_level)
         points: list[ForecastPoint] = []
 
         for step in range(steps):

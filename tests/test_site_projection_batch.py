@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import Column, DateTime, Float, Integer, MetaData, Table
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.routers.map.site_projections import router
 from app.schemas.map.site_projection import (
@@ -10,8 +12,14 @@ from app.schemas.map.site_projection import (
     SiteProjectionPoint,
     SiteProjectionResponse,
 )
-from app.services.site_projection import service
-from app.services.site_projection.models import ForecastPoint, ForecastResult
+from app.services.site_projection import chronos, service
+from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import (
+    ForecastContext,
+    ForecastPoint,
+    ForecastRequest,
+    ForecastResult,
+)
 
 
 def test_projection_routes_keep_batch_and_evaluations_without_run_lookup():
@@ -30,15 +38,25 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     target_at = as_of + timedelta(hours=2)
     calls = []
 
-    async def fake_project_site_level(**kwargs):
-        calls.append(kwargs)
-        site_id = kwargs["site_id"]
+    def fake_build_response(
+        request, context, volume_snapshot, forecast_result, **kwargs
+    ):
+        calls.append(
+            {
+                "request": request,
+                "context": context,
+                "volume_snapshot": volume_snapshot,
+                "forecast_result": forecast_result,
+                **kwargs,
+            }
+        )
+        site_id = request.site_id
         return SiteProjectionResponse(
             site_id=site_id,
             model_key="baseline_operational",
             generated_at=as_of,
             current_level=20,
-            horizon_hours=kwargs["horizon_hours"],
+            horizon_hours=request.horizon_hours,
             interval_minutes=60,
             critical_level=80,
             level_aggregation="avg",
@@ -59,7 +77,7 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
             ],
         )
 
-    monkeypatch.setattr(service, "project_site_level", fake_project_site_level)
+    monkeypatch.setattr(service, "build_site_projection_response", fake_build_response)
     history_calls = []
 
     async def fake_history(**kwargs):
@@ -67,21 +85,22 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
         return {1: ["site-1-history"], 2: ["site-2-history"]}
 
     monkeypatch.setattr(service, "get_site_level_series", fake_history)
-    level_calls = []
+    snapshot_calls = []
 
-    async def fake_current_levels(_db, site_ids, level_aggregation):
-        level_calls.append((site_ids, level_aggregation))
-        return {1: 0.0, 2: 20.0}
-
-    monkeypatch.setattr(service, "_get_current_site_levels", fake_current_levels)
-    async def fake_volumes(_db, site_ids):
+    async def fake_snapshots(_db, site_ids, snapshot_at, level_aggregation):
+        snapshot_calls.append((site_ids, snapshot_at, level_aggregation))
         assert site_ids == [1, 2]
         return {
-            1: service.SiteVolumeSnapshot(0.0, 3.0),
-            2: service.SiteVolumeSnapshot(1.2, 6.0),
+            1: service.SiteStartingSnapshot(0.0, service.SiteVolumeSnapshot(0.0, 3.0)),
+            2: service.SiteStartingSnapshot(20.0, service.SiteVolumeSnapshot(1.2, 6.0)),
         }
 
-    monkeypatch.setattr(service, "_get_current_site_volumes", fake_volumes)
+    monkeypatch.setattr(service, "_get_site_snapshots_at", fake_snapshots)
+
+    async def no_live_levels(*_args):
+        raise AssertionError("read live levels for explicit as_of")
+
+    monkeypatch.setattr(service, "_get_current_site_levels", no_live_levels)
     feature_calls = []
 
     async def fake_features(_db, site_ids):
@@ -116,20 +135,21 @@ async def test_batch_uses_explicit_time_without_writing(monkeypatch):
     assert [site.site_id for site in result.sites] == [1, 2]
     assert [site.target_point.predicted_level for site in result.sites] == [51, 52]
     assert all(site.target_point.timestamp.hour == 15 for site in result.sites)
-    assert all(call["as_of"] == as_of and call["db"] is db for call in calls)
-    assert [call["history"] for call in calls] == [
+    assert all(call["context"].generated_at == as_of for call in calls)
+    assert [call["context"].history for call in calls] == [
         ["site-1-history"],
         ["site-2-history"],
     ]
     assert len(history_calls) == 1
     assert history_calls[0]["site_ids"] == [1, 2]
     assert history_calls[0]["end_time"] == as_of
-    assert level_calls == [([1, 2], "avg")]
-    assert [call["current_level"] for call in calls] == [0.0, 20.0]
+    assert snapshot_calls == [([1, 2], as_of, "avg")]
+    assert [call["context"].current_level for call in calls] == [0.0, 20.0]
+    assert all(call["context"].snapshot_at == as_of for call in calls)
     assert [call["volume_snapshot"].current_volume_m3 for call in calls] == [0.0, 1.2]
     assert [call["volume_snapshot"].capacity_m3 for call in calls] == [3.0, 6.0]
     assert feature_calls == [[1, 2]]
-    assert [call["site_features"] for call in calls] == [
+    assert [call["context"].site_features for call in calls] == [
         {"demand.density_factor": 1.2},
         {},
     ]
@@ -145,8 +165,10 @@ async def test_explicit_as_of_skips_simulation_clock(monkeypatch):
     async def fail_if_called(_db):
         raise AssertionError("simulation clock was used")
 
-    async def current_level(_db, **_kwargs):
-        return 20.0
+    async def snapshot(_db, _site_ids, _as_of, _aggregation):
+        return {
+            1: service.SiteStartingSnapshot(20.0, service.SiteVolumeSnapshot(1.5, 3.0))
+        }
 
     async def history(**_kwargs):
         return {}
@@ -155,11 +177,7 @@ async def test_explicit_as_of_skips_simulation_clock(monkeypatch):
         return {}
 
     monkeypatch.setattr(service, "_projection_clock", fail_if_called)
-    monkeypatch.setattr(service, "_get_current_site_level", current_level)
-    async def volume(_db, _site_ids):
-        return {1: service.SiteVolumeSnapshot(1.5, 3.0)}
-
-    monkeypatch.setattr(service, "_get_current_site_volumes", volume)
+    monkeypatch.setattr(service, "_get_site_snapshots_at", snapshot)
     monkeypatch.setattr(service, "get_site_level_series", history)
     monkeypatch.setattr(service, "_get_site_features", features)
     as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
@@ -185,6 +203,15 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
     async def current_levels(_db, _site_ids, _aggregation):
         return {1: 20.0, 2: 40.0}
 
+    async def volumes(_db, _site_ids):
+        return {
+            1: service.SiteVolumeSnapshot(0.6, 3.0),
+            2: service.SiteVolumeSnapshot(1.2, 3.0),
+        }
+
+    async def clock(_db):
+        return datetime(2026, 10, 10, 12, tzinfo=UTC)
+
     async def no_history(**_kwargs):
         return {}
 
@@ -192,13 +219,8 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
         return {}
 
     monkeypatch.setattr(service, "_get_current_site_levels", current_levels)
-    async def volumes(_db, _site_ids):
-        return {
-            1: service.SiteVolumeSnapshot(0.6, 3.0),
-            2: service.SiteVolumeSnapshot(1.2, 3.0),
-        }
-
     monkeypatch.setattr(service, "_get_current_site_volumes", volumes)
+    monkeypatch.setattr(service, "_projection_clock", clock)
     monkeypatch.setattr(service, "get_site_level_series", no_history)
     monkeypatch.setattr(service, "_get_sites_features", no_features)
 
@@ -206,7 +228,6 @@ async def test_batch_uses_baseline_forecast_many(monkeypatch):
         object(),
         SiteProjectionBatchRequest(
             site_ids=[1, 2],
-            as_of=datetime(2026, 10, 10, 12, tzinfo=UTC),
             horizon_hours=1,
         ),
     )
@@ -241,18 +262,28 @@ async def test_current_volume_uses_each_container_capacity_and_requires_complete
     }
 
 
-@pytest.mark.asyncio
-async def test_projected_volume_uses_current_volume_and_one_site_forecast():
+def test_projected_volume_uses_current_volume_and_one_site_forecast():
     as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
-    result = await service.project_site_level(
-        object(),
-        site_id=1,
-        as_of=as_of,
-        current_level=50,
-        volume_snapshot=service.SiteVolumeSnapshot(2.2, 5.0),
-        history=[],
-        site_features={},
-        forecast_result=ForecastResult(
+    history = [
+        SiteLevelBucket(
+            site_id=1,
+            timestamp=as_of - timedelta(hours=1),
+            level=20,
+            avg_level=20,
+            max_level=20,
+            min_level=20,
+            measurement_count=1,
+            container_count=1,
+            has_collection_signal=False,
+        )
+    ]
+    result = service.build_site_projection_response(
+        ForecastRequest(site_id=1),
+        ForecastContext(
+            current_level=50, history=history, site_features={}, generated_at=as_of
+        ),
+        service.SiteVolumeSnapshot(2.2, 5.0),
+        ForecastResult(
             site_id=1,
             model_key="baseline_operational",
             generated_at=as_of,
@@ -264,9 +295,194 @@ async def test_projected_volume_uses_current_volume_and_one_site_forecast():
                 )
             ],
         ),
+        stop_at_full=True,
     )
 
+    assert result.points[0].predicted_level == 60
     assert result.points[0].predicted_volume_m3 == 2.7
     assert service._estimate_site_volume(service.SiteVolumeSnapshot(), 50, 60) is None
-    assert service._estimate_site_volume(service.SiteVolumeSnapshot(4.8, 5), 20, 40) == 5
-    assert service._estimate_site_volume(service.SiteVolumeSnapshot(0.2, 5), 80, 20) == 0
+    assert (
+        service._estimate_site_volume(service.SiteVolumeSnapshot(4.8, 5), 20, 40) == 5
+    )
+    assert (
+        service._estimate_site_volume(service.SiteVolumeSnapshot(0.2, 5), 80, 20) == 0
+    )
+
+
+def test_explicit_snapshot_replaces_last_chronos_bucket():
+    as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
+    history = [
+        SiteLevelBucket(
+            site_id=1,
+            timestamp=as_of,
+            level=20,
+            avg_level=20,
+            max_level=20,
+            min_level=20,
+            measurement_count=1,
+            container_count=1,
+            has_collection_signal=False,
+        )
+    ]
+    context = ForecastContext(
+        current_level=50,
+        history=history,
+        site_features={},
+        generated_at=as_of,
+        snapshot_at=as_of,
+    )
+    prepared = chronos._history_with_snapshot(context, 1, 60)
+    assert len(prepared) == 1
+    assert prepared[-1].timestamp == as_of
+    assert prepared[-1].level == 50
+    assert history[-1].level == 20
+
+    result = service.build_site_projection_response(
+        ForecastRequest(site_id=1),
+        context,
+        service.SiteVolumeSnapshot(2.2, 5.0),
+        ForecastResult(
+            site_id=1,
+            model_key="chronos_2_small",
+            generated_at=as_of,
+            points=[
+                ForecastPoint(
+                    timestamp=as_of + timedelta(hours=1),
+                    predicted_level=60,
+                    lower_bound=50,
+                    upper_bound=70,
+                    confidence=0.7,
+                ),
+                ForecastPoint(
+                    timestamp=as_of + timedelta(hours=2),
+                    predicted_level=100,
+                    confidence=0.7,
+                ),
+                ForecastPoint(
+                    timestamp=as_of + timedelta(hours=3),
+                    predicted_level=100,
+                    confidence=0.7,
+                ),
+            ],
+        ),
+        stop_at_full=True,
+    )
+
+    assert result.current_level == 50
+    assert result.points[0].predicted_level == 60
+    assert result.points[0].lower_bound == 50
+    assert result.points[0].upper_bound == 70
+    assert result.points[0].predicted_volume_m3 == 2.7
+    assert len(result.points) == 3
+    assert result.points[-1].predicted_level == 100
+
+
+@pytest.mark.asyncio
+async def test_explicit_as_of_reconstructs_levels_and_volume_from_past_readings():
+    metadata = MetaData()
+    sites = Table(
+        "sites",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("deleted_at", DateTime),
+    )
+    containers = Table(
+        "containers",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("site_id", Integer),
+        Column("container_type_id", Integer),
+        Column("deleted_at", DateTime),
+    )
+    container_types = Table(
+        "container_types",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("volume_m3", Float),
+    )
+    readings = Table(
+        "data_level",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("container_id", Integer),
+        Column("reading_date", DateTime(timezone=True)),
+        Column("container_current_level", Integer),
+    )
+    as_of = datetime(2026, 10, 10, 12, tzinfo=UTC)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+            await conn.execute(sites.insert(), [{"id": 1}, {"id": 2}])
+            await conn.execute(
+                container_types.insert(),
+                [
+                    {"id": 1, "volume_m3": 3.0},
+                    {"id": 2, "volume_m3": 2.0},
+                ],
+            )
+            await conn.execute(
+                containers.insert(),
+                [
+                    {"id": 10, "site_id": 1, "container_type_id": 1},
+                    {"id": 11, "site_id": 1, "container_type_id": 2},
+                    {"id": 12, "site_id": 2, "container_type_id": 1},
+                ],
+            )
+            await conn.execute(
+                readings.insert(),
+                [
+                    {
+                        "id": 5,
+                        "container_id": 10,
+                        "reading_date": as_of - timedelta(hours=2),
+                        "container_current_level": 5,
+                    },
+                    {
+                        "id": 1,
+                        "container_id": 10,
+                        "reading_date": as_of - timedelta(hours=1),
+                        "container_current_level": 20,
+                    },
+                    {
+                        "id": 2,
+                        "container_id": 11,
+                        "reading_date": as_of - timedelta(hours=1),
+                        "container_current_level": 80,
+                    },
+                    {
+                        "id": 3,
+                        "container_id": 10,
+                        "reading_date": as_of + timedelta(hours=1),
+                        "container_current_level": 80,
+                    },
+                    {
+                        "id": 4,
+                        "container_id": 11,
+                        "reading_date": as_of + timedelta(hours=1),
+                        "container_current_level": 10,
+                    },
+                ],
+            )
+
+        session_factory = async_sessionmaker(engine)
+        async with session_factory() as db:
+            snapshot = (await service._get_site_snapshots_at(db, [1], as_of, "avg"))[1]
+            assert snapshot == service.SiteStartingSnapshot(
+                level=50.0,
+                volume=service.SiteVolumeSnapshot(2.2, 5.0),
+            )
+            later = (
+                await service._get_site_snapshots_at(
+                    db, [1], as_of + timedelta(hours=1), "max"
+                )
+            )[1]
+            assert later.level == 80
+            assert later.volume.current_volume_m3 == 2.6
+
+            with pytest.raises(HTTPException) as exc:
+                await service._get_site_snapshots_at(db, [1, 2], as_of, "avg")
+            assert exc.value.status_code == 422
+            assert "2" in exc.value.detail
+    finally:
+        await engine.dispose()
