@@ -312,7 +312,16 @@ async def generate_redistribution_plan(
     """
     Genera un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
+    Con algorithm="overload" usa el modelo de sobrecarga.
     """
+    if config.algorithm == "overload":
+        # Import local: el servicio del modelo nuevo usa helpers de este módulo.
+        from app.services.map.redistribution_overload_service import (
+            generate_overload_plan,
+        )
+
+        return await generate_overload_plan(db, config, user_id)
+
     # 1. Calcular métricas
     metrics_response = await compute_site_utilization_metrics(db, config)
     metrics = metrics_response.sites
@@ -884,6 +893,10 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
         original_std_fill=summary.get("original_std_fill", 0.0),
         optimized_mean_fill=summary.get("optimized_mean_fill", 0.0),
         optimized_std_fill=summary.get("optimized_std_fill", 0.0),
+        critical_hours_before=summary.get("critical_hours_before"),
+        critical_hours_after=summary.get("critical_hours_after"),
+        overflow_hours_before=summary.get("overflow_hours_before"),
+        overflow_hours_after=summary.get("overflow_hours_after"),
         created_at=plan.created_at,
         simulation_id=plan.simulation_id,
     )

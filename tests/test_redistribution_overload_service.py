@@ -11,9 +11,14 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.data_level import DataLevel
+from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
+from app.schemas.map.optimization import OptimizationConfig
+from app.services.map.redistribution_overload_planner import PlannedMove
 from app.services.map.redistribution_overload_service import (
+    _assign_containers,
+    generate_overload_plan,
     group_by_compatibility,
     load_overload_candidates,
 )
@@ -25,7 +30,10 @@ TABLES = [
     Site.__table__,
     Container.__table__,
     DataLevel.__table__,
+    RedistributionPlan.__table__,
+    OptimizationWhatIfLevel.__table__,
 ]
+NO_CAPACITY = OptimizationConfig(algorithm="overload", apply_capacity_constraints=False)
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -170,3 +178,77 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
                 state.latitude, state.longitude, state.containers
             )
             self.assertEqual(state.max_containers, expected)
+
+    async def test_generates_a_plan_from_the_idle_site_to_the_overloaded_one(self):
+        async with self.session_maker() as session:
+            plan = await generate_overload_plan(session, NO_CAPACITY)
+
+        # El sitio 1 (1 contenedor, llega al 90%) recibe uno del sitio 2 (3
+        # contenedores al 25%). El sitio 4 es de otro tipo y no participa.
+        self.assertEqual(len(plan.moves), 1)
+        move = plan.moves[0]
+        self.assertEqual((move.from_site_id, move.to_site_id), (2, 1))
+        self.assertIn(move.container_id, {2, 3, 4})
+        self.assertEqual(
+            (move.receiver_fill_before, move.receiver_fill_after), (60, 30)
+        )
+        self.assertEqual(move.donor_fill_before, 17.5)
+        self.assertAlmostEqual(move.donor_fill_after, 26.2, places=1)
+        self.assertEqual(move.overload_reduction, 1)
+        # Antes: 1 hora en zona crítica (el 90%); con 2 contenedores, ninguna.
+        self.assertEqual(
+            (plan.critical_hours_before, plan.critical_hours_after), (1, 0)
+        )
+        self.assertEqual(plan.overflow_hours_before, 0)
+        self.assertEqual(plan.expected_improvement, 1)
+        self.assertEqual(plan.config.algorithm, "overload")
+
+    async def test_move_impact_is_cumulative_for_the_same_donor(self):
+        async with self.session_maker() as session:
+            candidates = await load_overload_candidates(
+                session, apply_capacity_constraints=False
+            )
+            by_site = {c.state.site_id: c for c in candidates}
+            planned = [PlannedMove(2, 1, 0.1, 1.0), PlannedMove(2, 1, 0.1, 0.5)]
+            moves = await _assign_containers(session, planned, by_site)
+
+        first, second = moves
+        self.assertNotEqual(first.container_id, second.container_id)
+        self.assertEqual(second.donor_fill_before, first.donor_fill_after)
+        self.assertEqual(second.receiver_fill_before, first.receiver_fill_after)
+        self.assertEqual(second.receiver_fill_after, 20)  # 60% repartido en 3
+
+    async def test_plan_endpoint_accepts_the_overload_algorithm(self):
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.map_database import get_map_db
+        from app.main import app
+
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                res = await client.post(
+                    "/map/optimization/plan",
+                    json={"algorithm": "overload", "apply_capacity_constraints": False},
+                )
+        finally:
+            app.dependency_overrides.pop(get_map_db, None)
+            # El what-if guarda el plan activo en variables globales del proceso:
+            # se limpian para no afectar a otros tests.
+            import app.services.map.optimization_whatif_service as whatif_svc
+
+            whatif_svc._active_plan_id = None
+            whatif_svc._optimized_mapping.clear()
+            whatif_svc._virtual_levels.clear()
+
+        self.assertEqual(res.status_code, 201)
+        data = res.json()
+        self.assertEqual(data["status"], "active_whatif")
+        self.assertEqual(len(data["moves"]), 1)
+        self.assertEqual(data["critical_hours_before"], 1)
