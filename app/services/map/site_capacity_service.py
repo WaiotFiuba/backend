@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from typing import Any, Optional, Tuple
+import numpy as np
 import pandas as pd
-import shapely.wkt
+import shapely
 from shapely.geometry import Point
 from shapely.strtree import STRtree
-from shapely.ops import transform
 import pyproj
 
 
@@ -53,22 +53,29 @@ class SiteCapacityService:
                 else "WKT"
             )
 
-            self._geometrias_tramos_utm = []
-            self._capacidades_maximas_tramos = []
+            # Todo vectorizado (shapely 2 + pyproj sobre arrays): convertir los
+            # ~50.000 tramos uno por uno tardaba ~14 s.
+            textos_wkt = dataframe_restricciones[columna_geometria]
+            geometrias = shapely.from_wkt(
+                textos_wkt.where(textos_wkt.notna(), None).to_numpy(dtype=object),
+                on_invalid="ignore",
+            )
+            if "MAX_CONTENEDORES" in dataframe_restricciones.columns:
+                capacidades = pd.to_numeric(
+                    dataframe_restricciones["MAX_CONTENEDORES"], errors="coerce"
+                ).to_numpy()
+            else:
+                capacidades = np.full(len(dataframe_restricciones), 2.0)
 
-            for _, fila in dataframe_restricciones.iterrows():
-                geometria_wkt_texto = fila[columna_geometria]
-                try:
-                    geometria_cruda = shapely.wkt.loads(geometria_wkt_texto)
-                    geometria_tramo_utm = transform(
-                        self._conversor_wgs84_a_utm, geometria_cruda
-                    )
-                    capacidad_maxima_tramo = int(fila.get("MAX_CONTENEDORES", 2))
-
-                    self._geometrias_tramos_utm.append(geometria_tramo_utm)
-                    self._capacidades_maximas_tramos.append(capacidad_maxima_tramo)
-                except Exception:
-                    continue
+            # Se descartan las filas con geometría inválida o sin capacidad.
+            validas = ~shapely.is_missing(geometrias) & ~np.isnan(capacidades)
+            geometrias_utm = shapely.transform(
+                geometrias[validas], self._conversor_wgs84_a_utm, interleaved=False
+            )
+            self._geometrias_tramos_utm = list(geometrias_utm)
+            self._capacidades_maximas_tramos = [
+                int(capacidad) for capacidad in capacidades[validas]
+            ]
 
             if self._geometrias_tramos_utm:
                 self._indice_espacial_tramos = STRtree(self._geometrias_tramos_utm)
