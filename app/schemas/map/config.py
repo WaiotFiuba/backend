@@ -13,3 +13,4 @@ class MapConfigResponse(BaseModel):
     center: MapCenter
     default_zoom: int
     bounds: list[list[float]] | None = None
+    available_waste_types: list[str] = ["organico", "reciclaje"]

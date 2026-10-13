@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.map_database import get_map_db
 from app.models.map.container import Container
 from app.models.map.site import Site
+from app.models.map.waste_type import WasteType
 from app.schemas.map.config import MapCenter, MapConfigResponse
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -23,6 +24,26 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 )
 async def get_map_config(db: MapDbDep) -> MapConfigResponse:
     city_name = os.getenv("CITY_NAME", "Ciudad")
+
+    # Detectar qué tipos de residuos existen efectivamente en los sitios activos
+    stmt_waste = (
+        select(func.lower(func.coalesce(WasteType.name, "húmeda")).distinct())
+        .select_from(Site)
+        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
+        .where(Site.deleted_at.is_(None))
+    )
+    waste_names = (await db.scalars(stmt_waste)).all()
+
+    has_organico = any("húmed" in name for name in waste_names)
+    has_reciclaje = any("seca" in name for name in waste_names)
+
+    available_waste_types: list[str] = []
+    if has_organico:
+        available_waste_types.append("organico")
+    if has_reciclaje:
+        available_waste_types.append("reciclaje")
+    if not available_waste_types:
+        available_waste_types = ["organico", "reciclaje"]
 
     res_site = (
         await db.execute(
@@ -76,4 +97,5 @@ async def get_map_config(db: MapDbDep) -> MapConfigResponse:
         center=center,
         default_zoom=zoom,
         bounds=bounds,
+        available_waste_types=available_waste_types,
     )

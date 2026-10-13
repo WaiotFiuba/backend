@@ -106,16 +106,10 @@ def _waste_filter_conditions(
 ):
     if waste_filter == "reciclable":
         waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [or_(waste_name.like("%seca%"), waste_name.like("%recicl%"))]
+        return [waste_name.like("%seca%")]
     if waste_filter == "humedo":
-        waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [
-            or_(
-                waste_name.like("%humeda%"),
-                waste_name.like("%húmeda%"),
-                waste_name.like("%hÃºmeda%"),
-            )
-        ]
+        waste_name = func.lower(func.coalesce(WasteType.name, "húmeda"))
+        return [waste_name.like("%húmed%")]
     return []
 
 
@@ -272,6 +266,7 @@ async def get_sites_clustered(
             ),
         )
         .outerjoin(target_c, c_site_id == Site.id)
+        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(
             Site.latitude >= lat_min,
             Site.latitude <= lat_max,
