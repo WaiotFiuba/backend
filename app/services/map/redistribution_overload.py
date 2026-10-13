@@ -18,12 +18,14 @@ contenedores es una búsqueda binaria.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import pairwise
 
 import numpy as np
 
-from app.services.map.site_collection_cycle_service import detect_collection_event
+from app.services.map.site_collection_cycle_service import (
+    CollectionCycleDetectionConfig,
+)
 from app.services.map.site_projection_history_service import SiteLevelBucket
 
 FULL_LEVEL = 100.0
@@ -37,6 +39,8 @@ SATURATION_LEVEL = 99.5
 # Mientras el sitio está lleno se supone que se siguió llenando al ritmo
 # promedio de esta cantidad de buckets previos.
 RECENT_RISES = 3
+# Caída de nivel que se considera recolección (la misma que usa detect_collection_event).
+COLLECTION_DROP = CollectionCycleDetectionConfig().partial_drop_threshold
 
 
 @dataclass(frozen=True)
@@ -86,31 +90,48 @@ def accumulated_since_collection(
     buckets: list[SiteLevelBucket],
     containers: int,
 ) -> np.ndarray:
-    """Residuo acumulado desde la última recolección en cada bucket (% de un contenedor).
+    """Residuo acumulado desde la última recolección en cada bucket (% de un contenedor)."""
+    ordered = sorted(buckets, key=lambda bucket: bucket.timestamp)
+    return accumulated_from_levels(
+        [bucket.level for bucket in ordered],
+        [bucket.has_collection_signal for bucket in ordered],
+        containers,
+    )
 
+
+def accumulated_from_levels(
+    levels: Sequence[float],
+    collected: Sequence[bool],
+    containers: int,
+) -> np.ndarray:
+    """Igual que accumulated_since_collection, a partir de la serie ya ordenada.
+
+    Hay recolección cuando el bucket tiene señal de recolección o el nivel cae
+    al menos `COLLECTION_DROP` puntos (la misma regla que detect_collection_event).
     En el bucket de una recolección el nivel ya es el de después de vaciar, así
     que el acumulado arranca de ese nivel. Mientras el sitio está lleno, se
     supone que siguió subiendo al ritmo promedio de los buckets previos.
     """
-    ordered = sorted(buckets, key=lambda bucket: bucket.timestamp)
-    if not ordered:
+    if len(levels) == 0:
         return np.array([])
-    accumulated = np.empty(len(ordered))
-    total = ordered[0].level * containers
+    accumulated = np.empty(len(levels))
+    total = levels[0] * containers
     accumulated[0] = total
     recent: list[float] = []
-    for index, (previous, current) in enumerate(pairwise(ordered), start=1):
-        if detect_collection_event(current, previous) is not None:
-            total = current.level * containers
+    for index in range(1, len(levels)):
+        previous, current = levels[index - 1], levels[index]
+        if (
+            collected[index]
+            or round(max(0.0, previous - current), 2) >= COLLECTION_DROP
+        ):
+            total = current * containers
             recent.clear()
         else:
-            saturated = (
-                previous.level >= SATURATION_LEVEL and current.level >= SATURATION_LEVEL
-            )
+            saturated = previous >= SATURATION_LEVEL and current >= SATURATION_LEVEL
             if saturated and recent:
                 rise = sum(recent[-RECENT_RISES:]) / len(recent[-RECENT_RISES:])
             else:
-                rise = max(0.0, current.level - previous.level)
+                rise = max(0.0, current - previous)
                 recent.append(rise)
             total += rise * containers
         accumulated[index] = total
@@ -127,5 +148,20 @@ def build_overload_profile(
         return None
     return OverloadProfile(
         accumulated_since_collection(buckets, containers),
+        hours_per_bucket=interval_minutes / 60,
+    )
+
+
+def build_overload_profile_from_levels(
+    levels: Sequence[float],
+    collected: Sequence[bool],
+    containers: int,
+    interval_minutes: int = 60,
+) -> OverloadProfile | None:
+    """Como build_overload_profile, a partir de la serie ya ordenada."""
+    if len(levels) == 0 or containers <= 0:
+        return None
+    return OverloadProfile(
+        accumulated_from_levels(levels, collected, containers),
         hours_per_bucket=interval_minutes / 60,
     )

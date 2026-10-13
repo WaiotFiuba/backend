@@ -31,7 +31,7 @@ from app.schemas.map.optimization import (
 from app.services.map.redistribution_overload import (
     DEFAULT_CRITICAL_LEVEL,
     DEFAULT_OVERFLOW_WEIGHT,
-    build_overload_profile,
+    build_overload_profile_from_levels,
 )
 from app.services.map.redistribution_overload_planner import (
     PlannedMove,
@@ -41,9 +41,8 @@ from app.services.map.redistribution_overload_planner import (
 from app.services.map.reference_time_service import get_reference_time
 from app.services.map.site_capacity_service import get_site_capacity_service
 from app.services.map.site_projection_history_service import (
-    SiteMeasurementSample,
-    aggregate_site_measurements,
-    fetch_site_measurements,
+    HourlySiteLevels,
+    fetch_hourly_site_levels,
 )
 
 # Días de historia que se usan si la configuración no indica otra ventana.
@@ -121,37 +120,39 @@ async def load_overload_candidates(
     if not rows:
         return []
 
-    samples = await fetch_site_measurements(
+    series = await fetch_hourly_site_levels(
         db,
         site_ids=[row.id for row in rows],
         lookback_days=window_days,
         end_time=reference_time,
     )
-    # Agregar las lecturas, armar los perfiles y calcular la capacidad es
-    # cálculo en Python: corre en un thread para no frenar el resto del backend.
+    # Armar los perfiles y calcular la capacidad es cálculo en Python: corre en
+    # un thread para no frenar el resto del backend.
     return await asyncio.to_thread(
-        _build_candidates, rows, samples, apply_capacity_constraints
+        _build_candidates, rows, series, apply_capacity_constraints
     )
 
 
 def _build_candidates(
     rows: list,
-    samples: list[SiteMeasurementSample],
+    series: dict[int, HourlySiteLevels],
     apply_capacity_constraints: bool,
 ) -> list[OverloadCandidate]:
-    series = aggregate_site_measurements(
-        samples, interval_minutes=SERIES_INTERVAL_MINUTES, level_aggregation="avg"
-    )
     capacity_service = get_site_capacity_service()
 
     candidates: list[OverloadCandidate] = []
     for row in rows:
-        buckets = series.get(row.id, [])
-        profile = build_overload_profile(
-            buckets, row.containers, SERIES_INTERVAL_MINUTES
+        site_series = series.get(row.id)
+        if site_series is None:
+            continue  # sin historia no se puede estimar qué le pasaría
+        profile = build_overload_profile_from_levels(
+            site_series.levels,
+            site_series.collected,
+            row.containers,
+            SERIES_INTERVAL_MINUTES,
         )
         if profile is None:
-            continue  # sin historia no se puede estimar qué le pasaría
+            continue
         max_containers = None
         if apply_capacity_constraints:
             max_containers, _ = capacity_service.evaluate_site(
@@ -169,7 +170,7 @@ def _build_candidates(
                 ),
                 name=row.name,
                 group=(row.waste_type_id, row.container_type_id),
-                average_level=sum(bucket.level for bucket in buckets) / len(buckets),
+                average_level=sum(site_series.levels) / len(site_series.levels),
             )
         )
     return candidates

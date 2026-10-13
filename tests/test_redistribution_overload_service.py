@@ -272,3 +272,17 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(offloaded, ["_build_candidates", "_plan_by_group"])
         self.assertEqual(len(plan.moves), 1)
+
+    async def test_hourly_site_levels_fallback_matches_the_python_aggregation(self):
+        from app.services.map.site_projection_history_service import (
+            fetch_hourly_site_levels,
+        )
+
+        async with self.session_maker() as session:
+            hourly = await fetch_hourly_site_levels(
+                session, [1, 2], lookback_days=28, end_time=START + timedelta(hours=3)
+            )
+
+        self.assertEqual(hourly[1].levels, [30, 50, 70, 90])
+        self.assertEqual(hourly[2].levels, [10, 15, 20, 25])
+        self.assertEqual(hourly[1].collected, [False] * 4)

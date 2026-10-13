@@ -91,3 +91,22 @@ def test_profile_needs_history_and_containers():
     assert build_overload_profile(_series([10, 20]), containers=0) is None
     with pytest.raises(ValueError):
         build_overload_profile(_series([10, 20]), containers=1).hours(0)
+
+
+def test_array_version_matches_the_bucket_version():
+    from app.services.map.redistribution_overload import (
+        accumulated_from_levels,
+        build_overload_profile_from_levels,
+    )
+
+    levels = [10.0, 40, 70, 100, 100, 100, 15, 35, 60, 48, 70]
+    collected = frozenset({6})
+    series = _series(levels, collected)
+
+    by_buckets = accumulated_since_collection(series, containers=2)
+    by_levels = accumulated_from_levels(
+        levels, [hour in collected for hour in range(len(levels))], containers=2
+    )
+
+    assert list(by_levels) == list(by_buckets)
+    assert build_overload_profile_from_levels([], [], containers=2) is None
