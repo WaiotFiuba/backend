@@ -252,3 +252,23 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["status"], "active_whatif")
         self.assertEqual(len(data["moves"]), 1)
         self.assertEqual(data["critical_hours_before"], 1)
+
+    async def test_cpu_work_runs_off_the_event_loop(self):
+        import asyncio
+        from unittest.mock import patch
+
+        import app.services.map.redistribution_overload_service as service
+
+        offloaded = []
+        original_to_thread = asyncio.to_thread
+
+        async def recording_to_thread(function, *args, **kwargs):
+            offloaded.append(function.__name__)
+            return await original_to_thread(function, *args, **kwargs)
+
+        with patch.object(service.asyncio, "to_thread", recording_to_thread):
+            async with self.session_maker() as session:
+                plan = await generate_overload_plan(session, NO_CAPACITY)
+
+        self.assertEqual(offloaded, ["_build_candidates", "_plan_by_group"])
+        self.assertEqual(len(plan.moves), 1)

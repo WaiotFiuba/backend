@@ -124,8 +124,27 @@ async def get_site_level_series(
     lookback_days: int = 14,
     end_time: datetime | None = None,
 ) -> dict[int, list[SiteLevelBucket]]:
+    samples = await fetch_site_measurements(db, site_ids, lookback_days, end_time)
+    return aggregate_site_measurements(
+        samples,
+        interval_minutes=interval_minutes,
+        level_aggregation=level_aggregation,
+    )
+
+
+async def fetch_site_measurements(
+    db: AsyncSession,
+    site_ids: list[int],
+    lookback_days: int = 14,
+    end_time: datetime | None = None,
+) -> list[SiteMeasurementSample]:
+    """Lecturas crudas de los contenedores activos de los sitios, sin agregar.
+
+    Separado de la agregación para poder hacer el cálculo (CPU) fuera del event
+    loop cuando son muchos sitios.
+    """
     if not site_ids:
-        return {}
+        return []
 
     end_time = _as_utc(end_time or datetime.now(UTC))
     start_time = end_time - timedelta(days=lookback_days)
@@ -150,7 +169,7 @@ async def get_site_level_series(
         .order_by(Container.site_id, DataLevel.reading_date)
     )
     result = await db.execute(stmt)
-    samples = [
+    return [
         SiteMeasurementSample(
             site_id=int(row.site_id),
             container_id=int(row.container_id),
@@ -161,11 +180,6 @@ async def get_site_level_series(
         for row in result.all()
         if row.site_id is not None and row.container_id is not None
     ]
-    return aggregate_site_measurements(
-        samples,
-        interval_minutes=interval_minutes,
-        level_aggregation=level_aggregation,
-    )
 
 
 def _as_utc(value: datetime) -> datetime:

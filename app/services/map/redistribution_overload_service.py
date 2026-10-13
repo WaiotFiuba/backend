@@ -10,6 +10,7 @@ Ver redistribution_overload.py (modelo) y redistribution_overload_planner.py
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -39,7 +40,11 @@ from app.services.map.redistribution_overload_planner import (
 )
 from app.services.map.reference_time_service import get_reference_time
 from app.services.map.site_capacity_service import get_site_capacity_service
-from app.services.map.site_projection_history_service import get_site_level_series
+from app.services.map.site_projection_history_service import (
+    SiteMeasurementSample,
+    aggregate_site_measurements,
+    fetch_site_measurements,
+)
 
 # Días de historia que se usan si la configuración no indica otra ventana.
 DEFAULT_WINDOW_DAYS = 28
@@ -116,13 +121,26 @@ async def load_overload_candidates(
     if not rows:
         return []
 
-    series = await get_site_level_series(
+    samples = await fetch_site_measurements(
         db,
         site_ids=[row.id for row in rows],
-        interval_minutes=SERIES_INTERVAL_MINUTES,
-        level_aggregation="avg",
         lookback_days=window_days,
         end_time=reference_time,
+    )
+    # Agregar las lecturas, armar los perfiles y calcular la capacidad es
+    # cálculo en Python: corre en un thread para no frenar el resto del backend.
+    return await asyncio.to_thread(
+        _build_candidates, rows, samples, apply_capacity_constraints
+    )
+
+
+def _build_candidates(
+    rows: list,
+    samples: list[SiteMeasurementSample],
+    apply_capacity_constraints: bool,
+) -> list[OverloadCandidate]:
+    series = aggregate_site_measurements(
+        samples, interval_minutes=SERIES_INTERVAL_MINUTES, level_aggregation="avg"
     )
     capacity_service = get_site_capacity_service()
 
@@ -183,14 +201,9 @@ async def generate_overload_plan(
         window_days=config.window_days,
         apply_capacity_constraints=config.apply_capacity_constraints,
     )
-    planned: list[PlannedMove] = []
-    for group in group_by_compatibility(candidates).values():
-        planned.extend(
-            plan_overload_moves(
-                [candidate.state for candidate in group],
-                max_distance_km=config.max_distance_km,
-            )
-        )
+    planned = await asyncio.to_thread(
+        _plan_by_group, candidates, config.max_distance_km
+    )
 
     by_site = {candidate.state.site_id: candidate for candidate in candidates}
     moves = await _assign_containers(db, planned, by_site)
@@ -211,6 +224,22 @@ async def generate_overload_plan(
     await db.commit()
     await db.refresh(plan_model)
     return _plan_model_to_read(plan_model)
+
+
+def _plan_by_group(
+    candidates: list[OverloadCandidate],
+    max_distance_km: float,
+) -> list[PlannedMove]:
+    """Corre el planificador dentro de cada grupo de sitios compatibles."""
+    planned: list[PlannedMove] = []
+    for group in group_by_compatibility(candidates).values():
+        planned.extend(
+            plan_overload_moves(
+                [candidate.state for candidate in group],
+                max_distance_km=max_distance_km,
+            )
+        )
+    return planned
 
 
 async def _assign_containers(
