@@ -23,14 +23,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from app.core.thresholds import get_level_thresholds
 from app.services.site_projection.collection_cycle import (
     CollectionCycleDetectionConfig,
 )
 from app.services.site_projection.history import SiteLevelBucket
 
-FULL_LEVEL = 100.0
-# Umbral crítico por defecto; coincide con el umbral centralizado del backend.
-DEFAULT_CRITICAL_LEVEL = 80.0
+FULL_LEVEL = float(get_level_thresholds().full)
+# Umbral crítico centralizado del backend (app/core/thresholds.py).
+DEFAULT_CRITICAL_LEVEL = float(get_level_thresholds().critical)
 # Una hora desbordado pesa como esta cantidad de horas en zona crítica.
 DEFAULT_OVERFLOW_WEIGHT = 3.0
 # Desde este nivel el sensor marca "lleno" y el nivel ya no sube aunque se siga

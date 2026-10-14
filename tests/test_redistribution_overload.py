@@ -110,3 +110,10 @@ def test_array_version_matches_the_bucket_version():
 
     assert list(by_levels) == list(by_buckets)
     assert build_overload_profile_from_levels([], [], containers=2) is None
+
+
+def test_critical_level_comes_from_the_centralized_thresholds():
+    from app.core.thresholds import get_level_thresholds
+    from app.services.map.redistribution_overload import DEFAULT_CRITICAL_LEVEL
+
+    assert DEFAULT_CRITICAL_LEVEL == get_level_thresholds().critical
