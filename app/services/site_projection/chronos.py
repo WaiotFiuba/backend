@@ -114,7 +114,7 @@ class Chronos2SmallForecaster:
             )
 
         try:
-            pipeline = _get_chronos_pipeline()
+            pipeline = await asyncio.to_thread(_get_chronos_pipeline)
 
             # Normalizar serie temporal a DataFrame para Chronos2Pipeline
             # tz_localize(None) es necesario para que numpy/pandas maneje datetime64 nativo
@@ -128,7 +128,6 @@ class Chronos2SmallForecaster:
                 }
             )
 
-            # Ejecutar inferencia en un hilo separado para no bloquear el event loop de FastAPI
             forecast_df = await asyncio.to_thread(
                 pipeline.predict_df,
                 df,
@@ -250,8 +249,9 @@ class Chronos2SmallForecaster:
         request = eligible[0][0]
         steps = max(1, int(request.horizon_hours * 60 / request.interval_minutes))
         try:
+            pipeline = await asyncio.to_thread(_get_chronos_pipeline)
             forecast_df = await asyncio.to_thread(
-                _get_chronos_pipeline().predict_df,
+                pipeline.predict_df,
                 pd.DataFrame(rows),
                 prediction_length=steps,
                 quantile_levels=[0.1, 0.5, 0.9],

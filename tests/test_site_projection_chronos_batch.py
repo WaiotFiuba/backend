@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -27,13 +28,18 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
         for hour, level in [(2, 10), (3, 20), (4, 30), (5, 40)]
     ]
     seen = []
+    initialization_threads = []
 
     class FakePipeline:
         def predict_df(self, frame, **_kwargs):
             seen.append(frame)
             return pd.DataFrame({"0.1": [45], "0.5": [50], "0.9": [55]})
 
-    monkeypatch.setattr(chronos, "_get_chronos_pipeline", lambda: FakePipeline())
+    def load_pipeline():
+        initialization_threads.append(threading.get_ident())
+        return FakePipeline()
+
+    monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
     result = await chronos.Chronos2SmallForecaster().forecast(
         ForecastRequest(site_id=1, horizon_hours=1),
         ForecastContext(
@@ -48,6 +54,8 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
     assert seen[0].iloc[-1]["target"] == 45
     assert seen[0].iloc[-1]["timestamp"] == pd.Timestamp("2026-01-01 05:00:00")
     assert result.points[0].predicted_level == 50
+    assert len(initialization_threads) == 1
+    assert initialization_threads[0] != threading.get_ident()
 
 
 @pytest.mark.asyncio
@@ -90,6 +98,7 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
         return {}
 
     calls = []
+    initialization_threads = []
 
     class FakePipeline:
         def predict_df(self, frame, **kwargs):
@@ -106,7 +115,12 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
     monkeypatch.setattr(service, "_get_site_snapshots_at", snapshots)
     monkeypatch.setattr(service, "get_site_level_series", site_history)
     monkeypatch.setattr(service, "_get_sites_features", site_features)
-    monkeypatch.setattr(chronos, "_get_chronos_pipeline", lambda: FakePipeline())
+
+    def load_pipeline():
+        initialization_threads.append(threading.get_ident())
+        return FakePipeline()
+
+    monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
 
     result = await service.project_sites(
         object(),
@@ -119,6 +133,8 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
     )
 
     assert len(calls) == 1
+    assert len(initialization_threads) == 1
+    assert initialization_threads[0] != threading.get_ident()
     assert set(calls[0][0]["id"]) == {1, 2}
     for site_id, level in [(1, 40), (2, 50)]:
         site_rows = calls[0][0].loc[calls[0][0]["id"] == site_id]
