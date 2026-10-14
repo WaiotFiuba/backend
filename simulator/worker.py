@@ -13,7 +13,11 @@ from simulator.domain.entities import (
 from simulator.exporters.zone_profiles import build_zone_profiles_geojson
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
-from simulator.simulation.scenario import scenario_from_mapping, scenario_to_record
+from simulator.simulation.scenario import (
+    scenario_from_mapping,
+    scenario_to_record,
+    with_defaults,
+)
 from simulator.transport.session_client import (
     SimulationSessionClient,
 )
@@ -91,7 +95,9 @@ async def _run_session(
     # que nadie toma en poco tiempo.
     await client.update_progress(simulation_id, {"claimed": True})
     try:
-        config = scenario_from_mapping(session.scenario)
+        # Lo que manda el front pisa scenario_defaults.yaml, que se relee en
+        # cada sesion.
+        config = scenario_from_mapping(with_defaults(session.scenario))
         # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla.
         classifier = await asyncio.to_thread(reload_zone_classifier)
         topology = await asyncio.to_thread(

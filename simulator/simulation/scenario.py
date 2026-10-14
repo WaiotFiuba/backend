@@ -9,6 +9,15 @@ from typing import Any
 
 import yaml
 
+# Valores por defecto de los parametros del escenario (ver el archivo).
+DEFAULTS_PATH = (
+    Path(__file__).resolve().parents[1] / "config" / "scenario_defaults.yaml"
+)
+
+# Se resuelven juntos: collection_days tiene prioridad sobre no_collection_days,
+# asi que si el escenario trae uno, el del archivo de defaults no se usa.
+_COLLECTION_DAY_KEYS = ("collection_days", "no_collection_days")
+
 
 def get_default_start_time() -> datetime:
     return datetime.now().replace(hour=6, minute=0, second=0, microsecond=0)
@@ -55,17 +64,52 @@ class ScenarioConfig:
 
 
 def load_scenario(path: str | Path | None = None) -> ScenarioConfig:
-    if path is None:
-        return ScenarioConfig()
+    """Escenario de la CLI: los defaults del archivo, pisados por el escenario
+    de path (si hay)."""
+    data: dict[str, Any] = {}
+    if path is not None:
+        source = Path(path)
+        raw = source.read_text(encoding="utf-8")
+        if source.suffix.lower() == ".json":
+            data = json.loads(raw)
+        else:
+            data = yaml.safe_load(raw) or {}
 
+    return scenario_from_mapping(with_defaults(data))
+
+
+def load_scenario_defaults(path: str | Path = DEFAULTS_PATH) -> dict[str, Any]:
+    """Lee scenario_defaults.yaml. Si no esta, no hay defaults de archivo y
+    quedan los del dataclass."""
     source = Path(path)
-    raw = source.read_text(encoding="utf-8")
-    if source.suffix.lower() == ".json":
-        data = json.loads(raw)
-    else:
-        data = yaml.safe_load(raw) or {}
+    if not source.exists():
+        return {}
+    return yaml.safe_load(source.read_text(encoding="utf-8")) or {}
 
-    return scenario_from_mapping(data)
+
+def with_defaults(
+    scenario: dict[str, Any], defaults: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """El escenario completado con los defaults del archivo: lo que trae el
+    escenario pisa al archivo."""
+    base = load_scenario_defaults() if defaults is None else defaults
+    return merge_scenario(base, scenario)
+
+
+def merge_scenario(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """override pisa a base. Un null no pisa un valor que base tiene, y los
+    diccionarios (waste_type_factors) se mezclan clave por clave."""
+    merged = dict(base)
+    if any(override.get(key) is not None for key in _COLLECTION_DAY_KEYS):
+        for key in _COLLECTION_DAY_KEYS:
+            merged.pop(key, None)
+    for key, value in override.items():
+        if value is None and key in base:
+            continue
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            value = {**base[key], **value}
+        merged[key] = value
+    return merged
 
 
 def scenario_from_mapping(data: dict[str, Any]) -> ScenarioConfig:
