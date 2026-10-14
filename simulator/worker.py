@@ -28,10 +28,8 @@ from simulator.zone_classifier import reload_zone_classifier
 logger = logging.getLogger(__name__)
 
 
-# Todos los contenedores: el bbox cubre el mundo entero.
-_ALL_CONTAINERS_PATH = (
-    "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18"
-)
+# Endpoint del worker: no requiere autenticación (a diferencia de /map/*).
+_ALL_CONTAINERS_PATH = "/digital-twin/worker/containers"
 
 
 async def run_worker() -> None:

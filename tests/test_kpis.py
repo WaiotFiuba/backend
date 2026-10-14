@@ -198,6 +198,20 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
 
             # Promedio de sitios: (90 + 75 + 50 + 0) / 4 = 53.75
             self.assertAlmostEqual(kpis.mean_fill_level, 53.75, places=2)
+
+    async def test_critical_category_uses_centralized_threshold(self):
+        """Un sitio al 82% es crítico con el umbral crítico centralizado (80%)."""
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+            container = await session.get(Container, 4)  # Sitio 3 (50% -> 82%)
+            container.current_level = 82
+            await session.commit()
+
+            kpis = await get_real_network_kpis(session)
+
+            self.assertEqual(kpis.critical_count, 2)  # Sitios 1 (90%) y 3 (82%)
+            self.assertEqual(kpis.high_count, 1)  # Sitio 2 (75%)
+            self.assertEqual(kpis.normal_count, 0)
             self.assertGreater(kpis.std_fill_level, 0.0)
             self.assertFalse(kpis.is_whatif)
 
@@ -292,7 +306,11 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
             )
             await session.commit()
 
-        app.dependency_overrides[get_map_db] = lambda: self.session_maker()
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
         try:
             transport = ASGITransport(app=app)
             async with AsyncClient(

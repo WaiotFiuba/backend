@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
+from app.core.thresholds import get_level_thresholds
 from app.schemas.map.site import (
     SiteChanges,
     SiteCluster,
@@ -90,8 +91,13 @@ async def get_single_site_history(
     db: MapDbDep,
     limit: int = Query(168, ge=1, le=1000),
 ) -> SiteLevelHistory:
-    numeric_id = int(site_id.split("|")[-1]) if site_id.split("|")[-1].isdigit() else 1
-    return await get_site_level_history(db=db, site_id=numeric_id, limit=limit)
+    raw_id = site_id.split("|")[-1].strip()
+    if not raw_id.isdigit():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="El site_id debe ser numerico.",
+        )
+    return await get_site_level_history(db=db, site_id=int(raw_id), limit=limit)
 
 
 @router.get(
@@ -113,7 +119,9 @@ async def get_single_site_projection(
     ),
     horizon_hours: Annotated[int, Query(ge=1, le=168)] = 24,
     interval_minutes: Annotated[int, Query(ge=15, le=1440)] = 60,
-    critical_level: Annotated[int, Query(ge=1, le=100)] = 80,
+    critical_level: Annotated[int, Query(ge=1, le=100)] = (
+        get_level_thresholds().critical
+    ),
     level_aggregation: Annotated[Literal["avg", "max"], Query()] = "avg",
     lookback_days: Annotated[int, Query(ge=1, le=365)] = 14,
     stop_at_full: Annotated[bool, Query()] = True,

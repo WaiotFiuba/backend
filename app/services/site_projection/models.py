@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from app.core.thresholds import get_level_thresholds
 from app.services.site_projection.history import SiteLevelBucket
 
 
@@ -22,7 +23,7 @@ class ForecastRequest:
     site_id: int
     horizon_hours: int = 24
     interval_minutes: int = 60
-    critical_level: int = 80
+    critical_level: int = get_level_thresholds().critical
     level_aggregation: str = "avg"
     lookback_days: int = 14
     stop_at_full: bool = True
