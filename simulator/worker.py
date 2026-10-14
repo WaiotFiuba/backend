@@ -163,18 +163,21 @@ async def _run_session(
                 neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
             )
 
-            # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
+            await client.update_progress(
+                simulation_id,
+                {"simulated_time": simulated_time.isoformat()},
+            )
+
             await deliver_tick_measurements(
                 tick.measurements,
                 settings.backend_url,
                 settings.simulator_batch_size,
             )
 
-            # 2. Con los datos 100% guardados en Postgres, publicar el progreso y la hora simulada
+            # El periodo avanza solo cuando todas las mediciones fueron entregadas.
             await client.update_progress(
                 simulation_id,
                 {
-                    "simulated_time": simulated_time.isoformat(),
                     "current_period": period + 1,
                     "global_demand_current": controls.global_current,
                     "measurements_sent": len(tick.measurements),
