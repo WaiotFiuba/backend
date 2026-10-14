@@ -1,0 +1,42 @@
+# Producción en la VM de Oracle: se aplica encima de docker-compose.yml (ver
+# COMPOSE_FILE en .env.oracle.example).
+services:
+  api:
+    volumes: !reset []
+    ports: !reset []
+    restart: unless-stopped
+    command: >
+      sh -c "
+      uv run python -m app.commands.wait_for_map_db &&
+      uv run alembic upgrade head &&
+      uv run python -u -m app.commands.seed &&
+      exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips='*'
+      "
+
+  postgis:
+    ports: !reset []
+    restart: unless-stopped
+
+  simulator:
+    volumes: !reset []
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:
