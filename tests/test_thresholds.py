@@ -25,14 +25,14 @@ def test_thresholds_can_be_overridden_from_settings():
 
 def test_projection_defaults_use_critical_threshold():
     from app.schemas.map.site_projection import (
+        SiteProjectionBatchRequest,
         SiteProjectionEvaluationRequest,
-        SiteProjectionRunRequest,
     )
-    from app.services.map.site_projection_models import ForecastRequest
+    from app.services.site_projection.models import ForecastRequest
 
     critical = get_level_thresholds().critical
 
-    assert SiteProjectionRunRequest().critical_level == critical
+    assert SiteProjectionBatchRequest(site_ids=[1]).critical_level == critical
     assert SiteProjectionEvaluationRequest().critical_level == critical
     assert ForecastRequest(site_id=1).critical_level == critical
 

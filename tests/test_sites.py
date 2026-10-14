@@ -499,8 +499,14 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history.points[0].min_level, 20)
             self.assertEqual(history.points[0].measurement_count, 2)
 
+            active_sim.simulated_time = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
+            await session.commit()
+            history = await get_site_level_history(session, site_id=1)
+            self.assertEqual(len(history.points), 1)
+            self.assertEqual(history.window_end, active_sim.simulated_time)
+
     async def test_projection_is_generated_at_the_latest_reading(self):
-        from app.services.map.site_projection_service import project_site_level
+        from app.services.site_projection.service import project_site_level
 
         async with self.session_maker() as session:
             wt = WasteType(id=1, name="RSU Fracción Húmeda")

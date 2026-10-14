@@ -4,12 +4,12 @@ import pytest
 from fastapi import HTTPException
 
 from app.schemas.map.site_projection import SiteProjectionEvaluationRequest
-from app.services.map.site_projection_evaluation_service import (
+from app.services.site_projection.evaluation import (
     SiteBacktestRequest,
     _resolve_automatic_cutoff,
     evaluate_site_forecast_backtest,
 )
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 
 def bucket_at(timestamp: datetime, level: float) -> SiteLevelBucket:

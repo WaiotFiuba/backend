@@ -24,12 +24,12 @@ from app.schemas.map.site_projection import (
     SiteProjectionEvaluationResponse,
     SiteProjectionEvaluationSiteReport,
 )
-from app.services.map.site_projection_history_service import (
+from app.services.site_projection.history import (
     SiteLevelBucket,
     floor_to_interval,
     get_site_level_series,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
     ForecastRequest,

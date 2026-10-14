@@ -22,6 +22,7 @@ from app.schemas.map.site import (
 )
 from app.services.map.container_service import _zoom_to_grid_size
 from app.services.map.reference_time_service import get_reference_time
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -491,9 +492,12 @@ async def get_site_level_history(
             status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
         )
 
-    # Las últimas `limit` lecturas hasta la última registrada, haya o no una
-    # simulación activa (con sensores reales no la hay).
-    window_end = await get_reference_time(db)
+    active_session = await get_active_simulation_session(db)
+    window_end = (
+        _as_utc(active_session.simulated_time)
+        if active_session and active_session.simulated_time
+        else await get_reference_time(db)
+    )
 
     stmt = (
         select(

@@ -4,79 +4,25 @@ import statistics
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
-from typing import Protocol
 
-from app.core.thresholds import get_level_thresholds
-from app.services.map.site_collection_cycle_service import detect_collection_event
-from app.services.map.site_projection_history_service import SiteLevelBucket
-
-
-@dataclass(frozen=True)
-class ForecastPoint:
-    timestamp: datetime
-    predicted_level: float
-    confidence: float
-    lower_bound: float | None = None
-    upper_bound: float | None = None
-    reason: str | None = None
-
-
-@dataclass(frozen=True)
-class ForecastRequest:
-    site_id: int
-    horizon_hours: int = 24
-    interval_minutes: int = 60
-    critical_level: int = get_level_thresholds().critical
-    level_aggregation: str = "avg"
-    lookback_days: int = 14
-    stop_at_full: bool = True
-
-
-@dataclass(frozen=True)
-class ForecastContext:
-    """Datos ya preparados para que el modelo no dependa de la base ni de CABA."""
-
-    current_level: float
-    history: list[SiteLevelBucket]
-    site_features: dict[str, float | str]
-    generated_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class ForecastResult:
-    site_id: int
-    model_key: str
-    generated_at: datetime
-    points: list[ForecastPoint]
-
-
-@dataclass(frozen=True)
-class ForecastModelInfo:
-    key: str
-    name: str
-    description: str
-    status: str
-    requires_training: bool
-    supports_site_features: bool
-
-
-class SiteLevelForecaster(Protocol):
-    model_info: ForecastModelInfo
-
-    async def forecast(
-        self,
-        request: ForecastRequest,
-        context: ForecastContext,
-    ) -> ForecastResult:
-        """Project future site levels.
-
-        Implementations receive historical buckets and generic site features
-        through ForecastContext, keeping the API independent from a city schema.
-        """
-
+from app.services.site_projection.collection_cycle import detect_collection_event
+from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import (
+    DEFAULT_MODEL_KEY,
+    ForecastContext,
+    ForecastModelInfo,
+    ForecastPoint,
+    ForecastRequest,
+    ForecastResult,
+)
+from app.services.site_projection.utils import (
+    _as_utc,
+    _ceil_to_next_interval,
+    _clamp_level,
+)
 
 BASELINE_OPERATIONAL_MODEL = ForecastModelInfo(
-    key="baseline_operational",
+    key=DEFAULT_MODEL_KEY,
     name="Baseline operativo",
     description=(
         "Modelo interpretable basado en incrementos historicos por intervalo, "
@@ -87,13 +33,20 @@ BASELINE_OPERATIONAL_MODEL = ForecastModelInfo(
     supports_site_features=True,
 )
 
-DEFAULT_MODEL_KEY = BASELINE_OPERATIONAL_MODEL.key
-
 
 class BaselineOperationalForecaster:
     """Baseline interpretable: proyecta sumando incrementos historicos esperados."""
 
     model_info = BASELINE_OPERATIONAL_MODEL
+
+    async def forecast_many(
+        self,
+        inputs: list[tuple[ForecastRequest, ForecastContext]],
+    ) -> dict[int, ForecastResult]:
+        return {
+            request.site_id: await self.forecast(request, context)
+            for request, context in inputs
+        }
 
     async def forecast(
         self,
@@ -108,11 +61,9 @@ class BaselineOperationalForecaster:
         increment_profile = _build_increment_profile(history)
         confidence, reason = _confidence(history, increment_profile.global_increments)
 
-        # Si tengo historico, parto del ultimo nivel observado. Si no, uso el
-        # nivel actual que venga del estado operativo del sitio.
+        # El historico define los incrementos, pero la proyeccion parte del
+        # nivel actual del sitio (o de la instantanea solicitada).
         current_level = _clamp_level(context.current_level)
-        if history:
-            current_level = _clamp_level(history[-1].level)
 
         # Las features territoriales solo corrigen el fallback. Si el sitio ya
         # tiene suficiente historico propio, prefiero creerle a su serie real.
@@ -251,16 +202,6 @@ def _numeric_feature(
     return None
 
 
-def _ceil_to_next_interval(timestamp: datetime, interval_minutes: int) -> datetime:
-    # Las predicciones salen alineadas a buckets fijos: 08:00, 09:00, etc.
-    timestamp = _as_utc(timestamp).replace(second=0, microsecond=0)
-    minute_of_day = timestamp.hour * 60 + timestamp.minute
-    remainder = minute_of_day % interval_minutes
-    if remainder == 0:
-        return timestamp + timedelta(minutes=interval_minutes)
-    return timestamp + timedelta(minutes=interval_minutes - remainder)
-
-
 def _uncertainty_margin(confidence: float) -> float:
     # Banda simple para graficar incertidumbre; se puede reemplazar por intervalos
     # calibrados cuando tengamos evaluaciones persistidas.
@@ -269,47 +210,3 @@ def _uncertainty_margin(confidence: float) -> float:
     if confidence >= 0.6:
         return 15.0
     return 25.0
-
-
-def _clamp_level(value: float) -> float:
-    return min(100.0, max(0.0, value))
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-_MODEL_REGISTRY: dict[str, SiteLevelForecaster] = {
-    BASELINE_OPERATIONAL_MODEL.key: BaselineOperationalForecaster(),
-}
-
-
-def _get_registry() -> dict[str, SiteLevelForecaster]:
-    if "chronos_2_small" not in _MODEL_REGISTRY:
-        try:
-            from app.services.map.site_projection_chronos import (
-                CHRONOS_2_SMALL_MODEL,
-                Chronos2SmallForecaster,
-            )
-
-            _MODEL_REGISTRY[CHRONOS_2_SMALL_MODEL.key] = Chronos2SmallForecaster()
-        except Exception:
-            pass
-    return _MODEL_REGISTRY
-
-
-def list_projection_models() -> list[ForecastModelInfo]:
-    return [forecaster.model_info for forecaster in _get_registry().values()]
-
-
-def get_projection_model_info(model_key: str) -> ForecastModelInfo | None:
-    forecaster = _get_registry().get(model_key)
-    if forecaster is None:
-        return None
-    return forecaster.model_info
-
-
-def get_forecaster(model_key: str) -> SiteLevelForecaster | None:
-    return _get_registry().get(model_key)

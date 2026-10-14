@@ -4,7 +4,7 @@ from app.models.map.site_projection import (
     SiteModelEvaluation,
     SiteModelEvaluationMetric,
 )
-from app.services.map.site_projection_evaluation_service import _evaluation_report
+from app.services.site_projection.evaluation import _evaluation_report
 
 
 def metric(
