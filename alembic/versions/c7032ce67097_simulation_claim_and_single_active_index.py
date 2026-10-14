@@ -5,7 +5,7 @@ corrige el indice parcial de d4f07c8e6a12, que tenia 'pendinNDemogg' en lugar
 de 'pending' y por eso no impedia dos sesiones en pending a la vez.
 
 Revision ID: c7032ce67097
-Revises: b7e3c1a9d2f4
+Revises: a1b2c3d4e5f6
 Create Date: 2026-10-09 12:00:00.000000
 
 """
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c7032ce67097"
-down_revision: str | Sequence[str] | None = "b7e3c1a9d2f4"
+down_revision: str | Sequence[str] | None = "a1b2c3d4e5f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
