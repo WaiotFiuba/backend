@@ -215,6 +215,19 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(kpis.std_fill_level, 0.0)
             self.assertFalse(kpis.is_whatif)
 
+    async def test_whatif_kpis_without_plan_are_the_real_ones(self):
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+
+            real = await get_real_network_kpis(session)
+            whatif = await get_whatif_network_kpis(session)
+
+            self.assertTrue(whatif.is_whatif)
+            self.assertIsNone(whatif.plan_id)
+            self.assertEqual(whatif.total_sites, real.total_sites)
+            self.assertEqual(whatif.mean_fill_level, real.mean_fill_level)
+            self.assertEqual(whatif.critical_count, real.critical_count)
+
     async def test_whatif_kpis_and_comparison(self):
         """Verifica el cálculo de KPIs What-If y la comparación."""
         async with self.session_maker() as session:

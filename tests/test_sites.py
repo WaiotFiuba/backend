@@ -5,13 +5,14 @@ from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import LineString
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
 from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
 from app.models.map.site_projection import SiteFeature
@@ -185,6 +186,8 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             DataLevel.__table__,
             SimulationSession.__table__,
             SiteFeature.__table__,
+            RedistributionPlan.__table__,
+            OptimizationWhatIfLevel.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -198,6 +201,8 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
         from app.models.map.container_type import container_type_waste_types
 
         tables = [
+            OptimizationWhatIfLevel.__table__,
+            RedistributionPlan.__table__,
             SiteFeature.__table__,
             SimulationSession.__table__,
             Site.__table__,
@@ -746,6 +751,62 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             low_zoom = await get_sites_clustered(db=session, zoom=14, **bbox)
             self.assertEqual(low_zoom[0].count, 2)
             self.assertEqual(low_zoom[0].avg_level, 50.0)
+
+    async def test_whatif_map_without_active_plan_is_the_real_map(self):
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+            for container_id, level in ((1, 20), (2, 80)):
+                session.add(
+                    Container(
+                        id=container_id,
+                        site_id=1,
+                        serie_id=f"C{container_id}",
+                        latitude=-34.6000,
+                        longitude=-58.4000,
+                        geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                        current_level=level,
+                        change_version=10,
+                        available=True,
+                        container_type=ct,
+                    )
+                )
+            await session.commit()
+
+            bbox = {
+                "lat_min": -34.61,
+                "lat_max": -34.59,
+                "lng_min": -58.41,
+                "lng_max": -58.39,
+            }
+            real = await get_sites_clustered(db=session, zoom=18, **bbox)
+            whatif = await get_sites_clustered(
+                db=session, zoom=18, distribution="whatif", **bbox
+            )
+
+            self.assertEqual(
+                [(s.id, s.container_count, s.current_level) for s in whatif],
+                [(s.id, s.container_count, s.current_level) for s in real],
+            )
+            # Pedir el mapa what-if no crea ningún plan.
+            plans = await session.scalar(
+                select(func.count()).select_from(RedistributionPlan)
+            )
+            self.assertEqual(plans, 0)
 
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient

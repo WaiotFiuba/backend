@@ -163,13 +163,15 @@ async def get_sites_clustered(
 
     # Definir origen de datos de contenedores según la distribución
     target_c = Container
+    whatif_plan_id = None
     if distribution == "whatif":
-        from app.models.map.optimization import OptimizationWhatIfLevel
-        from app.services.map.optimization_whatif_service import (
-            get_or_create_default_whatif_plan,
-        )
+        from app.services.map.optimization_whatif_service import get_active_plan_id
 
-        plan = await get_or_create_default_whatif_plan(db)
+        # Sin plan activo, el what-if es la red real.
+        whatif_plan_id = await get_active_plan_id(db)
+    if whatif_plan_id is not None:
+        from app.models.map.optimization import OptimizationWhatIfLevel
+
         target_c = (
             select(
                 Container.id.label("id"),
@@ -189,7 +191,7 @@ async def get_sites_clustered(
             .outerjoin(
                 OptimizationWhatIfLevel,
                 (OptimizationWhatIfLevel.container_id == Container.id)
-                & (OptimizationWhatIfLevel.plan_id == plan.id),
+                & (OptimizationWhatIfLevel.plan_id == whatif_plan_id),
             )
             .where(Container.deleted_at.is_(None))
             .subquery()

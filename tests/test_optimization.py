@@ -6,7 +6,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import event, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.map_database import MapBase
@@ -773,6 +773,34 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(data["std_fill_level"], 0.0)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
+
+    async def test_active_plan_endpoint_without_plan_returns_null(self):
+        """Sin plan activo, GET /plan/active responde null y no crea ningún plan."""
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.map_database import get_map_db
+        from app.main import app
+
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                res = await client.get("/map/optimization/plan/active")
+        finally:
+            app.dependency_overrides.pop(get_map_db, None)
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json())
+        async with self.session_maker() as session:
+            plans = await session.scalar(
+                select(func.count()).select_from(RedistributionPlan)
+            )
+        self.assertEqual(plans, 0)
 
     async def test_plan_endpoint(self):
         """Verifica que POST /map/optimization/plan genera un plan correctamente."""

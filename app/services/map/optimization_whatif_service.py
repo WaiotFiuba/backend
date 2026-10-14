@@ -135,48 +135,12 @@ async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPla
     return _plan_model_to_read(plan)
 
 
-async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionPlanRead:
-    """
-    Retorna el plan What-If activo actualmente.
-    Si no existe ninguno, crea y activa un plan base (copia 1:1 de la red física).
-    """
-    stmt = (
-        select(RedistributionPlanModel)
-        .where(RedistributionPlanModel.status == "active_whatif")
-        .order_by(RedistributionPlanModel.id.desc())
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    plan = result.scalar_one_or_none()
-
-    if plan is not None:
-        return _plan_model_to_read(plan)
-
-    from app.schemas.map.optimization import OptimizationConfig
-
-    baseline_plan = RedistributionPlanModel(
-        status="draft",
-        config=OptimizationConfig().model_dump(),
-        moves=[],
-        metrics_snapshot=None,
-        summary={
-            "total_containers_moved": 0,
-            "sites_emptied": 0,
-            "sites_receiving": 0,
-            "sites_donating": 0,
-            "avg_distance_km": 0.0,
-            "expected_improvement": 0.0,
-            "original_mean_fill": 0.0,
-            "original_std_fill": 0.0,
-            "optimized_mean_fill": 0.0,
-            "optimized_std_fill": 0.0,
-        },
-    )
-    db.add(baseline_plan)
-    await db.commit()
-    await db.refresh(baseline_plan)
-
-    return await activate_whatif(db, baseline_plan.id)
+async def get_active_plan(db: AsyncSession) -> RedistributionPlanRead | None:
+    """Plan what-if activo, o None. Nunca crea un plan: sin plan, el what-if es la red real."""
+    plan_id = await get_active_plan_id(db)
+    if plan_id is None:
+        return None
+    return _plan_model_to_read(await db.get(RedistributionPlanModel, plan_id))
 
 
 async def update_virtual_levels_batch(

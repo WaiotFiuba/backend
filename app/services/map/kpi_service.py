@@ -114,7 +114,8 @@ async def get_whatif_network_kpis(
 ) -> NetworkKpiSummaryResponse:
     """
     Calcula los KPIs operacionales de la red What-If simulada a nivel Sitio.
-    Si plan_id es None, busca el plan con estado 'active_whatif'.
+    Si plan_id es None, busca el plan con estado 'active_whatif'; si no hay
+    ninguno, el what-if es la red real.
     """
     resolved_plan_id = plan_id
     if resolved_plan_id is None:
@@ -127,10 +128,8 @@ async def get_whatif_network_kpis(
         resolved_plan_id = await db.scalar(active_plan_stmt)
 
     if resolved_plan_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontró un plan What-If activo para calcular métricas.",
-        )
+        real = await get_real_network_kpis(db)
+        return real.model_copy(update={"is_whatif": True, "plan_id": None})
 
     whatif_cte = (
         select(
