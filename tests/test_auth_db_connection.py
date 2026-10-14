@@ -67,6 +67,9 @@ async def small_pool_sessions(tmp_path):
         await engine.dispose()
 
 
+# real_auth: el bug está en la autenticación real; con el usuario simulado de
+# conftest el test pasaría aunque el pool se bloqueara.
+@pytest.mark.real_auth
 @pytest.mark.asyncio
 async def test_concurrent_authenticated_requests_do_not_exhaust_the_pool(
     small_pool_sessions,
