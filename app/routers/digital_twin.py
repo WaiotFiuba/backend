@@ -71,9 +71,10 @@ async def ingest_telemetry_batch_endpoint(
     body = await request.json()
     raw_measurements = body.get("measurements", []) if isinstance(body, dict) else []
     result = await ingest_telemetry_batch(db, raw_measurements)
-    print(
-        f"[PERF API ENDPOINT] /telemetry/batch completado en {time.perf_counter() - t0:.3f}s para {len(raw_measurements)} mediciones",
-        flush=True,
+    logger.info(
+        "/telemetry/batch completado en %.3fs para %d mediciones.",
+        time.perf_counter() - t0,
+        len(raw_measurements),
     )
     _log_telemetry_ingest("batch", result)
     return result

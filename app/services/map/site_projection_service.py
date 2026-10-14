@@ -23,6 +23,7 @@ from app.schemas.map.site_projection import (
     SiteProjectionRunRequest,
     SiteProjectionRunResponse,
 )
+from app.services.map.reference_time_service import get_reference_time
 from app.services.map.site_projection_history_service import get_site_level_series
 from app.services.map.site_projection_models import (
     DEFAULT_MODEL_KEY,
@@ -30,7 +31,6 @@ from app.services.map.site_projection_models import (
     ForecastRequest,
     get_forecaster,
 )
-from app.services.simulation_session_service import get_active_simulation_session
 
 LevelAggregation = Literal["avg", "max"]
 
@@ -52,7 +52,7 @@ async def project_site_level(
         site_id=numeric_site_id,
         level_aggregation=level_aggregation,
     )
-    generated_at = await _projection_clock(db)
+    generated_at = await get_reference_time(db)
     history_by_site = await get_site_level_series(
         db=db,
         site_ids=[numeric_site_id],
@@ -401,13 +401,6 @@ async def _get_site_features(
             else row.category_value
         )
     return {key: value for key, value in features.items() if value is not None}
-
-
-async def _projection_clock(db: AsyncSession) -> datetime:
-    active_session = await get_active_simulation_session(db)
-    if active_session and active_session.simulated_time:
-        return _as_utc(active_session.simulated_time)
-    return datetime.now(UTC)
 
 
 def _first_timestamp_at_or_above(

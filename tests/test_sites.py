@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import LineString
@@ -14,6 +14,7 @@ from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
 from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
+from app.models.map.site_projection import SiteFeature
 from app.models.map.waste_type import WasteType
 from app.services.map.site_clustering_service import (
     StreetSegment,
@@ -183,6 +184,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             Site.__table__,
             DataLevel.__table__,
             SimulationSession.__table__,
+            SiteFeature.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -196,6 +198,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
         from app.models.map.container_type import container_type_waste_types
 
         tables = [
+            SiteFeature.__table__,
             SimulationSession.__table__,
             Site.__table__,
             DataLevel.__table__,
@@ -495,6 +498,112 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history.points[0].max_level, 80)
             self.assertEqual(history.points[0].min_level, 20)
             self.assertEqual(history.points[0].measurement_count, 2)
+
+    async def test_projection_is_generated_at_the_latest_reading(self):
+        from app.services.map.site_projection_service import project_site_level
+
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio Proyección",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+            session.add(
+                Container(
+                    id=1,
+                    site_id=1,
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    current_level=30,
+                    container_type=ct,
+                )
+            )
+            latest = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+            session.add(
+                DataLevel(
+                    id=1,
+                    reading_date=latest,
+                    container_id=1,
+                    container_current_level=30,
+                    fire_alarm=False,
+                    freeze_alarm=False,
+                    crash_alarm=False,
+                    garbage_collection_alarm=False,
+                    reported_low_consumption_voltage=False,
+                    reported_high_consumption_voltage=False,
+                )
+            )
+            await session.commit()
+
+            # Sin simulación activa: el reloj es la última lectura, no la hora real.
+            projection = await project_site_level(session, site_id=1, horizon_hours=3)
+
+            self.assertEqual(projection.generated_at, latest)
+            self.assertEqual(
+                projection.points[0].timestamp, latest + timedelta(hours=1)
+            )
+
+    async def test_site_history_without_active_simulation(self):
+        """Con sensores reales no hay simulación: el historial igual devuelve datos."""
+        async with self.session_maker() as session:
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio Historial",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                )
+            )
+            await session.flush()
+            session.add(
+                Container(
+                    id=1,
+                    site_id=1,
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    current_level=40,
+                )
+            )
+            first = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+            latest = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
+            for reading_id, (reading_date, level) in enumerate(
+                [(first, 20), (latest, 40)], start=1
+            ):
+                session.add(
+                    DataLevel(
+                        id=reading_id,
+                        reading_date=reading_date,
+                        container_id=1,
+                        container_current_level=level,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    )
+                )
+            await session.commit()
+
+            history = await get_site_level_history(session, site_id=1)
+
+            self.assertEqual([p.avg_level for p in history.points], [20, 40])
+            self.assertEqual(history.window_start.replace(tzinfo=UTC), first)
+            self.assertEqual(history.window_end, latest)
 
     async def test_get_sites_clustered_bbox(self):
         async with self.session_maker() as session:

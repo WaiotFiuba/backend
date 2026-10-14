@@ -23,3 +23,4 @@ class MapConfigResponse(BaseModel):
     default_zoom: int
     bounds: list[list[float]] | None = None
     thresholds: LevelThresholdsResponse
+    available_waste_types: list[str] = ["organico", "reciclaje"]

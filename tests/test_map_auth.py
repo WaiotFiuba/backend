@@ -35,8 +35,14 @@ async def test_map_config_is_public():
         def one(self):
             return (None,) * 7
 
+        def all(self):
+            return []
+
     class _EmptySession:
         async def execute(self, *_args, **_kwargs):
+            return _EmptyResult()
+
+        async def scalars(self, *_args, **_kwargs):
             return _EmptyResult()
 
     async def override_get_map_db():
