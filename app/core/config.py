@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     level_threshold_normal: int = 40
     level_threshold_high: int = 70
     level_threshold_critical: int = 80
+    # Periodos de data_level que se conservan (~17 MB cada uno); 0 = sin limite.
+    data_level_retention_periods: int = 1920
+    data_level_size_warning_gb: float = 70.0
     log_level: str = "INFO"
     enable_map_db: bool = False
     map_database_url: str = (
