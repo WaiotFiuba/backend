@@ -239,13 +239,6 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
                 )
         finally:
             app.dependency_overrides.pop(get_map_db, None)
-            # El what-if guarda el plan activo en variables globales del proceso:
-            # se limpian para no afectar a otros tests.
-            import app.services.map.optimization_whatif_service as whatif_svc
-
-            whatif_svc._active_plan_id = None
-            whatif_svc._optimized_mapping.clear()
-            whatif_svc._virtual_levels.clear()
 
         self.assertEqual(res.status_code, 201)
         data = res.json()

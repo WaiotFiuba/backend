@@ -29,19 +29,22 @@ from app.services.map.optimization_service import _plan_model_to_read
 
 logger = logging.getLogger(__name__)
 
-# Caché en memoria del mapping optimizado para performance en el hot path
-_active_plan_id: int | None = None
-_optimized_mapping: dict[int, int | None] = {}  # container_id -> optimized_site_id
-_virtual_levels: dict[int, int] = {}  # container_id -> virtual_level
+
+async def get_active_plan_id(db: AsyncSession) -> int | None:
+    """Id del plan what-if activo, leído de la base (sobrevive a reinicios)."""
+    return await db.scalar(
+        select(RedistributionPlanModel.id)
+        .where(RedistributionPlanModel.status == "active_whatif")
+        .order_by(RedistributionPlanModel.id.desc())
+        .limit(1)
+    )
 
 
 async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanRead:
     """
     Activa el modo what-if para un plan de redistribución.
-    Carga el mapping virtual y prepara la tabla de niveles.
+    Prepara la tabla de niveles virtuales.
     """
-    global _active_plan_id, _optimized_mapping, _virtual_levels
-
     plan = await db.get(RedistributionPlanModel, plan_id)
     if plan is None:
         raise HTTPException(
@@ -49,7 +52,6 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
             detail="Plan de redistribución no encontrado.",
         )
     if plan.status == "active_whatif":
-        await _ensure_cache_for_plan(db, plan)
         return _plan_model_to_read(plan)
 
     # Desactivar any plan what-if previo
@@ -102,11 +104,6 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
     plan.status = "active_whatif"
     await db.commit()
 
-    # Cargar en caché
-    _active_plan_id = plan_id
-    _optimized_mapping = {c.id: move_mapping.get(c.id, c.site_id) for c in containers}
-    _virtual_levels = {c.id: c.current_level for c in containers}
-
     logger.info(
         "What-if activado para plan %s con %d contenedores (%d movimientos).",
         plan_id,
@@ -119,8 +116,6 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
 
 async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanRead:
     """Desactiva el modo what-if y limpia niveles virtuales."""
-    global _active_plan_id, _optimized_mapping, _virtual_levels
-
     plan = await db.get(RedistributionPlanModel, plan_id)
     if plan is None:
         raise HTTPException(
@@ -136,55 +131,8 @@ async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPla
     plan.status = "completed"
     await db.commit()
 
-    if _active_plan_id == plan_id:
-        _active_plan_id = None
-        _optimized_mapping = {}
-        _virtual_levels = {}
-
     logger.info("What-if desactivado para plan %s.", plan_id)
     return _plan_model_to_read(plan)
-
-
-async def _ensure_cache_for_plan(
-    db: AsyncSession, plan: RedistributionPlanModel
-) -> None:
-    """Asegura que los mappings del plan estén cargados en memoria."""
-    global _active_plan_id, _optimized_mapping, _virtual_levels
-    if _active_plan_id == plan.id and _optimized_mapping:
-        return
-
-    moves = plan.moves or []
-    move_mapping: dict[int, int] = {m["container_id"]: m["to_site_id"] for m in moves}
-
-    containers = (
-        await db.execute(
-            select(Container.id, Container.site_id, Container.current_level).where(
-                Container.deleted_at.is_(None)
-            )
-        )
-    ).all()
-
-    _active_plan_id = plan.id
-    _optimized_mapping = {c.id: move_mapping.get(c.id, c.site_id) for c in containers}
-    _virtual_levels = {c.id: c.current_level for c in containers}
-
-
-async def ensure_whatif_cache(db: AsyncSession) -> None:
-    """Restaura la caché en memoria si hay un plan active_whatif en la base de datos."""
-    global _active_plan_id
-    if _active_plan_id is not None:
-        return
-
-    stmt = (
-        select(RedistributionPlanModel)
-        .where(RedistributionPlanModel.status == "active_whatif")
-        .order_by(RedistributionPlanModel.id.desc())
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    plan = result.scalar_one_or_none()
-    if plan is not None:
-        await _ensure_cache_for_plan(db, plan)
 
 
 async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionPlanRead:
@@ -202,7 +150,6 @@ async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionP
     plan = result.scalar_one_or_none()
 
     if plan is not None:
-        await _ensure_cache_for_plan(db, plan)
         return _plan_model_to_read(plan)
 
     from app.schemas.map.optimization import OptimizationConfig
@@ -232,16 +179,6 @@ async def get_or_create_default_whatif_plan(db: AsyncSession) -> RedistributionP
     return await activate_whatif(db, baseline_plan.id)
 
 
-def is_whatif_active() -> bool:
-    """Retorna True si hay un plan what-if activo en memoria."""
-    return _active_plan_id is not None
-
-
-def get_optimized_site_id(container_id: int) -> int | None:
-    """Retorna el site_id optimizado para un contenedor (desde caché)."""
-    return _optimized_mapping.get(container_id)
-
-
 async def update_virtual_levels_batch(
     db: AsyncSession,
     updates: list[tuple[int, int]],  # (container_id, new_level)
@@ -253,14 +190,11 @@ async def update_virtual_levels_batch(
     Usa staging table + bulk UPDATE para rendimiento óptimo (1 COPY + 1 UPDATE
     en vez de N UPDATEs individuales).
     """
-    if not _active_plan_id or not updates:
+    if not updates:
         return
-
-    # Actualizar caché en memoria
-    for container_id, new_level in updates:
-        _virtual_levels[container_id] = new_level
-
-    plan_id = _active_plan_id
+    plan_id = await get_active_plan_id(db)
+    if plan_id is None:
+        return
 
     # Bulk update via staging table (fast path para asyncpg/PostgreSQL)
     try:

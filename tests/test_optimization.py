@@ -600,7 +600,7 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
         from app.services.map.optimization_whatif_service import (
             activate_whatif,
             deactivate_whatif,
-            is_whatif_active,
+            get_active_plan_id,
         )
 
         async with self.session_maker() as session:
@@ -612,7 +612,7 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             # Activar what-if
             activated = await activate_whatif(session, plan.id)
             self.assertEqual(activated.status, "active_whatif")
-            self.assertTrue(is_whatif_active())
+            self.assertEqual(await get_active_plan_id(session), plan.id)
 
             # Verificar que se crearon niveles virtuales
             count = await session.scalar(
@@ -629,7 +629,41 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             # Desactivar what-if
             deactivated = await deactivate_whatif(session, plan.id)
             self.assertEqual(deactivated.status, "completed")
-            self.assertFalse(is_whatif_active())
+            self.assertIsNone(await get_active_plan_id(session))
+
+    async def test_whatif_keeps_updating_after_a_restart(self):
+        """El plan activo se lee de la base: no depende de memoria del proceso."""
+        from app.models.map.optimization import RedistributionPlan
+        from app.services.map.optimization_whatif_service import (
+            update_virtual_levels_batch,
+        )
+
+        # Estado que encuentra un backend recién reiniciado: el plan activo y sus
+        # niveles virtuales están en la base, y nada en memoria.
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            plan = RedistributionPlan(
+                status="active_whatif", config={}, moves=[], summary={}
+            )
+            session.add(plan)
+            await session.flush()
+            container_id = await session.scalar(select(Container.id).limit(1))
+            session.add(
+                OptimizationWhatIfLevel(
+                    plan_id=plan.id, container_id=container_id, virtual_level=10
+                )
+            )
+            await session.commit()
+
+        async with self.session_maker() as session:
+            await update_virtual_levels_batch(session, [(container_id, 77)])
+            await session.commit()
+            level = await session.scalar(
+                select(OptimizationWhatIfLevel.virtual_level).where(
+                    OptimizationWhatIfLevel.container_id == container_id
+                )
+            )
+        self.assertEqual(level, 77)
 
     async def test_whatif_comparison_metrics(self):
         """Verifica que se pueden obtener métricas de comparación real vs optimizado."""
@@ -836,11 +870,6 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(res_404.status_code, 404)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
-            import app.services.map.optimization_whatif_service as whatif_svc
-
-            whatif_svc._active_plan_id = None
-            whatif_svc._optimized_mapping.clear()
-            whatif_svc._virtual_levels.clear()
 
     def test_build_redistribution_move_metrics(self):
         """Verifica que cada movimiento calcule la descongestión neta y los niveles antes/después."""

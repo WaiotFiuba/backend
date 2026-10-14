@@ -504,11 +504,10 @@ async def _update_whatif_levels(
     contenedores usando el mapping optimizado.
     """
     from app.services.map.optimization_whatif_service import (
-        is_whatif_active,
         update_virtual_levels_batch,
     )
 
-    if not is_whatif_active() or not update_tuples:
+    if not update_tuples:
         return
 
     try:
