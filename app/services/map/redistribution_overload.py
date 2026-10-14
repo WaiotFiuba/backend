@@ -23,10 +23,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from app.services.map.site_collection_cycle_service import (
+from app.services.site_projection.collection_cycle import (
     CollectionCycleDetectionConfig,
 )
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 FULL_LEVEL = 100.0
 # Umbral crítico por defecto; coincide con el umbral centralizado del backend.

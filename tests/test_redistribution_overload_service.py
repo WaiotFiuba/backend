@@ -298,7 +298,7 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(plan.moves), 1)
 
     async def test_hourly_site_levels_fallback_matches_the_python_aggregation(self):
-        from app.services.map.site_projection_history_service import (
+        from app.services.site_projection.history import (
             fetch_hourly_site_levels,
         )
 

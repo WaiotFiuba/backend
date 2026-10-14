@@ -40,7 +40,7 @@ from app.services.map.redistribution_overload_planner import (
 )
 from app.services.map.reference_time_service import get_reference_time
 from app.services.map.site_capacity_service import get_site_capacity_service
-from app.services.map.site_projection_history_service import (
+from app.services.site_projection.history import (
     HourlySiteLevels,
     fetch_hourly_site_levels,
 )

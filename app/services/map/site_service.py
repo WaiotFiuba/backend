@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import Numeric, case, cast, func, or_, select
+from sqlalchemy import Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -22,6 +22,7 @@ from app.schemas.map.site import (
 )
 from app.services.map.container_service import _zoom_to_grid_size
 from app.services.map.reference_time_service import get_reference_time
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -78,6 +79,14 @@ def _build_site_map_output(
     )
 
 
+def _active_containers_join(target_c, c_site_id):
+    """Condición de join sitio-contenedor; excluye contenedores dados de baja."""
+    condition = c_site_id == Site.id
+    if target_c is Container:
+        condition = condition & Container.deleted_at.is_(None)
+    return condition
+
+
 def _containers_query(target_c=Container, site_ids: list[int] | None = None):
     cols = target_c.c if hasattr(target_c, "c") else Container
     stmt = (
@@ -96,6 +105,8 @@ def _containers_query(target_c=Container, site_ids: list[int] | None = None):
         .select_from(target_c)
         .outerjoin(ContainerType, cols.container_type_id == ContainerType.id)
     )
+    if target_c is Container:
+        stmt = stmt.where(Container.deleted_at.is_(None))
     if site_ids is not None:
         stmt = stmt.where(cols.site_id.in_(site_ids))
     return stmt
@@ -106,16 +117,10 @@ def _waste_filter_conditions(
 ):
     if waste_filter == "reciclable":
         waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [or_(waste_name.like("%seca%"), waste_name.like("%recicl%"))]
+        return [waste_name.like("%seca%")]
     if waste_filter == "humedo":
-        waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [
-            or_(
-                waste_name.like("%humeda%"),
-                waste_name.like("%húmeda%"),
-                waste_name.like("%hÃºmeda%"),
-            )
-        ]
+        waste_name = func.lower(func.coalesce(WasteType.name, "húmeda"))
+        return [waste_name.like("%húmed%")]
     return []
 
 
@@ -221,7 +226,7 @@ async def get_sites_clustered(
                 func.max(c_last_pickup).label("last_pickup"),
                 func.coalesce(func.bool_or(c_available), True).label("available"),
             )
-            .outerjoin(target_c, c_site_id == Site.id)
+            .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(
                 Site.latitude >= lat_min,
@@ -271,7 +276,8 @@ async def get_sites_clustered(
                 "available_count"
             ),
         )
-        .outerjoin(target_c, c_site_id == Site.id)
+        .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
+        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(
             Site.latitude >= lat_min,
             Site.latitude <= lat_max,
@@ -349,7 +355,7 @@ async def get_site_changes(
             func.max(Container.last_pickup).label("last_pickup"),
             func.coalesce(func.bool_or(Container.available), True).label("available"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        .outerjoin(Container, _active_containers_join(Container, Container.site_id))
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.id.in_(site_ids), Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name, WasteType.color)
@@ -402,7 +408,7 @@ async def get_site_by_id(
                     "available"
                 ),
             )
-            .outerjoin(Container, Container.site_id == Site.id)
+            .outerjoin(Container, _active_containers_join(Container, Container.site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(Site.id == numeric_site_id, Site.deleted_at.is_(None))
             .group_by(Site.id, WasteType.name, WasteType.color)
@@ -486,9 +492,12 @@ async def get_site_level_history(
             status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
         )
 
-    # Las últimas `limit` lecturas hasta la última registrada, haya o no una
-    # simulación activa (con sensores reales no la hay).
-    window_end = await get_reference_time(db)
+    active_session = await get_active_simulation_session(db)
+    window_end = (
+        _as_utc(active_session.simulated_time)
+        if active_session and active_session.simulated_time
+        else await get_reference_time(db)
+    )
 
     stmt = (
         select(

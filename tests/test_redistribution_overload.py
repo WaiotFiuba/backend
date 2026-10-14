@@ -6,7 +6,7 @@ from app.services.map.redistribution_overload import (
     accumulated_since_collection,
     build_overload_profile,
 )
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 

@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.thresholds import get_level_thresholds
 from app.models.map.container import Container
 from app.models.map.data_level import DataLevel
 from app.models.map.site import Site
@@ -23,12 +24,12 @@ from app.schemas.map.site_projection import (
     SiteProjectionEvaluationResponse,
     SiteProjectionEvaluationSiteReport,
 )
-from app.services.map.site_projection_history_service import (
+from app.services.site_projection.history import (
     SiteLevelBucket,
     floor_to_interval,
     get_site_level_series,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
     ForecastRequest,
@@ -44,7 +45,7 @@ class SiteBacktestRequest:
     cutoff: datetime
     horizon_hours: int = 24
     interval_minutes: int = 60
-    critical_level: int = 80
+    critical_level: int = get_level_thresholds().critical
     level_aggregation: str = "avg"
     lookback_days: int = 14
     stop_at_full: bool = False
