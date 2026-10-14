@@ -568,6 +568,45 @@ async def get_plan_by_id(
 # ---------------------------------------------------------------------------
 
 
+def _build_redistribution_move(
+    container_id: int,
+    donor: SiteUtilizationMetric,
+    receiver: SiteUtilizationMetric,
+    dist: float,
+) -> RedistributionMove:
+    d_count = max(1, donor.container_count)
+    d_before = round(donor.avg_fill_level, 1)
+    d_after = round(
+        min(100.0, (donor.avg_fill_level * d_count) / max(1, d_count - 1)), 1
+    )
+
+    r_count = max(1, receiver.container_count)
+    r_before = round(receiver.avg_fill_level, 1)
+    r_after = round(min(100.0, (receiver.avg_fill_level * r_count) / (r_count + 1)), 1)
+
+    donor_delta = round(d_after - d_before, 1)
+    receiver_relief = round(r_after - r_before, 1)
+    net_decongestion = round(receiver_relief + donor_delta, 1)
+
+    return RedistributionMove(
+        container_id=container_id,
+        from_site_id=donor.site_id,
+        from_site_name=donor.site_name,
+        to_site_id=receiver.site_id,
+        to_site_name=receiver.site_name,
+        from_lat=round(donor.latitude, 6),
+        from_lng=round(donor.longitude, 6),
+        to_lat=round(receiver.latitude, 6),
+        to_lng=round(receiver.longitude, 6),
+        distance_km=round(dist, 4),
+        donor_fill_before=d_before,
+        donor_fill_after=d_after,
+        receiver_fill_before=r_before,
+        receiver_fill_after=r_after,
+        net_decongestion_pct=net_decongestion,
+    )
+
+
 def _solve_greedy(
     donors: list[SiteUtilizationMetric],
     receivers: list[SiteUtilizationMetric],
@@ -640,18 +679,7 @@ def _solve_greedy(
                     break
                 container_id = available.pop(0)
                 moves.append(
-                    RedistributionMove(
-                        container_id=container_id,
-                        from_site_id=donor.site_id,
-                        from_site_name=donor.site_name,
-                        to_site_id=receiver.site_id,
-                        to_site_name=receiver.site_name,
-                        from_lat=round(donor.latitude, 6),
-                        from_lng=round(donor.longitude, 6),
-                        to_lat=round(receiver.latitude, 6),
-                        to_lng=round(receiver.longitude, 6),
-                        distance_km=round(dist, 4),
-                    )
+                    _build_redistribution_move(container_id, donor, receiver, dist)
                 )
                 remaining_supply[donor.site_id] -= 1
                 r_demand -= 1
@@ -818,18 +846,7 @@ def _solve_lp(
         for _ in range(min(n_move, len(available))):
             container_id = available.pop(0)
             moves.append(
-                RedistributionMove(
-                    container_id=container_id,
-                    from_site_id=donor.site_id,
-                    from_site_name=donor.site_name,
-                    to_site_id=receiver.site_id,
-                    to_site_name=receiver.site_name,
-                    from_lat=round(donor.latitude, 6),
-                    from_lng=round(donor.longitude, 6),
-                    to_lat=round(receiver.latitude, 6),
-                    to_lng=round(receiver.longitude, 6),
-                    distance_km=round(dist, 4),
-                )
+                _build_redistribution_move(container_id, donor, receiver, dist)
             )
 
     return moves
