@@ -7,27 +7,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
 from app.schemas.map.site_projection import (
+    SiteProjectionBatchRequest,
+    SiteProjectionBatchResponse,
     SiteProjectionEvaluationReportResponse,
     SiteProjectionEvaluationRequest,
     SiteProjectionEvaluationResponse,
     SiteProjectionModel,
     SiteProjectionModelsResponse,
-    SiteProjectionRunRequest,
-    SiteProjectionRunResponse,
 )
-from app.services.map.site_projection_evaluation_service import (
+from app.services.site_projection.evaluation import (
     create_site_projection_evaluation,
     get_site_projection_evaluation,
     get_site_projection_evaluation_report,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     list_projection_models,
 )
-from app.services.map.site_projection_service import (
-    create_site_projection_run,
-    get_site_projection_run,
-)
+from app.services.site_projection.service import project_sites
 
 router = APIRouter(prefix="/site-projections", tags=["site-projections"])
 
@@ -56,19 +53,16 @@ async def get_site_projection_models() -> SiteProjectionModelsResponse:
 
 @router.post(
     "",
-    response_model=SiteProjectionRunResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear corrida de proyeccion para multiples sitios",
-    description=(
-        "Proyecta una lista de sitios, persiste la corrida y guarda todos los "
-        "puntos proyectados para auditoria y consulta posterior."
-    ),
+    response_model=SiteProjectionBatchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Proyectar multiples sitios",
+    description="Devuelve las proyecciones sin guardar una corrida.",
 )
-async def create_site_projection(
+async def project_multiple_sites(
     db: MapDbDep,
-    request: SiteProjectionRunRequest,
-) -> SiteProjectionRunResponse:
-    return await create_site_projection_run(db=db, request=request)
+    request: SiteProjectionBatchRequest,
+) -> SiteProjectionBatchResponse:
+    return await project_sites(db=db, request=request)
 
 
 @router.post(
@@ -126,16 +120,3 @@ async def get_site_projection_evaluation_report_endpoint(
         db=db,
         evaluation_id=evaluation_id,
     )
-
-
-@router.get(
-    "/{run_id}",
-    response_model=SiteProjectionRunResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Recuperar una corrida de proyeccion persistida",
-)
-async def get_site_projection(
-    db: MapDbDep,
-    run_id: Annotated[int, Path(ge=1)],
-) -> SiteProjectionRunResponse:
-    return await get_site_projection_run(db=db, run_id=run_id)

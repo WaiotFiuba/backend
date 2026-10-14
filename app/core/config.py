@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "*"
     simulation_claim_timeout_seconds: int = 60
     simulation_startup_timeout_minutes: int = 10
+    level_threshold_normal: int = 40
+    level_threshold_high: int = 70
+    level_threshold_critical: int = 80
     log_level: str = "INFO"
     enable_map_db: bool = False
     map_database_url: str = (

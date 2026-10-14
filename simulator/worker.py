@@ -28,10 +28,8 @@ from simulator.zone_classifier import reload_zone_classifier
 logger = logging.getLogger(__name__)
 
 
-# Todos los contenedores: el bbox cubre el mundo entero.
-_ALL_CONTAINERS_PATH = (
-    "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18"
-)
+# Endpoint del worker: no requiere autenticación (a diferencia de /map/*).
+_ALL_CONTAINERS_PATH = "/digital-twin/worker/containers"
 
 
 async def run_worker() -> None:
@@ -166,18 +164,21 @@ async def _run_session(
                 neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
             )
 
-            # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
+            await client.update_progress(
+                simulation_id,
+                {"simulated_time": simulated_time.isoformat()},
+            )
+
             await deliver_tick_measurements(
                 tick.measurements,
                 settings.backend_url,
                 settings.simulator_batch_size,
             )
 
-            # 2. Con los datos 100% guardados en Postgres, publicar el progreso y la hora simulada
+            # El periodo avanza solo cuando todas las mediciones fueron entregadas.
             await client.update_progress(
                 simulation_id,
                 {
-                    "simulated_time": simulated_time.isoformat(),
                     "current_period": period + 1,
                     "global_demand_current": controls.global_current,
                     "measurements_sent": len(tick.measurements),

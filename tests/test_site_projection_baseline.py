@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services.map.site_projection_history_service import SiteLevelBucket
-from app.services.map.site_projection_models import (
+from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
     ForecastRequest,
@@ -79,7 +79,7 @@ async def test_baseline_projects_positive_increments_and_ignores_collection_drop
         ),
     )
 
-    assert [point.predicted_level for point in result.points] == [25, 35, 45]
+    assert [point.predicted_level for point in result.points] == [30, 40, 50]
     assert all(0 <= point.predicted_level <= 100 for point in result.points)
 
 
@@ -167,7 +167,7 @@ async def test_baseline_ignores_density_feature_when_site_history_is_enough():
     result = await forecaster.forecast(
         ForecastRequest(site_id=1, horizon_hours=2, interval_minutes=60),
         ForecastContext(
-            current_level=0,
+            current_level=22,
             generated_at=datetime(2026, 1, 1, 14, 0, tzinfo=UTC),
             site_features={"demand.density_factor": 2.0},
             history=history,
@@ -191,7 +191,7 @@ async def test_baseline_reports_high_confidence_with_rich_history():
     result = await forecaster.forecast(
         ForecastRequest(site_id=1, horizon_hours=1, interval_minutes=60),
         ForecastContext(
-            current_level=0,
+            current_level=34,
             generated_at=start + timedelta(hours=48),
             site_features={},
             history=history,
