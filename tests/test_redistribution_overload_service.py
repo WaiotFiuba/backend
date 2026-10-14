@@ -273,6 +273,30 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(offloaded, ["_build_candidates", "_plan_by_group"])
         self.assertEqual(len(plan.moves), 1)
 
+    async def test_cpu_work_does_not_hold_a_db_connection(self):
+        import asyncio
+        from unittest.mock import patch
+
+        import app.services.map.redistribution_overload_service as service
+
+        holding_connection = {}
+        original_to_thread = asyncio.to_thread
+
+        async with self.session_maker() as session:
+
+            async def recording_to_thread(function, *args, **kwargs):
+                # Sin transacción abierta, la sesión no retiene una conexión.
+                holding_connection[function.__name__] = session.in_transaction()
+                return await original_to_thread(function, *args, **kwargs)
+
+            with patch.object(service.asyncio, "to_thread", recording_to_thread):
+                plan = await generate_overload_plan(session, NO_CAPACITY)
+
+        self.assertEqual(
+            holding_connection, {"_build_candidates": False, "_plan_by_group": False}
+        )
+        self.assertEqual(len(plan.moves), 1)
+
     async def test_hourly_site_levels_fallback_matches_the_python_aggregation(self):
         from app.services.map.site_projection_history_service import (
             fetch_hourly_site_levels,

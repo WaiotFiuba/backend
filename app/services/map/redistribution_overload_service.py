@@ -126,6 +126,9 @@ async def load_overload_candidates(
         lookback_days=window_days,
         end_time=reference_time,
     )
+    # Ya se leyó todo: se termina la transacción para devolver la conexión al
+    # pool mientras dura el cálculo (puede ser más de un minuto).
+    await db.commit()
     # Armar los perfiles y calcular la capacidad es cálculo en Python: corre en
     # un thread para no frenar el resto del backend.
     return await asyncio.to_thread(
