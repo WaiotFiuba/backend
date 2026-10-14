@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Protocol
 
+from app.core.thresholds import get_level_thresholds
 from app.services.map.site_collection_cycle_service import detect_collection_event
 from app.services.map.site_projection_history_service import SiteLevelBucket
 
@@ -25,7 +26,7 @@ class ForecastRequest:
     site_id: int
     horizon_hours: int = 24
     interval_minutes: int = 60
-    critical_level: int = 80
+    critical_level: int = get_level_thresholds().critical
     level_aggregation: str = "avg"
     lookback_days: int = 14
     stop_at_full: bool = True

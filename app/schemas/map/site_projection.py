@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.thresholds import get_level_thresholds
+
 
 class SiteProjectionModel(BaseModel):
     key: str = Field(description="Identificador estable usado como model_key.")
@@ -34,7 +36,7 @@ class SiteProjectionRunRequest(BaseModel):
     model_key: str = "baseline_operational"
     horizon_hours: int = Field(default=24, ge=1, le=168)
     interval_minutes: int = Field(default=60, ge=15, le=1440)
-    critical_level: int = Field(default=80, ge=1, le=100)
+    critical_level: int = Field(default=get_level_thresholds().critical, ge=1, le=100)
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)
     stop_at_full: bool = True
@@ -103,7 +105,7 @@ class SiteProjectionEvaluationRequest(BaseModel):
     )
     model_key: str = "baseline_operational"
     horizon_hours: int = Field(default=24, ge=1, le=168)
-    critical_level: int = Field(default=80, ge=1, le=100)
+    critical_level: int = Field(default=get_level_thresholds().critical, ge=1, le=100)
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)
     stop_at_full: bool = False
