@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -34,12 +34,26 @@ from app.services.digital_twin_ingest_service import (
 
 logger = logging.getLogger(__name__)
 
+# Clave del lock de Postgres que pone en fila las creaciones de simulaciones.
+_CREATE_SIMULATION_LOCK = 7_032_001
+
 
 async def create_simulation(
     db: AsyncSession,
     payload: SimulationCreate,
     user_id: int,
 ) -> SimulationRead:
+    # Dos creaciones a la vez (un doble clic) corren una detras de la otra: si
+    # no, las dos resetean los niveles de todos los contenedores a la vez
+    # (deadlock) y chocan con el indice de sesion activa unica. El lock se
+    # libera solo con el commit o el rollback.
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _CREATE_SIMULATION_LOCK},
+        )
+
     # Si habia una simulacion activa, se detiene
     active_sessions = (
         (
@@ -92,18 +106,20 @@ async def create_simulation(
         created_by=user_id,
     )
     db.add(session)
-    await db.flush()
-    for override in payload.zone_overrides:
-        db.add(
-            SimulationZoneOverride(
-                simulation_id=session.id,
-                neighborhood=override.neighborhood,
-                multiplier_current=override.multiplier,
-                multiplier_start=override.multiplier,
-                multiplier_target=override.multiplier,
-            )
-        )
     try:
+        # El flush tambien va adentro: es donde salta el indice de sesion
+        # activa unica si otra sesion se activo en el medio.
+        await db.flush()
+        for override in payload.zone_overrides:
+            db.add(
+                SimulationZoneOverride(
+                    simulation_id=session.id,
+                    neighborhood=override.neighborhood,
+                    multiplier_current=override.multiplier,
+                    multiplier_start=override.multiplier,
+                    multiplier_target=override.multiplier,
+                )
+            )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -293,11 +309,20 @@ async def finish_simulation_session(
 
 
 async def fail_interrupted_sessions(db: AsyncSession) -> int:
+    """Al arrancar, el worker cierra las sesiones que quedaron a medias por su
+    reinicio. Una sesion en pending que ningun simulador tomo no se cierra:
+    sigue esperando, y si nadie la toma vence sola (pending_expiry_reason)."""
     from sqlalchemy import update
 
     result = await db.execute(
         update(SimulationSession)
-        .where(SimulationSession.status.in_(ACTIVE_STATUSES))
+        .where(
+            SimulationSession.status.in_(ACTIVE_STATUSES),
+            or_(
+                SimulationSession.status != SimulationStatus.PENDING,
+                SimulationSession.claimed_at.is_not(None),
+            ),
+        )
         .values(
             status=SimulationStatus.FAILED,
             error_message="El worker se reinicio durante la simulacion.",
