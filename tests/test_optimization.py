@@ -93,6 +93,20 @@ class TestOptimizationConfig(unittest.TestCase):
         self.assertEqual(config.max_distance_km, 5.0)
         self.assertEqual(config.algorithm, "lp")
 
+    def test_invalid_values_are_rejected(self):
+        from pydantic import ValidationError
+
+        invalid = [
+            {"window_days": 0},
+            {"window_days": -7},
+            {"max_distance_km": 0},
+            {"max_distance_km": 50},
+            {"algorithm": "simulated_annealing"},
+        ]
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(ValidationError):
+                OptimizationConfig(**values)
+
 
 # ---------------------------------------------------------------------------
 # Tests de integración con DB in-memory (SQLite)
@@ -304,6 +318,34 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
 
             # Sitio C (normal): score medio
             self.assertIn(3, by_id)
+
+    async def test_metrics_exclude_soft_deleted_containers(self):
+        from app.services.map.optimization_service import (
+            compute_site_utilization_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            session.add(
+                Container(
+                    id=99,
+                    site_id=1,
+                    latitude=-34.5800,
+                    longitude=-58.4100,
+                    current_level=100,
+                    container_type_id=1,
+                    deleted_at=datetime(2026, 9, 1, tzinfo=UTC),
+                    geom=WKTElement("POINT(-58.4100 -34.5800)", srid=4326),
+                )
+            )
+            await session.commit()
+
+            result = await compute_site_utilization_metrics(
+                session, OptimizationConfig()
+            )
+
+            site_a = next(s for s in result.sites if s.site_id == 1)
+            self.assertEqual(site_a.container_count, 2)  # sin el dado de baja
 
     async def test_metrics_window_is_relative_to_the_latest_reading(self):
         """La ventana se mide desde la última lectura, no desde el reloj del servidor."""
@@ -758,6 +800,16 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("id", data)
                 self.assertEqual(data["status"], "active_whatif")
                 self.assertIn("moves", data)
+
+                # Configuraciones inválidas: 422, no un 500 ni un plan absurdo.
+                res_bad_plan = await client.post(
+                    "/map/optimization/plan", json={"algorithm": "quantum"}
+                )
+                self.assertEqual(res_bad_plan.status_code, 422)
+                res_bad_metrics = await client.get(
+                    "/map/optimization/metrics", params={"window_days": 0}
+                )
+                self.assertEqual(res_bad_metrics.status_code, 422)
                 self.assertIn("original_mean_fill", data)
                 self.assertIn("original_std_fill", data)
                 self.assertIn("optimized_mean_fill", data)

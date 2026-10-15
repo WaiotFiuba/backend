@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,10 +11,14 @@ class OptimizationConfig(BaseModel):
 
     window_days: int | None = Field(
         None,
+        ge=1,
+        le=365,
         description="Días de historial a analizar. None = usar todo el disponible.",
     )
     max_distance_km: float = Field(
         2.0,
+        gt=0,
+        le=20,
         description="Distancia máxima en km para mover un contenedor entre sitios.",
     )
     min_utilization_donor: float = Field(
@@ -28,9 +33,13 @@ class OptimizationConfig(BaseModel):
         0.50,
         description="Nivel de utilización objetivo para todos los sitios.",
     )
-    algorithm: str = Field(
+    algorithm: Literal["lp", "greedy", "overload"] = Field(
         "greedy",
-        description="Algoritmo de optimización: 'lp' (programación lineal) o 'greedy'.",
+        description=(
+            "Algoritmo de optimización: 'lp' (programación lineal) o 'greedy' del "
+            "modelo por score, u 'overload' (modelo de sobrecarga: minimiza las "
+            "horas en zona crítica y desbordado)."
+        ),
     )
     apply_capacity_constraints: bool = Field(
         True,
@@ -104,6 +113,13 @@ class RedistributionMove(BaseModel):
         None,
         description="Balance neto de descongestión entre la suma de los 2 sitios (ΔReceptor + ΔDonante)",
     )
+    overload_reduction: float | None = Field(
+        None,
+        description=(
+            "Solo modelo 'overload': cuánto baja la sobrecarga total con este "
+            "movimiento (horas en crítico + peso x horas desbordado, en la ventana)"
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -131,6 +147,12 @@ class RedistributionPlanRead(BaseModel):
     original_std_fill: float = 0.0
     optimized_mean_fill: float = 0.0
     optimized_std_fill: float = 0.0
+    # Solo modelo 'overload': horas en la ventana de historia, sumadas sobre los
+    # sitios candidatos, con la distribución actual y con la del plan.
+    critical_hours_before: float | None = None
+    critical_hours_after: float | None = None
+    overflow_hours_before: float | None = None
+    overflow_hours_after: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

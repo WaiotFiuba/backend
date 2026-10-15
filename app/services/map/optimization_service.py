@@ -161,7 +161,12 @@ async def compute_site_utilization_metrics(
                 func.round(cast(func.avg(Container.current_level), Numeric)), 0
             ).label("current_avg_level"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        # El filtro va en el ON para que los sitios sin contenedores activos
+        # sigan apareciendo (con 0 contenedores).
+        .outerjoin(
+            Container,
+            (Container.site_id == Site.id) & Container.deleted_at.is_(None),
+        )
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name)
@@ -307,7 +312,16 @@ async def generate_redistribution_plan(
     """
     Genera un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
+    Con algorithm="overload" usa el modelo de sobrecarga.
     """
+    if config.algorithm == "overload":
+        # Import local: el servicio del modelo nuevo usa helpers de este módulo.
+        from app.services.map.redistribution_overload_service import (
+            generate_overload_plan,
+        )
+
+        return await generate_overload_plan(db, config, user_id)
+
     # 1. Calcular métricas
     metrics_response = await compute_site_utilization_metrics(db, config)
     metrics = metrics_response.sites
@@ -865,7 +879,9 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
     return RedistributionPlanRead(
         id=plan.id,
         status=plan.status,
-        config=OptimizationConfig(**plan.config),
+        # model_construct: un plan guardado con otra versión del esquema se sigue
+        # pudiendo leer aunque su config ya no pase la validación actual.
+        config=OptimizationConfig.model_construct(**plan.config),
         moves=[RedistributionMove(**m) for m in moves_data],
         total_containers_moved=summary.get("total_containers_moved", 0),
         sites_emptied=summary.get("sites_emptied", 0),
@@ -877,6 +893,10 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
         original_std_fill=summary.get("original_std_fill", 0.0),
         optimized_mean_fill=summary.get("optimized_mean_fill", 0.0),
         optimized_std_fill=summary.get("optimized_std_fill", 0.0),
+        critical_hours_before=summary.get("critical_hours_before"),
+        critical_hours_after=summary.get("critical_hours_after"),
+        overflow_hours_before=summary.get("overflow_hours_before"),
+        overflow_hours_after=summary.get("overflow_hours_after"),
         created_at=plan.created_at,
         simulation_id=plan.simulation_id,
     )
