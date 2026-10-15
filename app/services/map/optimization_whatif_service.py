@@ -211,6 +211,26 @@ async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPla
     return _plan_model_to_read(plan)
 
 
+async def reset_virtual_levels(db: AsyncSession) -> None:
+    """Reinicia los niveles virtuales del plan activo (decisión E).
+
+    Se usa al iniciar una simulación: los contenedores reales vuelven a 0%, así
+    que los virtuales también, y las horas desbordadas se cuentan de nuevo. El
+    plan sigue activo con su distribución. No hace commit.
+    """
+    await _lock_activation(db)
+    await db.execute(
+        update(OptimizationWhatIfLevel).values(
+            virtual_level=0.0,
+            last_reading=None,
+            virtual_updated_at=None,
+            rate_ewma=None,
+            overflow_hours=0.0,
+            real_overflow_hours=0.0,
+        )
+    )
+
+
 async def get_active_plan(db: AsyncSession) -> RedistributionPlanRead | None:
     """Plan what-if activo, o None. Nunca crea un plan: sin plan, el what-if es la red real."""
     plan_id = await get_active_plan_id(db)
