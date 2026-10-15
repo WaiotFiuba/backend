@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
@@ -24,6 +24,7 @@ from app.schemas.digital_twin import (
     ZoneProfileLayerPayload,
 )
 from app.schemas.map.container import ContainersMapOutputSchema
+from app.services.data_level_retention import purge_in_background
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
 from app.services.map.container_service import get_all_containers
 from app.services.map.zone_profile_service import save_zone_profiles_geojson
@@ -54,8 +55,10 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 async def ingest_telemetry(
     payload: TelemetryIngestPayload,
     db: MapDbDep,
+    background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     result = await ingest_telemetry_batch(db, [payload])
+    background_tasks.add_task(purge_in_background)
     _log_telemetry_ingest("individual", result)
     return result
 
@@ -64,6 +67,7 @@ async def ingest_telemetry(
 async def ingest_telemetry_batch_endpoint(
     request: Request,
     db: MapDbDep,
+    background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     import time
 
@@ -71,6 +75,7 @@ async def ingest_telemetry_batch_endpoint(
     body = await request.json()
     raw_measurements = body.get("measurements", []) if isinstance(body, dict) else []
     result = await ingest_telemetry_batch(db, raw_measurements)
+    background_tasks.add_task(purge_in_background)
     logger.info(
         "/telemetry/batch completado en %.3fs para %d mediciones.",
         time.perf_counter() - t0,
@@ -223,6 +228,7 @@ async def worker_update_progress(
     return await update_simulation_progress(
         db=db,
         simulation_id=simulation_id,
+        claimed=payload.claimed,
         simulated_time=payload.simulated_time,
         current_period=payload.current_period,
         global_demand_current=payload.global_demand_current,
