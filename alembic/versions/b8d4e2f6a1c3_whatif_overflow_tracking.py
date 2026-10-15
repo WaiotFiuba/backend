@@ -54,6 +54,37 @@ def upgrade() -> None:
         ),
     )
 
+    # Promedios de sitios críticos y contenedores al 100 %, real y con el plan.
+    op.create_table(
+        "optimization_whatif_totals",
+        sa.Column("plan_id", sa.BigInteger(), nullable=False),
+        sa.Column("observed_hours", sa.Float(), server_default="0", nullable=False),
+        sa.Column(
+            "real_critical_site_hours", sa.Float(), server_default="0", nullable=False
+        ),
+        sa.Column(
+            "critical_site_hours", sa.Float(), server_default="0", nullable=False
+        ),
+        sa.Column(
+            "real_full_container_hours",
+            sa.Float(),
+            server_default="0",
+            nullable=False,
+        ),
+        sa.Column(
+            "full_container_hours", sa.Float(), server_default="0", nullable=False
+        ),
+        sa.Column("last_observed_at", sa.TIMESTAMP(timezone=True), nullable=True),
+        sa.Column("last_real_critical_sites", sa.Integer(), nullable=True),
+        sa.Column("last_critical_sites", sa.Integer(), nullable=True),
+        sa.Column("last_real_full_containers", sa.Integer(), nullable=True),
+        sa.Column("last_full_containers", sa.Integer(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["plan_id"], ["redistribution_plans.id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("plan_id"),
+    )
+
     # Un solo plan activo: si hubiera varios, queda el más reciente.
     op.execute(
         f"""
@@ -74,6 +105,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("optimization_whatif_totals")
     op.drop_index(
         "uq_redistribution_plans_single_active", table_name="redistribution_plans"
     )

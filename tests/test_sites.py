@@ -12,7 +12,11 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
 from app.models.map.site_projection import SiteFeature
@@ -188,6 +192,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             SiteFeature.__table__,
             RedistributionPlan.__table__,
             OptimizationWhatIfLevel.__table__,
+            OptimizationWhatIfTotals.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -202,6 +207,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
 
         tables = [
             OptimizationWhatIfLevel.__table__,
+            OptimizationWhatIfTotals.__table__,
             RedistributionPlan.__table__,
             SiteFeature.__table__,
             SimulationSession.__table__,

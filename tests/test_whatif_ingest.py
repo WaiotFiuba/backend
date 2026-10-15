@@ -17,7 +17,11 @@ from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.data_level import DataLevel
 from app.models.map.neighborhood import Neighborhood
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.optimization_whatif_service import activate_whatif
@@ -32,6 +36,7 @@ TABLES = [
     DataLevel.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -239,3 +244,39 @@ class TestWhatIfIngest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row.virtual_level, 100)
         self.assertAlmostEqual(row.real_overflow_hours, 1)
         self.assertAlmostEqual(row.overflow_hours, 1)
+
+    async def _totals(self):
+        async with self.session_maker() as session:
+            return await session.get(OptimizationWhatIfTotals, 1)
+
+    async def test_tracks_average_critical_sites_and_full_containers(self):
+        # Hora 1: el único sitio crítico es el 3 (contenedor 10 lleno), en los dos.
+        await self._ingest([_measurement(1, 20, hours=1)])
+        # Hora 2: el 8 sube al 90 %. Con el plan el sitio 2 solo tiene al 8 y
+        # queda crítico; en la red real el 9 sigue ahí al 20 % (promedio 55 %).
+        await self._ingest([_measurement(8, 90, hours=2)])
+        await self._ingest([_measurement(1, 20, hours=3)])
+
+        totals = await self._totals()
+        self.assertAlmostEqual(totals.observed_hours, 2)
+        # Sin el plan: 1 sitio crítico las dos horas. Con el plan: 1 y después 2.
+        self.assertAlmostEqual(
+            totals.real_critical_site_hours / totals.observed_hours, 1
+        )
+        self.assertAlmostEqual(totals.critical_site_hours / totals.observed_hours, 1.5)
+        # El contenedor 10 está lleno todo el tiempo, en los dos.
+        self.assertAlmostEqual(totals.real_full_container_hours, 2)
+        self.assertAlmostEqual(totals.full_container_hours, 2)
+        self.assertEqual(
+            (totals.last_real_critical_sites, totals.last_critical_sites), (1, 2)
+        )
+
+    async def test_network_is_counted_at_most_every_few_minutes(self):
+        await self._ingest([_measurement(1, 20, hours=1)])
+        await self._ingest([_measurement(2, 25, hours=1 + 2 / 60)])  # 2 minutos después
+
+        totals = await self._totals()
+        self.assertEqual(totals.observed_hours, 0)
+        self.assertEqual(
+            totals.last_observed_at.replace(tzinfo=UTC), START + timedelta(hours=1)
+        )

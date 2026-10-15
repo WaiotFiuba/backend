@@ -96,3 +96,41 @@ class OptimizationWhatIfLevel(MapBase):
     real_overflow_hours: Mapped[float] = mapped_column(
         Float, default=0, server_default="0", nullable=False
     )
+
+
+class OptimizationWhatIfTotals(MapBase):
+    """Acumulados de la red, real y con el plan, desde que se activó el plan.
+
+    En cada conteo (como mucho cada pocos minutos de lecturas) se suman los
+    sitios críticos y los contenedores al 100 % del conteo anterior por el tiempo
+    transcurrido. Divididos por observed_hours dan el promedio del período.
+    """
+
+    __tablename__ = "optimization_whatif_totals"
+
+    plan_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("redistribution_plans.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    observed_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    real_critical_site_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    critical_site_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    real_full_container_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    full_container_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    # Último conteo: rige hasta el siguiente.
+    last_observed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    last_real_critical_sites: Mapped[int | None] = mapped_column(Integer)
+    last_critical_sites: Mapped[int | None] = mapped_column(Integer)
+    last_real_full_containers: Mapped[int | None] = mapped_column(Integer)
+    last_full_containers: Mapped[int | None] = mapped_column(Integer)

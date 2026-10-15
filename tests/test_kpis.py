@@ -10,7 +10,11 @@ from app.core.map_database import MapBase, get_map_db
 from app.main import app
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.kpi_service import (
@@ -55,6 +59,7 @@ TABLES = [
     Container.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 
 

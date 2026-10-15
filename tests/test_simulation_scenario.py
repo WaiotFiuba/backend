@@ -12,7 +12,11 @@ from sqlalchemy.ext.compiler import compiles
 import app.services.simulation_session_service as svc
 from app.core.map_database import MapBase
 from app.models.map.data_level import DataLevel
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
 from app.schemas.digital_twin import SimulationCreate
 from simulator.simulation.scenario import (
@@ -65,6 +69,7 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                         DataLevel.__table__,
                         RedistributionPlan.__table__,
                         OptimizationWhatIfLevel.__table__,
+                        OptimizationWhatIfTotals.__table__,
                     ],
                 )
             )
@@ -149,6 +154,15 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                     real_overflow_hours=5.0,
                 )
             )
+            db.add(
+                OptimizationWhatIfTotals(
+                    plan_id=plan.id,
+                    observed_hours=10.0,
+                    critical_site_hours=40.0,
+                    last_observed_at=datetime(2026, 1, 1, 10, 0),
+                    last_critical_sites=4,
+                )
+            )
             await db.commit()
 
         await self._create({"start": "2026-10-06T06:00:00"})
@@ -156,7 +170,17 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
         async with self.session_maker() as db:
             plan = await db.get(RedistributionPlan, plan.id)
             level = (await db.scalars(select(OptimizationWhatIfLevel))).one()
+            totals = await db.get(OptimizationWhatIfTotals, plan.id)
         self.assertEqual(plan.status, "active_whatif")
+        self.assertEqual(
+            (
+                totals.observed_hours,
+                totals.critical_site_hours,
+                totals.last_observed_at,
+                totals.last_critical_sites,
+            ),
+            (0, 0, None, None),
+        )
         # Se conserva la distribución del plan; el estado vuelve a cero.
         self.assertEqual((level.original_site_id, level.optimized_site_id), (1, 2))
         self.assertEqual(

@@ -45,21 +45,22 @@ def _category_count_columns(avg_level) -> list:
     ]
 
 
+def real_containers():
+    """Contenedores activos de la red real, con su sitio y su nivel."""
+    return select(
+        Container.id.label("id"),
+        Container.site_id.label("site_id"),
+        Container.current_level.label("level"),
+    ).where(Container.deleted_at.is_(None))
+
+
 async def get_real_network_kpis(db: AsyncSession) -> NetworkKpiSummaryResponse:
     """
     Calcula los KPIs operacionales de toda la red a nivel Sitio.
     Agrupa los contenedores por sitio para obtener el nivel promedio por sitio,
     y luego agrega las métricas sobre el universo de sitios activos.
     """
-    containers = (
-        select(
-            Container.id.label("id"),
-            Container.site_id.label("site_id"),
-            Container.current_level.label("level"),
-        )
-        .where(Container.deleted_at.is_(None))
-        .subquery("containers")
-    )
+    containers = real_containers().subquery("containers")
     return await _network_kpis(db, containers, is_whatif=False, plan_id=None)
 
 
@@ -96,17 +97,7 @@ async def _network_kpis(
     db: AsyncSession, containers, *, is_whatif: bool, plan_id: int | None
 ) -> NetworkKpiSummaryResponse:
     """KPIs de la red a partir de un conjunto de contenedores (id, site_id, level)."""
-    site_levels_cte = (
-        select(
-            Site.id.label("site_id"),
-            func.coalesce(func.avg(containers.c.level), 0.0).label("avg_level"),
-            func.count(containers.c.id).label("container_count"),
-        )
-        .outerjoin(containers, containers.c.site_id == Site.id)
-        .where(Site.deleted_at.is_(None))
-        .group_by(Site.id)
-        .cte("site_levels")
-    )
+    site_levels_cte = _site_levels(containers)
 
     agg_stmt = select(
         func.count(site_levels_cte.c.site_id).label("total_sites"),
@@ -146,6 +137,45 @@ async def _network_kpis(
         plan_id=plan_id,
         updated_at=datetime.now(timezone.utc),
     )
+
+
+def _site_levels(containers):
+    """Nivel promedio de cada sitio activo, con los contenedores dados."""
+    return (
+        select(
+            Site.id.label("site_id"),
+            func.coalesce(func.avg(containers.c.level), 0.0).label("avg_level"),
+            func.count(containers.c.id).label("container_count"),
+        )
+        .outerjoin(containers, containers.c.site_id == Site.id)
+        .where(Site.deleted_at.is_(None))
+        .group_by(Site.id)
+        .cte("site_levels")
+    )
+
+
+async def count_critical_sites_and_full_containers(
+    db: AsyncSession, containers
+) -> tuple[int, int]:
+    """Sitios críticos (la misma cuenta que los KPIs) y contenedores al 100 %."""
+    thresholds = get_level_thresholds()
+    site_levels = _site_levels(containers)
+    critical = (
+        select(func.count())
+        .select_from(site_levels)
+        .where(site_levels.c.avg_level >= thresholds.critical)
+        .scalar_subquery()
+    )
+    full = (
+        select(func.count())
+        .select_from(containers)
+        .where(containers.c.level >= thresholds.full)
+        .scalar_subquery()
+    )
+    row = (
+        await db.execute(select(critical.label("critical"), full.label("full")))
+    ).one()
+    return int(row.critical), int(row.full)
 
 
 async def get_kpis_comparison(

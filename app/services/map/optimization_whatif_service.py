@@ -9,6 +9,7 @@ una simulación del digital twin.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import (
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.map.container import Container
 from app.models.map.optimization import (
     OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
     RedistributionPlan as RedistributionPlanModel,
 )
 from app.models.map.site import Site
@@ -39,6 +41,10 @@ from app.schemas.map.optimization import (
     RedistributionPlanRead,
     WhatIfComparisonResponse,
     WhatIfSiteComparison,
+)
+from app.services.map.kpi_service import (
+    count_critical_sites_and_full_containers,
+    real_containers,
 )
 from app.services.map.optimization_service import (
     _plan_model_to_read,
@@ -52,6 +58,9 @@ from app.services.map.whatif_allocation import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Como mucho un conteo de la red cada este intervalo (en el tiempo de las lecturas).
+TRACKING_INTERVAL = timedelta(minutes=5)
 
 # Clave del lock de Postgres que serializa la activación de planes.
 _ACTIVATION_LOCK_KEY = 0x57484946  # "WHIF"
@@ -206,6 +215,14 @@ async def _activate(db: AsyncSession, plan: RedistributionPlanModel) -> None:
             ],
         )
 
+    # Los promedios del plan arrancan de cero, como sus niveles virtuales.
+    await db.execute(
+        delete(OptimizationWhatIfTotals).where(
+            OptimizationWhatIfTotals.plan_id == plan.id
+        )
+    )
+    db.add(OptimizationWhatIfTotals(plan_id=plan.id))
+
     plan.status = "active_whatif"
     await db.flush()
     logger.info(
@@ -251,6 +268,28 @@ async def reset_virtual_levels(db: AsyncSession) -> None:
             rate_ewma=None,
             overflow_hours=0.0,
             real_overflow_hours=0.0,
+        )
+    )
+    await db.execute(
+        update(OptimizationWhatIfTotals)
+        .where(
+            OptimizationWhatIfTotals.plan_id.in_(
+                select(RedistributionPlanModel.id).where(
+                    RedistributionPlanModel.status == "active_whatif"
+                )
+            )
+        )
+        .values(
+            observed_hours=0.0,
+            real_critical_site_hours=0.0,
+            critical_site_hours=0.0,
+            real_full_container_hours=0.0,
+            full_container_hours=0.0,
+            last_observed_at=None,
+            last_real_critical_sites=None,
+            last_critical_sites=None,
+            last_real_full_containers=None,
+            last_full_containers=None,
         )
     )
 
@@ -303,6 +342,46 @@ async def apply_readings_to_whatif(
     await _save_virtual_containers(
         db, plan_id, [containers[container_id] for container_id in changed]
     )
+    await _track_network(db, plan_id, max(r.reading_date for r in readings))
+
+
+async def _track_network(db: AsyncSession, plan_id: int, now: datetime) -> None:
+    """Acumula sitios críticos y contenedores al 100 %, real y con el plan.
+
+    Cada conteo rige hasta el siguiente: se suma el conteo anterior por el tiempo
+    transcurrido (en el tiempo de las lecturas, así funciona igual con el
+    simulador acelerado). Como mucho se cuenta una vez cada TRACKING_INTERVAL,
+    para que muchos lotes chicos no repitan la consulta sobre toda la red.
+    """
+    totals = await db.scalar(
+        select(OptimizationWhatIfTotals)
+        .where(OptimizationWhatIfTotals.plan_id == plan_id)
+        .with_for_update()
+    )
+    if totals is None:  # plan activado antes de que existieran los acumulados
+        totals = OptimizationWhatIfTotals(plan_id=plan_id)
+        db.add(totals)
+    last = as_utc(totals.last_observed_at)
+    if last is not None and now - last < TRACKING_INTERVAL:
+        return
+    if last is not None:
+        hours = (now - last).total_seconds() / 3600
+        totals.observed_hours += hours
+        totals.real_critical_site_hours += totals.last_real_critical_sites * hours
+        totals.critical_site_hours += totals.last_critical_sites * hours
+        totals.real_full_container_hours += totals.last_real_full_containers * hours
+        totals.full_container_hours += totals.last_full_containers * hours
+
+    real = await count_critical_sites_and_full_containers(
+        db, real_containers().subquery("containers")
+    )
+    virtual = await count_critical_sites_and_full_containers(
+        db, whatif_containers(plan_id).subquery("containers")
+    )
+    totals.last_real_critical_sites, totals.last_real_full_containers = real
+    totals.last_critical_sites, totals.last_full_containers = virtual
+    totals.last_observed_at = now
+    await db.flush()
 
 
 async def _load_virtual_containers(

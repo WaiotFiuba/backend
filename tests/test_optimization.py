@@ -13,7 +13,11 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.data_level import DataLevel
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.optimization import OptimizationConfig
@@ -162,6 +166,7 @@ TABLES = [
     DataLevel.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 
 
@@ -751,6 +756,10 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             await session.refresh(first)
             self.assertEqual(first.status, "completed")
             self.assertEqual(second.status, "active_whatif")
+            totals = await session.get(OptimizationWhatIfTotals, second.id)
+            self.assertEqual(
+                (totals.observed_hours, totals.critical_site_hours), (0, 0)
+            )
             plan_ids = set(
                 await session.scalars(select(OptimizationWhatIfLevel.plan_id))
             )
