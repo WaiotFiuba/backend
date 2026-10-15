@@ -145,13 +145,18 @@ async def _activate(db: AsyncSession, plan: RedistributionPlanModel) -> None:
                 "optimized_site_id",
                 "virtual_level",
                 "last_reading",
+                "virtual_updated_at",
             ],
+            # El nivel virtual arranca igual al real, así que su fecha también:
+            # si no, la primera hora de un contenedor lleno no se contaría como
+            # desborde del lado virtual y sí del real.
             select(
                 literal(plan.id, BigInteger),
                 Container.id,
                 Container.site_id,
                 Container.site_id,
                 Container.current_level,
+                Container.last_reading,
                 Container.last_reading,
             ).where(Container.deleted_at.is_(None)),
         )

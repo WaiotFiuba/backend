@@ -91,10 +91,13 @@ class TestWhatIfIngest(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
     async def _seed(self, session: AsyncSession):
-        """Sitio 1 con los contenedores 1-5 al 20%; el plan le lleva el 9 del sitio 2."""
+        """Sitio 1 con los contenedores 1-5 al 20%; el plan le lleva el 9 del sitio 2.
+
+        El sitio 3 no participa del plan: su contenedor 10 está lleno.
+        """
         session.add(WasteType(id=1, name="RSU", color="#333"))
         session.add(ContainerType(id=1, name="Lateral", height_cm=145, volume_m3=3.2))
-        for site_id in (1, 2):
+        for site_id in (1, 2, 3):
             session.add(
                 Site(
                     id=site_id,
@@ -106,7 +109,8 @@ class TestWhatIfIngest(unittest.IsolatedAsyncioTestCase):
                 )
             )
         await session.flush()
-        for container_id, site_id in [(i, 1) for i in range(1, 6)] + [(8, 2), (9, 2)]:
+        layout = [(i, 1) for i in range(1, 6)] + [(8, 2), (9, 2), (10, 3)]
+        for container_id, site_id in layout:
             session.add(
                 Container(
                     id=container_id,
@@ -115,7 +119,7 @@ class TestWhatIfIngest(unittest.IsolatedAsyncioTestCase):
                     latitude=-34.6,
                     longitude=-58.4,
                     geom=WKTElement("POINT(-58.4 -34.6)", srid=4326),
-                    current_level=20,
+                    current_level=100 if container_id == 10 else 20,
                     last_reading=START,
                     container_type_id=1,
                 )
@@ -225,3 +229,13 @@ class TestWhatIfIngest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(20, virtual)
         # Ahora el sitio tiene 6 propios y 1 que llega: suma 6 · 6/7.
         self.assertAlmostEqual(virtual[20], 10 + 6 * 6 / 7)
+
+    async def test_real_and_virtual_count_the_same_overflow_outside_the_plan(self):
+        # El contenedor 10 ya estaba lleno al activar el plan y sigue lleno.
+        await self._ingest([_measurement(10, 100, hours=1)])
+
+        async with self.session_maker() as session:
+            row = await session.get(OptimizationWhatIfLevel, (1, 10))
+        self.assertEqual(row.virtual_level, 100)
+        self.assertAlmostEqual(row.real_overflow_hours, 1)
+        self.assertAlmostEqual(row.overflow_hours, 1)
