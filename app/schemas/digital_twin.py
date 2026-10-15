@@ -100,6 +100,8 @@ class SimulationControlsUpdate(BaseModel):
 
 
 class SimulationProgressUpdate(BaseModel):
+    # El worker avisa que tomo la sesion, antes de prepararla.
+    claimed: bool = False
     simulated_time: datetime | None = None
     current_period: int | None = None
     global_demand_current: float | None = None

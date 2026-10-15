@@ -66,6 +66,7 @@ class SimulationSession(MapBase):
         server_default=func.now(),
         nullable=False,
     )
+    claimed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(

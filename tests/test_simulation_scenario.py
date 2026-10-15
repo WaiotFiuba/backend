@@ -93,6 +93,41 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
         async with self.session_maker() as db:
             return await svc.create_simulation(db, payload, user_id=1)
 
+    async def test_worker_restart_only_fails_sessions_it_had_taken(self):
+        async with self.session_maker() as db:
+            for status, claimed in (
+                ("pending", False),
+                ("pending", True),
+                ("running", True),
+                ("running", False),
+            ):
+                db.add(
+                    SimulationSession(
+                        status=status,
+                        scenario={},
+                        total_periods=0,
+                        created_by=1,
+                        claimed_at=datetime(2026, 1, 1) if claimed else None,
+                    )
+                )
+            await db.commit()
+
+        async with self.session_maker() as db:
+            failed = await svc.fail_interrupted_sessions(db)
+            statuses = (
+                (
+                    await db.execute(
+                        select(SimulationSession.status).order_by(SimulationSession.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        # La pending sin tomar sigue esperando; las demas eran del worker.
+        self.assertEqual(failed, 3)
+        self.assertEqual(statuses, ["pending", "failed", "failed", "failed"])
+
     async def test_stores_scenario_as_sent_without_simulator_defaults(self):
         created = await self._create(
             {
