@@ -80,7 +80,13 @@ class OptimizationWhatIfLevel(MapBase):
     optimized_site_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Con decimales: el reparto de cada lectura entre contenedores da fracciones.
     virtual_level: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    # Última lectura del sensor real del contenedor.
     last_reading: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Última vez que cambió el nivel virtual (puede cambiar con lecturas de otros
+    # contenedores del sitio).
+    virtual_updated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     # Velocidad reciente de llenado del contenedor real (puntos por hora).
     rate_ewma: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Horas al 100% del contenedor virtual y del real.

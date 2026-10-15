@@ -20,7 +20,11 @@ from app.core.map_database import MapBase
 class DataLevel(MapBase):
     __tablename__ = "data_level"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     message_time: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     imei: Mapped[str | None] = mapped_column(String)
     m_id: Mapped[str | None] = mapped_column(String)

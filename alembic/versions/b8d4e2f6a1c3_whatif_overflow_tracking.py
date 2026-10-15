@@ -29,6 +29,13 @@ def upgrade() -> None:
         existing_nullable=False,
         postgresql_using="virtual_level::double precision",
     )
+    # Última vez que cambió el nivel virtual. Es distinta de last_reading (la
+    # última lectura del sensor real): un contenedor que llega a un sitio cambia
+    # con las lecturas de los otros contenedores de ese sitio.
+    op.add_column(
+        "optimization_whatif_levels",
+        sa.Column("virtual_updated_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    )
     # Velocidad reciente de llenado del contenedor real (puntos por hora), para
     # estimar lo que siguió llegando mientras el sensor marca 100%.
     op.add_column(
@@ -73,6 +80,7 @@ def downgrade() -> None:
     op.drop_column("optimization_whatif_levels", "real_overflow_hours")
     op.drop_column("optimization_whatif_levels", "overflow_hours")
     op.drop_column("optimization_whatif_levels", "rate_ewma")
+    op.drop_column("optimization_whatif_levels", "virtual_updated_at")
     op.alter_column(
         "optimization_whatif_levels",
         "virtual_level",

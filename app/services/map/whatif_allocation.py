@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.core.thresholds import get_level_thresholds
 from app.services.map.redistribution_overload import SATURATION_LEVEL
@@ -224,3 +224,10 @@ def _hours_between(start: datetime | None, end: datetime) -> float:
     if start is None:
         return 0.0
     return max((end - start).total_seconds() / 3600, 0.0)
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """Fechas comparables entre sí: las que vienen sin zona se toman como UTC."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)

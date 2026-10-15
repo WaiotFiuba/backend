@@ -13,6 +13,7 @@ from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
+from app.services.map.whatif_allocation import Reading, as_utc
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class ContainerCacheMeta:
     waste_type_name: str | None
     zone_id: int | None
     zone_name: str | None
+    last_reading: datetime | None = None
 
 
 _cache_by_id: dict[int, ContainerCacheMeta] = {}
@@ -126,6 +128,7 @@ async def ensure_cache(db: AsyncSession):
             waste_type_name=wtype.name if wtype else None,
             zone_id=neighborhood.id if neighborhood else None,
             zone_name=neighborhood.name if neighborhood else None,
+            last_reading=as_utc(c.last_reading),
         )
         _cache_by_id[meta.id] = meta
         if meta.device_imei:
@@ -140,6 +143,7 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
     # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
         meta.current_level = 0
+        meta.last_reading = None
     invalidate_container_cache()
 
     # 2. Resetear en la base de datos los niveles de los contenedores a 0
@@ -192,6 +196,10 @@ async def ingest_telemetry_batch(
     data_level_inserts = []
     container_updates = []
     update_tuples = []
+    # Lecturas para el what-if: solo las que la ingesta acepta (más nuevas que
+    # la última de cada contenedor), en el orden en que llegaron.
+    whatif_readings: list[Reading] = []
+    site_by_container: dict[int, int | None] = {}
     _cache_by_serie: dict[str, ContainerCacheMeta] = {}
     for meta in _cache_by_id.values():
         if meta.serie_id:
@@ -368,8 +376,24 @@ async def ingest_telemetry_batch(
             upd["last_pickup"] = ts
 
         container_updates.append(upd)
-        meta.current_level = new_level
         updated += 1
+
+        # Las lecturas que llegan fuera de orden se guardan en data_level, pero no
+        # cambian el contenedor (el UPDATE las descarta) ni el what-if.
+        reading_date = as_utc(ts)
+        if meta.last_reading is None or reading_date > meta.last_reading:
+            whatif_readings.append(
+                Reading(
+                    container_id=meta.id,
+                    level_before=old_level,
+                    level_after=new_level,
+                    reading_date=reading_date,
+                    collected=is_pickup,
+                )
+            )
+            site_by_container[meta.id] = meta.site_id
+            meta.current_level = new_level
+            meta.last_reading = reading_date
 
     t_dict_prep = time.perf_counter()
 
@@ -432,10 +456,8 @@ async def ingest_telemetry_batch(
                           AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
                         """
                     )
+            await _apply_whatif(db, whatif_readings, site_by_container)
             await db.commit()
-
-            # Actualizar niveles virtuales de what-if si hay un plan activo
-            await _update_whatif_levels(db, update_tuples)
 
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found
@@ -468,6 +490,8 @@ async def ingest_telemetry_batch(
         )
     t_change_version_end = time.perf_counter()
 
+    await _apply_whatif(db, whatif_readings, site_by_container)
+
     t_commit_start = time.perf_counter()
     await db.commit()
     t_commit_end = time.perf_counter()
@@ -487,32 +511,27 @@ async def ingest_telemetry_batch(
         t_commit_end - t_commit_start,
     )
 
-    # Actualizar niveles virtuales de what-if si hay un plan activo
-    await _update_whatif_levels(db, update_tuples)
-
     return TelemetryIngestResult(
         accepted=len(measurements), updated=updated, not_found=not_found
     )
 
 
-async def _update_whatif_levels(
+async def _apply_whatif(
     db: AsyncSession,
-    update_tuples: list[tuple],
+    readings: list[Reading],
+    site_by_container: dict[int, int | None],
 ) -> None:
-    """
-    Si hay un plan what-if activo, actualiza los niveles virtuales de los
-    contenedores usando el mapping optimizado.
-    """
-    from app.services.map.optimization_whatif_service import (
-        update_virtual_levels_batch,
-    )
+    """Aplica el lote al what-if dentro de la transacción de la ingesta.
 
-    if not update_tuples:
+    Corre en un savepoint: si el what-if falla, se deshace solo lo suyo y las
+    lecturas reales se guardan igual. Nunca queda un what-if a medio aplicar.
+    """
+    if not readings:
         return
+    from app.services.map.optimization_whatif_service import apply_readings_to_whatif
 
     try:
-        # update_tuples: (container_id, level, reading_date, is_pickup)
-        virtual_updates = [(t[0], t[1]) for t in update_tuples]
-        await update_virtual_levels_batch(db, virtual_updates)
+        async with db.begin_nested():
+            await apply_readings_to_whatif(db, readings, site_by_container)
     except Exception:
-        logger.warning("Error actualizando niveles virtuales what-if.", exc_info=True)
+        logger.warning("No se pudo aplicar el lote al what-if.", exc_info=True)

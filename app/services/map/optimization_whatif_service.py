@@ -13,15 +13,19 @@ import logging
 from fastapi import HTTPException, status
 from sqlalchemy import (
     BigInteger,
+    any_,
     bindparam,
     delete,
     func,
     insert,
     literal,
+    or_,
     select,
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -39,6 +43,12 @@ from app.schemas.map.optimization import (
 from app.services.map.optimization_service import (
     _plan_model_to_read,
     build_redistribution_plan,
+)
+from app.services.map.whatif_allocation import (
+    Reading,
+    VirtualContainer,
+    apply_readings,
+    as_utc,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,17 +102,19 @@ async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanR
     return _plan_model_to_read(plan)
 
 
-async def _lock_activation(db: AsyncSession) -> None:
+async def _lock_activation(db: AsyncSession, shared: bool = False) -> None:
     """Serializa las activaciones: dos pedidos a la vez no se pisan.
 
-    El lock dura hasta el fin de la transacción. En SQLite (tests) no hace falta:
-    las escrituras ya se serializan.
+    Activar o desactivar toma el lock exclusivo. La ingesta lo toma compartido:
+    varios lotes pueden aplicarse a la vez, pero nunca durante una activación,
+    así que cada lote se aplica entero sobre el plan anterior o sobre el nuevo.
+    El lock dura hasta el fin de la transacción.
     """
     connection = await db.connection()
     if connection.dialect.name == "postgresql":
+        function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
         await db.execute(
-            text("SELECT pg_advisory_xact_lock(:key)"),
-            {"key": _ACTIVATION_LOCK_KEY},
+            text(f"SELECT {function}(:key)"), {"key": _ACTIVATION_LOCK_KEY}
         )
 
 
@@ -174,6 +186,7 @@ async def _activate(db: AsyncSession, plan: RedistributionPlanModel) -> None:
 
 async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanRead:
     """Desactiva el modo what-if y limpia niveles virtuales."""
+    await _lock_activation(db)
     plan = await db.get(RedistributionPlanModel, plan_id)
     if plan is None:
         raise HTTPException(
@@ -201,69 +214,199 @@ async def get_active_plan(db: AsyncSession) -> RedistributionPlanRead | None:
     return _plan_model_to_read(await db.get(RedistributionPlanModel, plan_id))
 
 
-async def update_virtual_levels_batch(
+async def apply_readings_to_whatif(
     db: AsyncSession,
-    updates: list[tuple[int, int]],  # (container_id, new_level)
+    readings: list[Reading],
+    site_by_container: dict[int, int | None],
 ) -> None:
-    """
-    Actualiza los niveles virtuales de múltiples contenedores.
-    Se llama desde el ingest service después de procesar telemetría real.
+    """Aplica un lote de lecturas reales al what-if del plan activo.
 
-    Usa staging table + bulk UPDATE para rendimiento óptimo (1 COPY + 1 UPDATE
-    en vez de N UPDATEs individuales).
+    Corre dentro de la transacción de la ingesta y no hace commit. Carga los
+    contenedores virtuales de los sitios tocados, aplica la regla de reparto
+    de whatif_allocation y guarda solo las filas que cambiaron.
     """
-    if not updates:
+    if not readings:
         return
+    await _lock_activation(db, shared=True)
     plan_id = await get_active_plan_id(db)
     if plan_id is None:
         return
 
-    # Bulk update via staging table (fast path para asyncpg/PostgreSQL)
-    try:
-        conn = await db.connection()
-        raw_conn = await conn.get_raw_connection()
-        asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
+    sites = {site_by_container.get(r.container_id) for r in readings} - {None}
+    containers = await _load_virtual_containers(db, plan_id, sites)
+    # Contenedores agregados después de activar el plan: arrancan en su sitio,
+    # con su nivel real.
+    for reading in readings:
+        site = site_by_container.get(reading.container_id)
+        if reading.container_id not in containers and site is not None:
+            containers[reading.container_id] = VirtualContainer(
+                container_id=reading.container_id,
+                original_site_id=site,
+                optimized_site_id=site,
+                level=float(reading.level_before or 0),
+                last_reading=None,
+                virtual_updated_at=None,
+            )
 
-        if hasattr(asyncpg_conn, "copy_records_to_table"):
-            await asyncpg_conn.execute(
-                """
-                CREATE TEMP TABLE IF NOT EXISTS _tmp_whatif_updates (
-                    container_id bigint,
-                    virtual_level integer
-                );
-                TRUNCATE _tmp_whatif_updates;
-                """
-            )
-            await asyncpg_conn.copy_records_to_table(
-                "_tmp_whatif_updates",
-                records=updates,
-                columns=["container_id", "virtual_level"],
-            )
-            await asyncpg_conn.execute(
-                """
-                UPDATE optimization_whatif_levels AS w
-                SET virtual_level = t.virtual_level,
-                    last_reading = NOW()
-                FROM _tmp_whatif_updates AS t
-                WHERE w.plan_id = $1 AND w.container_id = t.container_id;
-                """,
-                plan_id,
-            )
-            return
-    except Exception:
-        logger.warning(
-            "Error en bulk update de niveles virtuales, usando fallback.", exc_info=True
+    changed = apply_readings(readings, containers)
+    # Los sensores también cambian: última lectura, velocidad y horas reales.
+    changed |= {r.container_id for r in readings if r.container_id in containers}
+    await _save_virtual_containers(
+        db, plan_id, [containers[container_id] for container_id in changed]
+    )
+
+
+async def _load_virtual_containers(
+    db: AsyncSession, plan_id: int, sites: set[int]
+) -> dict[int, VirtualContainer]:
+    """Contenedores virtuales que están o estaban en `sites`: se quedan, se van o llegan."""
+    if not sites:
+        return {}
+    levels = OptimizationWhatIfLevel
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        # Un solo parámetro con la lista: un IN con miles de sitios superaría el
+        # límite de parámetros por consulta.
+        site_list = literal(sorted(sites), ARRAY(BigInteger))
+        in_sites = or_(
+            levels.original_site_id == any_(site_list),
+            levels.optimized_site_id == any_(site_list),
         )
+    else:
+        in_sites = or_(
+            levels.original_site_id.in_(sites), levels.optimized_site_id.in_(sites)
+        )
+    # Columnas sueltas y no objetos ORM: con miles de filas por lote es más liviano.
+    rows = await db.execute(
+        select(
+            levels.container_id,
+            levels.original_site_id,
+            levels.optimized_site_id,
+            levels.virtual_level,
+            levels.last_reading,
+            levels.virtual_updated_at,
+            levels.rate_ewma,
+            levels.overflow_hours,
+            levels.real_overflow_hours,
+        ).where(levels.plan_id == plan_id, in_sites)
+    )
+    return {
+        row.container_id: VirtualContainer(
+            container_id=row.container_id,
+            original_site_id=row.original_site_id,
+            optimized_site_id=row.optimized_site_id,
+            level=float(row.virtual_level),
+            last_reading=as_utc(row.last_reading),
+            virtual_updated_at=as_utc(row.virtual_updated_at),
+            rate_ewma=row.rate_ewma,
+            overflow_hours=row.overflow_hours,
+            real_overflow_hours=row.real_overflow_hours,
+        )
+        for row in rows
+    }
 
-    # Fallback SQLAlchemy (para SQLite u otros backends)
-    for cid, level in updates:
+
+_SAVED_COLUMNS = (
+    "container_id",
+    "original_site_id",
+    "optimized_site_id",
+    "virtual_level",
+    "last_reading",
+    "virtual_updated_at",
+    "rate_ewma",
+    "overflow_hours",
+    "real_overflow_hours",
+)
+# Columnas que se actualizan si la fila ya existe (el sitio no cambia).
+_UPDATED_COLUMNS = _SAVED_COLUMNS[3:]
+# Filas por sentencia en el camino de SQLite: queda lejos del límite de parámetros.
+_SQLITE_CHUNK = 500
+
+
+async def _save_virtual_containers(
+    db: AsyncSession, plan_id: int, containers: list[VirtualContainer]
+) -> None:
+    """Guarda los contenedores virtuales (inserta los nuevos, actualiza el resto)."""
+    if not containers:
+        return
+    records = [
+        (
+            c.container_id,
+            c.original_site_id,
+            c.optimized_site_id,
+            c.level,
+            c.last_reading,
+            c.virtual_updated_at,
+            c.rate_ewma,
+            c.overflow_hours,
+            c.real_overflow_hours,
+        )
+        for c in containers
+    ]
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await _save_with_copy(connection, plan_id, records)
+    else:
+        await _save_with_upsert(db, plan_id, records)
+
+
+async def _save_with_copy(connection, plan_id: int, records: list[tuple]) -> None:
+    """Postgres: COPY a una tabla temporal y un solo INSERT ... ON CONFLICT.
+
+    Es el mismo camino que usa la ingesta para los contenedores: con miles de
+    filas por lote es varias veces más rápido que un INSERT con todos los valores.
+    """
+    raw = await connection.get_raw_connection()
+    asyncpg_connection = getattr(raw, "driver_connection", raw)
+    await asyncpg_connection.execute(
+        """
+        CREATE TEMP TABLE IF NOT EXISTS _tmp_whatif_levels (
+            container_id bigint,
+            original_site_id bigint,
+            optimized_site_id bigint,
+            virtual_level double precision,
+            last_reading timestamptz,
+            virtual_updated_at timestamptz,
+            rate_ewma double precision,
+            overflow_hours double precision,
+            real_overflow_hours double precision
+        );
+        TRUNCATE _tmp_whatif_levels;
+        """
+    )
+    await asyncpg_connection.copy_records_to_table(
+        "_tmp_whatif_levels", records=records, columns=list(_SAVED_COLUMNS)
+    )
+    columns = ", ".join(_SAVED_COLUMNS)
+    updates = ", ".join(f"{column} = EXCLUDED.{column}" for column in _UPDATED_COLUMNS)
+    await asyncpg_connection.execute(
+        f"""
+        INSERT INTO optimization_whatif_levels (plan_id, {columns})
+        SELECT $1, {columns} FROM _tmp_whatif_levels
+        ON CONFLICT (plan_id, container_id) DO UPDATE SET {updates}
+        """,
+        plan_id,
+    )
+
+
+async def _save_with_upsert(
+    db: AsyncSession, plan_id: int, records: list[tuple]
+) -> None:
+    """SQLite (tests): INSERT ... ON CONFLICT por bloques."""
+    table = OptimizationWhatIfLevel.__table__
+    values = [
+        {"plan_id": plan_id, **dict(zip(_SAVED_COLUMNS, record, strict=True))}
+        for record in records
+    ]
+    for start in range(0, len(values), _SQLITE_CHUNK):
+        statement = sqlite_insert(table).values(values[start : start + _SQLITE_CHUNK])
         await db.execute(
-            update(OptimizationWhatIfLevel)
-            .where(
-                OptimizationWhatIfLevel.plan_id == plan_id,
-                OptimizationWhatIfLevel.container_id == cid,
+            statement.on_conflict_do_update(
+                index_elements=[table.c.plan_id, table.c.container_id],
+                set_={
+                    column: statement.excluded[column] for column in _UPDATED_COLUMNS
+                },
             )
-            .values(virtual_level=level)
         )
 
 

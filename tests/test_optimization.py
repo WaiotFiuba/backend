@@ -645,10 +645,13 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
 
     async def test_whatif_keeps_updating_after_a_restart(self):
         """El plan activo se lee de la base: no depende de memoria del proceso."""
+        from datetime import UTC, datetime
+
         from app.models.map.optimization import RedistributionPlan
         from app.services.map.optimization_whatif_service import (
-            update_virtual_levels_batch,
+            apply_readings_to_whatif,
         )
+        from app.services.map.whatif_allocation import Reading
 
         # Estado que encuentra un backend recién reiniciado: el plan activo y sus
         # niveles virtuales están en la base, y nada en memoria.
@@ -659,23 +662,34 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             )
             session.add(plan)
             await session.flush()
-            container_id = await session.scalar(select(Container.id).limit(1))
             session.add(
                 OptimizationWhatIfLevel(
-                    plan_id=plan.id, container_id=container_id, virtual_level=10
+                    plan_id=plan.id,
+                    container_id=1,
+                    original_site_id=1,
+                    optimized_site_id=1,
+                    virtual_level=10,
                 )
             )
             await session.commit()
 
         async with self.session_maker() as session:
-            await update_virtual_levels_batch(session, [(container_id, 77)])
+            reading = Reading(
+                container_id=1,
+                level_before=10,
+                level_after=25,
+                reading_date=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                collected=False,
+            )
+            await apply_readings_to_whatif(session, [reading], {1: 1})
             await session.commit()
             level = await session.scalar(
                 select(OptimizationWhatIfLevel.virtual_level).where(
-                    OptimizationWhatIfLevel.container_id == container_id
+                    OptimizationWhatIfLevel.container_id == 1
                 )
             )
-        self.assertEqual(level, 77)
+        # El sitio 1 no participa del plan: el virtual sigue al real.
+        self.assertEqual(level, 25)
 
     async def test_activation_snapshot_moves_containers_empty(self):
         from datetime import UTC, datetime
