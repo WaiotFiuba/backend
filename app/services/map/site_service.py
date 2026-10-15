@@ -170,34 +170,22 @@ async def get_sites_clustered(
         # Sin plan activo, el what-if es la red real.
         whatif_plan_id = await get_active_plan_id(db)
     if whatif_plan_id is not None:
-        from app.models.map.optimization import OptimizationWhatIfLevel
+        from app.services.map.optimization_whatif_service import whatif_containers
 
-        target_c = (
-            select(
-                Container.id.label("id"),
-                Container.serie_id.label("serie_id"),
-                Container.device_imei.label("device_imei"),
-                Container.available.label("available"),
-                Container.container_type_id.label("container_type_id"),
-                Container.last_reading.label("last_reading"),
-                Container.last_pickup.label("last_pickup"),
-                func.coalesce(
-                    OptimizationWhatIfLevel.optimized_site_id, Container.site_id
-                ).label("site_id"),
-                # El nivel virtual tiene decimales; el mapa muestra enteros.
-                func.coalesce(
-                    cast(func.round(OptimizationWhatIfLevel.virtual_level), Integer),
-                    Container.current_level,
-                ).label("current_level"),
-            )
-            .outerjoin(
-                OptimizationWhatIfLevel,
-                (OptimizationWhatIfLevel.container_id == Container.id)
-                & (OptimizationWhatIfLevel.plan_id == whatif_plan_id),
-            )
-            .where(Container.deleted_at.is_(None))
-            .subquery()
-        )
+        containers = whatif_containers(
+            whatif_plan_id,
+            Container.serie_id.label("serie_id"),
+            Container.device_imei.label("device_imei"),
+            Container.available.label("available"),
+            Container.container_type_id.label("container_type_id"),
+            Container.last_reading.label("last_reading"),
+            Container.last_pickup.label("last_pickup"),
+        ).subquery()
+        target_c = select(
+            *(column for column in containers.c if column.name != "level"),
+            # El nivel virtual tiene decimales; el mapa muestra enteros.
+            cast(func.round(containers.c.level), Integer).label("current_level"),
+        ).subquery()
 
     cols = target_c.c if hasattr(target_c, "c") else Container
     c_id = cols.id

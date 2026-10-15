@@ -228,6 +228,56 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(whatif.mean_fill_level, real.mean_fill_level)
             self.assertEqual(whatif.critical_count, real.critical_count)
 
+    async def test_whatif_kpis_see_the_same_containers_as_the_map(self):
+        """Con un plan sin movimientos, el what-if da lo mismo que la red real,
+        aunque después de activarlo se den de baja o se agreguen contenedores."""
+        from datetime import UTC, datetime
+
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        def figures(kpis):
+            return (
+                kpis.total_containers,
+                kpis.mean_fill_level,
+                kpis.std_fill_level,
+                kpis.critical_count,
+                kpis.high_count,
+                kpis.normal_count,
+                kpis.low_count,
+                kpis.idle_count,
+            )
+
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+            plan = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add(plan)
+            await session.commit()
+            await activate_whatif(session, plan.id)
+
+            # Después de activar: se da de baja el 1 y se agrega uno en el sitio 3.
+            (await session.get(Container, 1)).deleted_at = datetime(
+                2026, 1, 1, tzinfo=UTC
+            )
+            session.add(
+                Container(
+                    id=5,
+                    site_id=3,
+                    latitude=-34.62,
+                    longitude=-58.42,
+                    current_level=90,
+                    available=True,
+                    container_type_id=1,
+                    geom=WKTElement("POINT(-58.42 -34.62)", srid=4326),
+                )
+            )
+            await session.commit()
+
+            real = await get_real_network_kpis(session)
+            whatif = await get_whatif_network_kpis(session)
+
+        self.assertEqual(real.total_containers, 4)
+        self.assertEqual(figures(whatif), figures(real))
+
     async def test_whatif_kpis_and_comparison(self):
         """Verifica el cálculo de KPIs What-If y la comparación."""
         async with self.session_maker() as session:

@@ -67,6 +67,30 @@ async def get_active_plan_id(db: AsyncSession) -> int | None:
     )
 
 
+def whatif_containers(plan_id: int, *columns):
+    """Contenedores activos de la red what-if, con su sitio y su nivel con el plan.
+
+    Es la única definición que usan el mapa, los KPIs y la comparación, así que
+    siempre ven los mismos contenedores. Los que no tienen fila virtual (por
+    ejemplo, agregados después de activar el plan) quedan en su sitio y con su
+    nivel real. `columns` suma columnas de Container al select.
+    """
+    levels = OptimizationWhatIfLevel
+    return (
+        select(
+            Container.id.label("id"),
+            func.coalesce(levels.optimized_site_id, Container.site_id).label("site_id"),
+            func.coalesce(levels.virtual_level, Container.current_level).label("level"),
+            *columns,
+        )
+        .outerjoin(
+            levels,
+            (levels.container_id == Container.id) & (levels.plan_id == plan_id),
+        )
+        .where(Container.deleted_at.is_(None))
+    )
+
+
 async def create_and_activate_plan(
     db: AsyncSession,
     config: OptimizationConfig,
