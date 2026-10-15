@@ -143,6 +143,8 @@ class RedistributionPlanRead(BaseModel):
     )
     created_at: datetime
     simulation_id: int | None = None
+    # Usuario que generó el plan (None en planes anteriores a registrarlo).
+    created_by: int | None = None
     original_mean_fill: float = 0.0
     original_std_fill: float = 0.0
     optimized_mean_fill: float = 0.0

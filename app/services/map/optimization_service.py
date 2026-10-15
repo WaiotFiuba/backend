@@ -907,4 +907,5 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
         overflow_hours_after=summary.get("overflow_hours_after"),
         created_at=plan.created_at,
         simulation_id=plan.simulation_id,
+        created_by=plan.created_by,
     )

@@ -1095,6 +1095,8 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("original_std_fill", data)
                 self.assertIn("optimized_mean_fill", data)
                 self.assertIn("optimized_std_fill", data)
+                # El plan queda registrado a nombre del usuario autenticado.
+                self.assertEqual(data["created_by"], 1)
 
                 # Verificar /map/optimization/plan/active
                 res_active = await client.get("/map/optimization/plan/active")

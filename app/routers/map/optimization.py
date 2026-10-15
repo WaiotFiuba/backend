@@ -5,7 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import get_current_user
 from app.core.map_database import get_map_db
+from app.models.user import User
 from app.schemas.map.optimization import (
     OptimizationConfig,
     OptimizationMetricsResponse,
@@ -27,6 +29,9 @@ from app.services.map.optimization_whatif_service import (
 router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+# El router de /map ya exige el usuario; acá se lo recibe para registrar quién
+# genera cada plan (FastAPI reutiliza el mismo usuario, sin otra consulta).
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 @router.get(
@@ -56,8 +61,9 @@ async def get_optimization_metrics(
 async def create_redistribution_plan(
     config: OptimizationConfig,
     db: MapDbDep,
+    current_user: CurrentUserDep,
 ) -> RedistributionPlanRead:
-    return await create_and_activate_plan(db, config)
+    return await create_and_activate_plan(db, config, user_id=current_user.id)
 
 
 @router.get(
