@@ -309,18 +309,34 @@ async def generate_redistribution_plan(
     config: OptimizationConfig,
     user_id: int | None = None,
 ) -> RedistributionPlanRead:
+    """Genera y guarda un plan, sin activarlo."""
+    plan_model = await build_redistribution_plan(db, config, user_id)
+    db.add(plan_model)
+    await db.commit()
+    await db.refresh(plan_model)
+    return _plan_model_to_read(plan_model)
+
+
+async def build_redistribution_plan(
+    db: AsyncSession,
+    config: OptimizationConfig,
+    user_id: int | None = None,
+) -> RedistributionPlanModel:
     """
-    Genera un plan de redistribución de contenedores basado en las métricas
+    Calcula un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
     Con algorithm="overload" usa el modelo de sobrecarga.
+
+    Devuelve el plan sin guardar: quien lo llama decide si lo guarda solo o lo
+    guarda y lo activa en la misma transacción.
     """
     if config.algorithm == "overload":
         # Import local: el servicio del modelo nuevo usa helpers de este módulo.
         from app.services.map.redistribution_overload_service import (
-            generate_overload_plan,
+            build_overload_plan,
         )
 
-        return await generate_overload_plan(db, config, user_id)
+        return await build_overload_plan(db, config, user_id)
 
     # 1. Calcular métricas
     metrics_response = await compute_site_utilization_metrics(db, config)
@@ -356,11 +372,7 @@ async def generate_redistribution_plan(
             },
             created_by=user_id,
         )
-        db.add(plan_model)
-        await db.commit()
-        await db.refresh(plan_model)
-
-        return _plan_model_to_read(plan_model)
+        return plan_model
 
     # 3. Cargar contenedores de los sitios donantes para asignar movimientos concretos
     donor_site_ids = [d.site_id for d in donors]
@@ -545,7 +557,7 @@ async def generate_redistribution_plan(
         "optimized_std_fill": round(opt_std, 2),
     }
 
-    # 7. Persistir el plan
+    # 7. Armar el plan (lo guarda quien llama)
     plan_model = RedistributionPlanModel(
         status="draft",
         config=config.model_dump(),
@@ -561,11 +573,7 @@ async def generate_redistribution_plan(
         },
         created_by=user_id,
     )
-    db.add(plan_model)
-    await db.commit()
-    await db.refresh(plan_model)
-
-    return _plan_model_to_read(plan_model)
+    return plan_model
 
 
 async def get_plan_by_id(

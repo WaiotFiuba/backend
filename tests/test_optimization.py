@@ -28,6 +28,18 @@ from app.services.map.optimization_service import (
 # ---------------------------------------------------------------------------
 
 
+def _move(container_id: int, from_site_id: int, to_site_id: int) -> dict:
+    """Movimiento mínimo con los campos que exige el esquema de respuesta."""
+    return {
+        "container_id": container_id,
+        "from_site_id": from_site_id,
+        "from_site_name": f"Sitio {from_site_id}",
+        "to_site_id": to_site_id,
+        "to_site_name": f"Sitio {to_site_id}",
+        "distance_km": 0.5,
+    }
+
+
 class TestHaversineDistance(unittest.TestCase):
     def test_same_point_is_zero(self):
         self.assertAlmostEqual(
@@ -664,6 +676,102 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
                 )
             )
         self.assertEqual(level, 77)
+
+    async def test_activation_snapshot_moves_containers_empty(self):
+        from datetime import UTC, datetime
+
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            (await session.get(Container, 6)).deleted_at = datetime(
+                2026, 1, 1, tzinfo=UTC
+            )
+            reading = datetime(2026, 1, 2, 10, tzinfo=UTC)
+            (await session.get(Container, 3)).last_reading = reading
+            plan = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+            )
+            session.add(plan)
+            await session.commit()
+
+            await activate_whatif(session, plan.id)
+
+            rows = {
+                r.container_id: r
+                for r in (await session.scalars(select(OptimizationWhatIfLevel))).all()
+            }
+        # El dado de baja no entra; el movido va al receptor y llega vacío.
+        self.assertEqual(set(rows), {1, 2, 3, 4, 5})
+        self.assertEqual(
+            (
+                rows[1].original_site_id,
+                rows[1].optimized_site_id,
+                rows[1].virtual_level,
+            ),
+            (1, 2, 0),
+        )
+        self.assertEqual((rows[3].optimized_site_id, rows[3].virtual_level), (2, 90))
+        self.assertEqual(rows[3].last_reading.replace(tzinfo=UTC), reading)
+        self.assertEqual(rows[3].overflow_hours, 0)
+
+    async def test_activating_a_plan_replaces_the_previous_one(self):
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            first = RedistributionPlan(status="draft", config={}, moves=[])
+            second = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+            )
+            session.add_all([first, second])
+            await session.commit()
+
+            await activate_whatif(session, first.id)
+            await activate_whatif(session, second.id)
+
+            await session.refresh(first)
+            self.assertEqual(first.status, "completed")
+            self.assertEqual(second.status, "active_whatif")
+            plan_ids = set(
+                await session.scalars(select(OptimizationWhatIfLevel.plan_id))
+            )
+            self.assertEqual(plan_ids, {second.id})
+
+    async def test_failed_activation_keeps_the_previous_plan(self):
+        """Generar y activar es todo o nada: si falla, no queda un plan a medias."""
+        from unittest.mock import patch
+
+        import app.services.map.optimization_whatif_service as whatif_svc
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            previous = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add(previous)
+            await session.commit()
+            await whatif_svc.activate_whatif(session, previous.id)
+
+        async def broken_activate(db, plan):
+            raise RuntimeError("falla a mitad de la activación")
+
+        async with self.session_maker() as session:
+            with (
+                patch.object(whatif_svc, "_activate", broken_activate),
+                self.assertRaises(RuntimeError),
+            ):
+                await whatif_svc.create_and_activate_plan(
+                    session, OptimizationConfig(max_distance_km=5.0)
+                )
+
+        async with self.session_maker() as session:
+            plans = (await session.scalars(select(RedistributionPlan))).all()
+        self.assertEqual(
+            [(p.id, p.status) for p in plans], [(previous.id, "active_whatif")]
+        )
 
     async def test_database_allows_a_single_active_plan(self):
         from sqlalchemy.exc import IntegrityError

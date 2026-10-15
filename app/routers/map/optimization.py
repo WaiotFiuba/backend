@@ -14,11 +14,11 @@ from app.schemas.map.optimization import (
 )
 from app.services.map.optimization_service import (
     compute_site_utilization_metrics,
-    generate_redistribution_plan,
     get_plan_by_id,
 )
 from app.services.map.optimization_whatif_service import (
     activate_whatif,
+    create_and_activate_plan,
     deactivate_whatif,
     get_comparison_metrics,
     get_active_plan,
@@ -57,8 +57,7 @@ async def create_redistribution_plan(
     config: OptimizationConfig,
     db: MapDbDep,
 ) -> RedistributionPlanRead:
-    plan = await generate_redistribution_plan(db, config)
-    return await activate_whatif(db, plan.id)
+    return await create_and_activate_plan(db, config)
 
 
 @router.get(

@@ -11,7 +11,17 @@ from __future__ import annotations
 import logging
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import (
+    BigInteger,
+    bindparam,
+    delete,
+    func,
+    insert,
+    literal,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -21,13 +31,20 @@ from app.models.map.optimization import (
 )
 from app.models.map.site import Site
 from app.schemas.map.optimization import (
+    OptimizationConfig,
     RedistributionPlanRead,
     WhatIfComparisonResponse,
     WhatIfSiteComparison,
 )
-from app.services.map.optimization_service import _plan_model_to_read
+from app.services.map.optimization_service import (
+    _plan_model_to_read,
+    build_redistribution_plan,
+)
 
 logger = logging.getLogger(__name__)
+
+# Clave del lock de Postgres que serializa la activación de planes.
+_ACTIVATION_LOCK_KEY = 0x57484946  # "WHIF"
 
 
 async def get_active_plan_id(db: AsyncSession) -> int | None:
@@ -40,78 +57,119 @@ async def get_active_plan_id(db: AsyncSession) -> int | None:
     )
 
 
+async def create_and_activate_plan(
+    db: AsyncSession,
+    config: OptimizationConfig,
+    user_id: int | None = None,
+) -> RedistributionPlanRead:
+    """Genera un plan y lo deja como único plan activo, en una sola transacción.
+
+    El cálculo (que puede tardar) se hace antes de tomar el lock; guardar,
+    reemplazar el plan anterior y activar el nuevo es todo o nada.
+    """
+    plan = await build_redistribution_plan(db, config, user_id)
+    await _lock_activation(db)
+    db.add(plan)
+    await db.flush()
+    await _activate(db, plan)
+    await db.commit()
+    await db.refresh(plan)
+    return _plan_model_to_read(plan)
+
+
 async def activate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanRead:
-    """
-    Activa el modo what-if para un plan de redistribución.
-    Prepara la tabla de niveles virtuales.
-    """
+    """Deja un plan existente como único plan activo."""
+    await _lock_activation(db)
     plan = await db.get(RedistributionPlanModel, plan_id)
     if plan is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan de redistribución no encontrado.",
         )
-    if plan.status == "active_whatif":
-        return _plan_model_to_read(plan)
+    if plan.status != "active_whatif":
+        await _activate(db, plan)
+    await db.commit()
+    return _plan_model_to_read(plan)
 
-    # Desactivar any plan what-if previo
+
+async def _lock_activation(db: AsyncSession) -> None:
+    """Serializa las activaciones: dos pedidos a la vez no se pisan.
+
+    El lock dura hasta el fin de la transacción. En SQLite (tests) no hace falta:
+    las escrituras ya se serializan.
+    """
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _ACTIVATION_LOCK_KEY},
+        )
+
+
+async def _activate(db: AsyncSession, plan: RedistributionPlanModel) -> None:
+    """Deja `plan` como único activo y arma la foto inicial de niveles virtuales.
+
+    No hace commit: corre dentro de la transacción de quien llama. Todo se hace
+    en la base, sin traer los contenedores a Python.
+    """
     await db.execute(
         update(RedistributionPlanModel)
-        .where(RedistributionPlanModel.status == "active_whatif")
+        .where(
+            RedistributionPlanModel.status == "active_whatif",
+            RedistributionPlanModel.id != plan.id,
+        )
         .values(status="completed")
     )
-
-    # Limpiar niveles virtuales previos
+    # Hay un solo plan activo, así que solo se conservan sus niveles virtuales.
     await db.execute(delete(OptimizationWhatIfLevel))
 
-    # Construir mapping de movimientos: container_id -> new_site_id
-    moves = plan.moves or []
-    move_mapping: dict[int, int] = {}
-    for m in moves:
-        move_mapping[m["container_id"]] = m["to_site_id"]
-
-    # Cargar todos los contenedores activos
-    containers = (
-        await db.execute(
-            select(Container.id, Container.site_id, Container.current_level).where(
-                Container.deleted_at.is_(None)
-            )
+    # Cada contenedor arranca en su sitio y con su nivel real.
+    await db.execute(
+        insert(OptimizationWhatIfLevel).from_select(
+            [
+                "plan_id",
+                "container_id",
+                "original_site_id",
+                "optimized_site_id",
+                "virtual_level",
+                "last_reading",
+            ],
+            select(
+                literal(plan.id, BigInteger),
+                Container.id,
+                Container.site_id,
+                Container.site_id,
+                Container.current_level,
+                Container.last_reading,
+            ).where(Container.deleted_at.is_(None)),
         )
-    ).all()
-
-    # Crear registros de niveles virtuales para todos los contenedores
-    whatif_records = []
-    for c in containers:
-        optimized_site = move_mapping.get(c.id, c.site_id)
-        whatif_records.append(
-            OptimizationWhatIfLevel(
-                plan_id=plan_id,
-                container_id=c.id,
-                original_site_id=c.site_id,
-                optimized_site_id=optimized_site,
-                virtual_level=c.current_level,
-                last_reading=None,
-            )
-        )
-
-    # Insertar en lotes
-    BATCH = 2000
-    for i in range(0, len(whatif_records), BATCH):
-        db.add_all(whatif_records[i : i + BATCH])
-        await db.flush()
-
-    # Actualizar estado del plan
-    plan.status = "active_whatif"
-    await db.commit()
-
-    logger.info(
-        "What-if activado para plan %s con %d contenedores (%d movimientos).",
-        plan_id,
-        len(whatif_records),
-        len(move_mapping),
     )
+    # Los que el plan mueve van al sitio receptor y llegan vacíos.
+    moves = plan.moves or []
+    if moves:
+        levels = OptimizationWhatIfLevel.__table__
+        await db.execute(
+            update(levels)
+            .where(
+                levels.c.plan_id == bindparam("p_plan"),
+                levels.c.container_id == bindparam("p_container"),
+            )
+            .values(optimized_site_id=bindparam("p_site"), virtual_level=0.0),
+            [
+                {
+                    "p_plan": plan.id,
+                    "p_container": move["container_id"],
+                    "p_site": move["to_site_id"],
+                }
+                for move in moves
+            ],
+        )
 
-    return _plan_model_to_read(plan)
+    plan.status = "active_whatif"
+    await db.flush()
+    logger.info(
+        "What-if activado para el plan %s (%d movimientos).", plan.id, len(moves)
+    )
 
 
 async def deactivate_whatif(db: AsyncSession, plan_id: int) -> RedistributionPlanRead:
