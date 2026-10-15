@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import Numeric, case, cast, func, select
+from sqlalchemy import Integer, Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -184,8 +184,10 @@ async def get_sites_clustered(
                 func.coalesce(
                     OptimizationWhatIfLevel.optimized_site_id, Container.site_id
                 ).label("site_id"),
+                # El nivel virtual tiene decimales; el mapa muestra enteros.
                 func.coalesce(
-                    OptimizationWhatIfLevel.virtual_level, Container.current_level
+                    cast(func.round(OptimizationWhatIfLevel.virtual_level), Integer),
+                    Container.current_level,
                 ).label("current_level"),
             )
             .outerjoin(

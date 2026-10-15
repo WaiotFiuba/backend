@@ -665,6 +665,23 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(level, 77)
 
+    async def test_database_allows_a_single_active_plan(self):
+        from sqlalchemy.exc import IntegrityError
+
+        async with self.session_maker() as session:
+            session.add_all(
+                [
+                    RedistributionPlan(status="active_whatif", config={}, moves=[]),
+                    RedistributionPlan(status="completed", config={}, moves=[]),
+                    RedistributionPlan(status="completed", config={}, moves=[]),
+                ]
+            )
+            await session.commit()
+
+            session.add(RedistributionPlan(status="active_whatif", config={}, moves=[]))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
     async def test_whatif_comparison_metrics(self):
         """Verifica que se pueden obtener métricas de comparación real vs optimizado."""
         from app.services.map.optimization_service import generate_redistribution_plan

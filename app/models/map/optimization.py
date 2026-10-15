@@ -4,12 +4,15 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     TIMESTAMP,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +23,16 @@ class RedistributionPlan(MapBase):
     """Persiste planes de redistribución generados por el módulo de optimización."""
 
     __tablename__ = "redistribution_plans"
+    # Un solo plan activo a la vez: lo garantiza la base.
+    __table_args__ = (
+        Index(
+            "uq_redistribution_plans_single_active",
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'active_whatif'"),
+            sqlite_where=text("status = 'active_whatif'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
@@ -65,5 +78,15 @@ class OptimizationWhatIfLevel(MapBase):
     )
     original_site_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     optimized_site_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    virtual_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Con decimales: el reparto de cada lectura entre contenedores da fracciones.
+    virtual_level: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     last_reading: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Velocidad reciente de llenado del contenedor real (puntos por hora).
+    rate_ewma: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Horas al 100% del contenedor virtual y del real.
+    overflow_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )
+    real_overflow_hours: Mapped[float] = mapped_column(
+        Float, default=0, server_default="0", nullable=False
+    )

@@ -802,6 +802,30 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 [(s.id, s.container_count, s.current_level) for s in whatif],
                 [(s.id, s.container_count, s.current_level) for s in real],
             )
+            # Con un plan activo, el nivel virtual (con decimales) se muestra entero.
+            plan = RedistributionPlan(status="active_whatif", config={}, moves=[])
+            session.add(plan)
+            await session.flush()
+            session.add_all(
+                [
+                    OptimizationWhatIfLevel(
+                        plan_id=plan.id, container_id=1, virtual_level=33.6
+                    ),
+                    OptimizationWhatIfLevel(
+                        plan_id=plan.id, container_id=2, virtual_level=70.2
+                    ),
+                ]
+            )
+            await session.commit()
+            with_plan = await get_sites_clustered(
+                db=session, zoom=18, distribution="whatif", **bbox
+            )
+            self.assertEqual(
+                sorted(c.current_level for c in with_plan[0].containers), [34, 70]
+            )
+            await session.delete(plan)
+            await session.commit()
+
             # Pedir el mapa what-if no crea ningún plan.
             plans = await session.scalar(
                 select(func.count()).select_from(RedistributionPlan)
