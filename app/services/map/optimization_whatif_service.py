@@ -35,12 +35,11 @@ from app.models.map.optimization import (
     OptimizationWhatIfTotals,
     RedistributionPlan as RedistributionPlanModel,
 )
-from app.models.map.site import Site
 from app.schemas.map.optimization import (
     OptimizationConfig,
     RedistributionPlanRead,
     WhatIfComparisonResponse,
-    WhatIfSiteComparison,
+    WhatIfMeasure,
 )
 from app.services.map.kpi_service import (
     count_critical_sites_and_full_containers,
@@ -541,9 +540,15 @@ async def _save_with_upsert(
 async def get_comparison_metrics(
     db: AsyncSession, plan_id: int
 ) -> WhatIfComparisonResponse:
-    """
-    Retorna comparación lado a lado de niveles reales vs optimizados
-    por sitio. Agrupa los niveles virtuales por optimized_site_id.
+    """Compara la red con el plan contra la red real.
+
+    - Estimado al generar el plan: la dispersión del nivel entre sitios.
+    - Medido desde la activación: sitios críticos y contenedores al 100 % en
+      promedio (los acumula la ingesta) y horas de contenedores al 100 %.
+    - Ahora: sitios críticos y contenedores al 100 % en este momento.
+
+    Las horas al 100 % y los valores de ahora necesitan los niveles virtuales,
+    que solo existen mientras el plan está activo.
     """
     plan = await db.get(RedistributionPlanModel, plan_id)
     if plan is None:
@@ -552,112 +557,56 @@ async def get_comparison_metrics(
             detail="Plan de redistribución no encontrado.",
         )
 
-    # Niveles reales por sitio (desde containers)
-    real_stmt = (
-        select(
-            Container.site_id,
-            func.round(func.avg(Container.current_level)).label("avg_level"),
-            func.count(Container.id).label("container_count"),
+    summary = plan.summary or {}
+    dispersion = None
+    if summary.get("original_std_fill") is not None:
+        dispersion = WhatIfMeasure(
+            real=summary["original_std_fill"],
+            with_plan=summary.get("optimized_std_fill", summary["original_std_fill"]),
         )
-        .where(Container.site_id.is_not(None), Container.deleted_at.is_(None))
-        .group_by(Container.site_id)
-    )
-    real_result = await db.execute(real_stmt)
-    real_by_site: dict[int, dict] = {}
-    for r in real_result.all():
-        real_by_site[r.site_id] = {
-            "avg_level": float(r.avg_level or 0),
-            "count": int(r.container_count),
-        }
 
-    # Niveles virtuales por optimized_site_id (desde whatif_levels)
-    virtual_stmt = (
-        select(
-            OptimizationWhatIfLevel.optimized_site_id,
-            func.round(func.avg(OptimizationWhatIfLevel.virtual_level)).label(
-                "avg_level"
-            ),
-            func.count(OptimizationWhatIfLevel.container_id).label("container_count"),
+    totals = await db.get(OptimizationWhatIfTotals, plan_id)
+    observed = totals.observed_hours if totals is not None else 0.0
+    avg_critical = avg_full = None
+    if observed > 0:
+        avg_critical = WhatIfMeasure(
+            real=round(totals.real_critical_site_hours / observed, 1),
+            with_plan=round(totals.critical_site_hours / observed, 1),
         )
-        .where(
-            OptimizationWhatIfLevel.plan_id == plan_id,
-            OptimizationWhatIfLevel.optimized_site_id.is_not(None),
+        avg_full = WhatIfMeasure(
+            real=round(totals.real_full_container_hours / observed, 1),
+            with_plan=round(totals.full_container_hours / observed, 1),
         )
-        .group_by(OptimizationWhatIfLevel.optimized_site_id)
-    )
-    virtual_result = await db.execute(virtual_stmt)
-    virtual_by_site: dict[int, dict] = {}
-    for v in virtual_result.all():
-        virtual_by_site[v.optimized_site_id] = {
-            "avg_level": float(v.avg_level or 0),
-            "count": int(v.container_count),
-        }
 
-    # Cargar info de sitios
-    all_site_ids = set(real_by_site.keys()) | set(virtual_by_site.keys())
-    site_info: dict[int, dict] = {}
-    if all_site_ids:
-        site_rows = await db.execute(
-            select(Site.id, Site.name, Site.latitude, Site.longitude).where(
-                Site.id.in_(all_site_ids)
+    hours = critical_now = full_now = None
+    if plan.status == "active_whatif":
+        levels = OptimizationWhatIfLevel
+        real_hours, plan_hours = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(levels.real_overflow_hours), 0.0),
+                    func.coalesce(func.sum(levels.overflow_hours), 0.0),
+                ).where(levels.plan_id == plan_id)
             )
+        ).one()
+        hours = WhatIfMeasure(real=round(real_hours, 1), with_plan=round(plan_hours, 1))
+        real_now = await count_critical_sites_and_full_containers(
+            db, real_containers().subquery("containers")
         )
-        for sr in site_rows.all():
-            site_info[sr.id] = {
-                "name": sr.name,
-                "lat": sr.latitude,
-                "lng": sr.longitude,
-            }
-
-    # Construir comparación
-    comparisons: list[WhatIfSiteComparison] = []
-    total_improved = 0
-    total_worsened = 0
-    real_levels_sum = 0.0
-    opt_levels_sum = 0.0
-    site_count = 0
-
-    for sid in all_site_ids:
-        info = site_info.get(sid, {"name": f"Site {sid}", "lat": 0, "lng": 0})
-        real = real_by_site.get(sid, {"avg_level": 0.0, "count": 0})
-        virtual = virtual_by_site.get(sid, {"avg_level": 0.0, "count": 0})
-
-        real_avg = real["avg_level"]
-        opt_avg = virtual["avg_level"]
-        improvement = round(opt_avg - real_avg, 2)
-
-        if improvement < -1:  # Mejoró (nivel más bajo = mejor)
-            total_improved += 1
-        elif improvement > 1:
-            total_worsened += 1
-
-        real_levels_sum += real_avg
-        opt_levels_sum += opt_avg
-        site_count += 1
-
-        comparisons.append(
-            WhatIfSiteComparison(
-                site_id=sid,
-                site_name=info["name"],
-                latitude=info["lat"],
-                longitude=info["lng"],
-                real_avg_level=real_avg,
-                optimized_avg_level=opt_avg,
-                real_container_count=real["count"],
-                optimized_container_count=virtual["count"],
-                improvement_pct=improvement,
-            )
+        plan_now = await count_critical_sites_and_full_containers(
+            db, whatif_containers(plan_id).subquery("containers")
         )
-
-    # Ordenar por mayor mejora primero
-    comparisons.sort(key=lambda c: c.improvement_pct)
+        critical_now = WhatIfMeasure(real=real_now[0], with_plan=plan_now[0])
+        full_now = WhatIfMeasure(real=real_now[1], with_plan=plan_now[1])
 
     return WhatIfComparisonResponse(
-        plan_id=plan_id,
+        plan_id=plan.id,
         plan_status=plan.status,
-        real_global_avg=round(real_levels_sum / max(site_count, 1), 2),
-        optimized_global_avg=round(opt_levels_sum / max(site_count, 1), 2),
-        sites=comparisons,
-        total_sites_improved=total_improved,
-        total_sites_worsened=total_worsened,
+        dispersion=dispersion,
+        observed_hours=round(observed, 2),
+        avg_critical_sites=avg_critical,
+        avg_full_containers=avg_full,
+        full_container_hours=hours,
+        critical_sites_now=critical_now,
+        full_containers_now=full_now,
     )

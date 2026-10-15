@@ -813,29 +813,100 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntegrityError):
                 await session.commit()
 
-    async def test_whatif_comparison_metrics(self):
-        """Verifica que se pueden obtener métricas de comparación real vs optimizado."""
-        from app.services.map.optimization_service import generate_redistribution_plan
+    async def test_comparison_of_an_active_plan(self):
         from app.services.map.optimization_whatif_service import (
             activate_whatif,
-            deactivate_whatif,
             get_comparison_metrics,
         )
 
         async with self.session_maker() as session:
             await self._seed_scenario(session)
-
-            config = OptimizationConfig(max_distance_km=5.0)
-            plan = await generate_redistribution_plan(session, config)
-
+            # El plan lleva el contenedor 1 (5 %) del sitio 1 al sitio 2 (90 y 95 %).
+            plan = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+                summary={"original_std_fill": 30.0, "optimized_std_fill": 22.5},
+            )
+            session.add(plan)
+            await session.commit()
             await activate_whatif(session, plan.id)
 
-            comparison = await get_comparison_metrics(session, plan.id)
-            self.assertEqual(comparison.plan_id, plan.id)
-            self.assertGreater(len(comparison.sites), 0)
+            # Recién activado: estimación y valores de ahora, sin promedios todavía.
+            fresh = await get_comparison_metrics(session, plan.id)
+            self.assertEqual(
+                (fresh.dispersion.real, fresh.dispersion.with_plan), (30, 22.5)
+            )
+            self.assertEqual(fresh.observed_hours, 0)
+            self.assertIsNone(fresh.avg_critical_sites)
+            # Sitio 2: real 92,5 % (crítico); con el plan (90 + 95 + 0) / 3 = 61,7 %.
+            self.assertEqual(
+                (fresh.critical_sites_now.real, fresh.critical_sites_now.with_plan),
+                (1, 0),
+            )
+            self.assertEqual(fresh.full_container_hours.real, 0)
 
-            # Limpiar
-            await deactivate_whatif(session, plan.id)
+            # Con mediciones acumuladas por la ingesta.
+            totals = await session.get(OptimizationWhatIfTotals, plan.id)
+            totals.observed_hours = 10.0
+            totals.real_critical_site_hours = 40.0
+            totals.critical_site_hours = 25.0
+            totals.real_full_container_hours = 12.0
+            totals.full_container_hours = 8.0
+            level = await session.get(OptimizationWhatIfLevel, (plan.id, 3))
+            level.real_overflow_hours = 6.0
+            level.overflow_hours = 2.5
+            await session.commit()
+
+            measured = await get_comparison_metrics(session, plan.id)
+        self.assertEqual(
+            (measured.avg_critical_sites.real, measured.avg_critical_sites.with_plan),
+            (4.0, 2.5),
+        )
+        self.assertEqual(
+            (measured.avg_full_containers.real, measured.avg_full_containers.with_plan),
+            (1.2, 0.8),
+        )
+        self.assertEqual(
+            (
+                measured.full_container_hours.real,
+                measured.full_container_hours.with_plan,
+            ),
+            (6.0, 2.5),
+        )
+
+    async def test_comparison_of_a_replaced_plan_keeps_its_averages(self):
+        from app.services.map.optimization_whatif_service import (
+            activate_whatif,
+            get_comparison_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            first = RedistributionPlan(status="draft", config={}, moves=[])
+            second = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add_all([first, second])
+            await session.commit()
+            await activate_whatif(session, first.id)
+            totals = await session.get(OptimizationWhatIfTotals, first.id)
+            totals.observed_hours = 5.0
+            totals.real_critical_site_hours = 10.0
+            totals.critical_site_hours = 5.0
+            await session.commit()
+            await activate_whatif(session, second.id)
+
+            comparison = await get_comparison_metrics(session, first.id)
+        self.assertEqual(comparison.plan_status, "completed")
+        self.assertEqual(
+            (
+                comparison.avg_critical_sites.real,
+                comparison.avg_critical_sites.with_plan,
+            ),
+            (2.0, 1.0),
+        )
+        # Sin niveles virtuales (se borraron al activar el otro plan): nada de ahora.
+        self.assertIsNone(comparison.critical_sites_now)
+        self.assertIsNone(comparison.full_container_hours)
 
 
 class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
@@ -1040,6 +1111,16 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(plan_data["id"], plan_id)
                 self.assertIn("original_mean_fill", plan_data)
                 self.assertIn("optimized_mean_fill", plan_data)
+
+                # Comparación del plan recién activado: sin promedios todavía.
+                res_cmp = await client.get(
+                    f"/map/optimization/plan/{plan_id}/comparison"
+                )
+                self.assertEqual(res_cmp.status_code, 200)
+                comparison = res_cmp.json()
+                self.assertEqual(comparison["observed_hours"], 0)
+                self.assertIsNone(comparison["avg_critical_sites"])
+                self.assertIn("real", comparison["critical_sites_now"])
 
                 # Plan no encontrado
                 res_404 = await client.get("/map/optimization/plan/99999")
