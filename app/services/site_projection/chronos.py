@@ -229,7 +229,9 @@ class Chronos2SmallForecaster:
         """Forecast site series with one Chronos call; batch inputs share an interval."""
         results: dict[int, ForecastResult] = {}
         eligible: list[tuple[ForecastRequest, ForecastContext]] = []
-        rows: list[dict[str, Any]] = []
+        ids: list[int] = []
+        timestamps: list[datetime] = []
+        targets: list[float] = []
         current_levels: dict[int, float] = {}
 
         for request, context in inputs:
@@ -253,16 +255,9 @@ class Chronos2SmallForecaster:
                 continue
             eligible.append((request, context))
             current_levels[request.site_id] = history[-1].level
-            rows.extend(
-                {
-                    "id": request.site_id,
-                    "timestamp": pd.Timestamp(bucket.timestamp).tz_localize(None),
-                    "target": value,
-                }
-                for bucket, value in zip(
-                    history, hourly_generation(history), strict=True
-                )
-            )
+            ids.extend([request.site_id] * len(history))
+            timestamps.extend(bucket.timestamp for bucket in history)
+            targets.extend(hourly_generation(history))
 
         if not eligible:
             return results
@@ -272,21 +267,29 @@ class Chronos2SmallForecaster:
         try:
             pipeline = await asyncio.to_thread(_get_chronos_pipeline)
             quantile = _forecast_quantile()
+            frame = pd.DataFrame(
+                {
+                    "id": ids,
+                    "timestamp": pd.to_datetime(timestamps, utc=True).tz_localize(None),
+                    "target": targets,
+                }
+            )
             forecast_df = await asyncio.to_thread(
                 pipeline.predict_df,
-                pd.DataFrame(rows),
+                frame,
                 prediction_length=steps,
                 quantile_levels=sorted({0.1, quantile, 0.9}),
                 id_column="id",
                 timestamp_column="timestamp",
                 target="target",
             )
+            rows_by_site = dict(tuple(forecast_df.groupby("id", sort=False)))
             for request, context in eligible:
                 generated_at = _as_utc(context.generated_at or datetime.now(UTC))
                 next_timestamp = _ceil_to_next_interval(
                     generated_at, request.interval_minutes
                 )
-                site_rows = forecast_df.loc[forecast_df["id"] == request.site_id]
+                site_rows = rows_by_site.get(request.site_id, forecast_df.iloc[:0])
                 if len(site_rows) < steps:
                     raise ValueError(
                         f"Missing Chronos forecast for site {request.site_id}"
