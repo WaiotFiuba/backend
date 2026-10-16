@@ -119,6 +119,27 @@ class SiteProjectionEvaluationRequest(BaseModel):
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)
     stop_at_full: bool = False
+    cutoff_count: int = Field(
+        default=14,
+        ge=1,
+        le=56,
+        description="Cortes a evaluar; con 1 es la evaluacion de un solo corte.",
+    )
+    cutoff_spacing_hours: int = Field(
+        default=13,
+        ge=1,
+        le=168,
+        description=(
+            "Horas entre cortes. Con 13 cada corte cae a otra hora del dia; los "
+            "cortes se anclan a una grilla fija para que se repitan con los mismos datos."
+        ),
+    )
+    min_history_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description="Se descartan los cortes con menos dias de historia que este.",
+    )
 
 
 class SiteProjectionEvaluationMetricResponse(BaseModel):

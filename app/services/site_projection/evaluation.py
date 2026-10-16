@@ -44,6 +44,8 @@ from app.services.site_projection.models import (
 
 EVALUATION_INTERVAL_MINUTES = 60
 EVALUATION_BATCH_SIZE = 100
+# Origen fijo desde el que se mide el resto por separacion: mismos datos, mismos cortes.
+CUTOFF_ANCHOR = datetime(2026, 1, 1, tzinfo=UTC)
 logger = logging.getLogger(__name__)
 _evaluation_lock = asyncio.Lock()
 
@@ -131,8 +133,11 @@ def _prepare_backtest(
     ordered_history = sorted(history, key=lambda bucket: bucket.timestamp)
     # Backtesting clasico: el modelo solo ve lo que existia hasta el cutoff.
     # Todo lo posterior queda reservado como "verdad observada" para medir error.
+    history_start = request.cutoff - timedelta(days=request.lookback_days)
     training_history = [
-        bucket for bucket in ordered_history if bucket.timestamp <= request.cutoff
+        bucket
+        for bucket in ordered_history
+        if history_start < bucket.timestamp <= request.cutoff
     ]
     observed_history = [
         bucket
@@ -355,11 +360,11 @@ async def run_site_projection_evaluation(
                 evaluation.status = "running"
                 await db.commit()
 
-                cutoff = await _resolve_automatic_cutoff(db, request)
-                site_ids = await _resolve_evaluation_site_ids(db, request, cutoff)
+                cutoffs, short_history = await _resolve_cutoffs(db, request)
+                site_ids = await _resolve_evaluation_site_ids(db, request, cutoffs)
                 evaluation.site_count = len(site_ids)
-                evaluation.cutoff_start_at = cutoff
-                evaluation.cutoff_end_at = cutoff
+                evaluation.cutoff_start_at = cutoffs[0]
+                evaluation.cutoff_end_at = cutoffs[-1]
                 evaluation.summary = {"processed_sites": 0}
                 await db.commit()
 
@@ -375,8 +380,8 @@ async def run_site_projection_evaluation(
                     samples = await fetch_site_measurements(
                         db,
                         batch_ids,
-                        lookback_days=_evaluation_window_days(request),
-                        end_time=cutoff + timedelta(hours=request.horizon_hours),
+                        lookback_days=_evaluation_window_days(request, cutoffs),
+                        end_time=cutoffs[-1] + timedelta(hours=request.horizon_hours),
                     )
                     features_by_site = await _get_features_by_site(db, batch_ids)
 
@@ -386,21 +391,23 @@ async def run_site_projection_evaluation(
                     interval_minutes=EVALUATION_INTERVAL_MINUTES,
                     level_aggregation=request.level_aggregation,
                 )
-                results.extend(
-                    await _evaluate_backtest_batch(
-                        batch_ids,
-                        history_by_site,
-                        features_by_site,
-                        cutoff,
-                        request,
-                        forecaster,
+                # Una lectura por tanda de sitios; cada corte se pronostica en lote.
+                for cutoff in cutoffs:
+                    results.extend(
+                        await _evaluate_backtest_batch(
+                            batch_ids,
+                            history_by_site,
+                            features_by_site,
+                            cutoff,
+                            request,
+                            forecaster,
+                        )
                     )
-                )
                 async with MapSessionLocal() as db:
                     evaluation = await db.get(SiteModelEvaluation, evaluation_id)
                     if evaluation is None:
                         return
-                    evaluation.summary = {"processed_sites": len(results)}
+                    evaluation.summary = {"processed_sites": start + len(batch_ids)}
                     await db.commit()
 
             async with MapSessionLocal() as db:
@@ -409,17 +416,21 @@ async def run_site_projection_evaluation(
                     return
                 config = dict(evaluation.config)
                 config.update(
-                    cutoff=cutoff.isoformat(),
+                    cutoff=cutoffs[-1].isoformat(),
+                    cutoffs=[cutoff.isoformat() for cutoff in cutoffs],
                     interval_minutes=EVALUATION_INTERVAL_MINUTES,
-                    cutoff_strategy="latest_observation_minus_horizon",
+                    cutoff_strategy="anchored_rolling",
                     selected_site_ids=site_ids,
                 )
                 evaluation.config = config
                 evaluation.status = "completed"
                 evaluation.site_count = len(site_ids)
-                evaluation.cutoff_start_at = cutoff
-                evaluation.cutoff_end_at = cutoff
-                evaluation.summary = _build_evaluation_summary(results)
+                evaluation.cutoff_start_at = cutoffs[0]
+                evaluation.cutoff_end_at = cutoffs[-1]
+                evaluation.summary = {
+                    **_build_evaluation_summary(results),
+                    "short_history": short_history,
+                }
                 evaluation.completed_at = datetime.now(UTC)
                 db.add_all(_metrics_from_results(evaluation_id, results))
                 await db.commit()
@@ -544,13 +555,7 @@ async def get_site_projection_evaluation_report(
     return _evaluation_report(evaluation, list(result.scalars().all()))
 
 
-async def _resolve_automatic_cutoff(
-    db: AsyncSession,
-    request: SiteProjectionEvaluationRequest,
-) -> datetime:
-    # El usuario no deberia tener que conocer el rango exacto del historico.
-    # Tomo la ultima medicion disponible y retrocedo el horizonte solicitado:
-    # asi queda una ventana futura real para comparar contra la prediccion.
+async def _reading_range(db: AsyncSession) -> tuple[datetime, datetime]:
     result = await db.execute(
         select(
             func.min(DataLevel.reading_date),
@@ -563,9 +568,53 @@ async def _resolve_automatic_cutoff(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No hay mediciones disponibles para ejecutar la evaluacion.",
         )
+    return _as_utc(earliest_reading), _as_utc(latest_reading)
 
-    earliest_reading = _as_utc(earliest_reading)
-    latest_reading = _as_utc(latest_reading)
+
+async def _resolve_cutoffs(
+    db: AsyncSession,
+    request: SiteProjectionEvaluationRequest,
+) -> tuple[list[datetime], bool]:
+    """Los cortes a evaluar y si la historia es corta. Si ningun corte llega a
+    min_history_days, se evalua solo el ultimo, como antes."""
+    earliest_reading, latest_reading = await _reading_range(db)
+    latest_cutoff = _latest_cutoff(earliest_reading, latest_reading, request)
+    cutoffs = rolling_cutoffs(latest_cutoff, earliest_reading, request)
+    if not cutoffs:
+        return [latest_cutoff], True
+    return cutoffs, False
+
+
+def rolling_cutoffs(
+    latest_cutoff: datetime,
+    earliest_reading: datetime,
+    request: SiteProjectionEvaluationRequest,
+) -> list[datetime]:
+    """Cortes cada cutoff_spacing_hours hacia atras desde el ultimo punto de la
+    grilla que no pasa a latest_cutoff, del mas viejo al mas nuevo, sin los que
+    tienen menos de min_history_days de historia."""
+    spacing = timedelta(hours=request.cutoff_spacing_hours)
+    anchored = CUTOFF_ANCHOR + (latest_cutoff - CUTOFF_ANCHOR) // spacing * spacing
+    min_history = timedelta(days=request.min_history_days)
+    cutoffs = [anchored - spacing * index for index in range(request.cutoff_count)]
+    return sorted(c for c in cutoffs if c - earliest_reading >= min_history)
+
+
+async def _resolve_automatic_cutoff(
+    db: AsyncSession,
+    request: SiteProjectionEvaluationRequest,
+) -> datetime:
+    return _latest_cutoff(*await _reading_range(db), request)
+
+
+def _latest_cutoff(
+    earliest_reading: datetime,
+    latest_reading: datetime,
+    request: SiteProjectionEvaluationRequest,
+) -> datetime:
+    # El usuario no deberia tener que conocer el rango exacto del historico.
+    # Tomo la ultima medicion disponible y retrocedo el horizonte solicitado:
+    # asi queda una ventana futura real para comparar contra la prediccion.
     cutoff = floor_to_interval(
         latest_reading - timedelta(hours=request.horizon_hours),
         EVALUATION_INTERVAL_MINUTES,
@@ -581,17 +630,19 @@ async def _resolve_automatic_cutoff(
     return cutoff
 
 
-def _evaluation_window_days(request: SiteProjectionEvaluationRequest) -> int:
-    # get_site_level_series recibe dias enteros. Redondeo el horizonte hacia
-    # arriba para no perder observaciones cuando el horizonte no cae justo en 24h.
-    horizon_days = max(1, math.ceil(request.horizon_hours / 24))
-    return request.lookback_days + horizon_days
+def _evaluation_window_days(
+    request: SiteProjectionEvaluationRequest, cutoffs: list[datetime]
+) -> int:
+    # fetch_site_measurements recibe dias enteros: redondeo hacia arriba para
+    # cubrir la historia del primer corte y el horizonte del ultimo.
+    span = cutoffs[-1] - cutoffs[0] + timedelta(hours=request.horizon_hours)
+    return request.lookback_days + math.ceil(span / timedelta(days=1))
 
 
 async def _resolve_evaluation_site_ids(
     db: AsyncSession,
     request: SiteProjectionEvaluationRequest,
-    cutoff: datetime,
+    cutoffs: list[datetime],
 ) -> list[int]:
     if request.site_ids:
         return sorted(set(request.site_ids))
@@ -603,13 +654,13 @@ async def _resolve_evaluation_site_ids(
 
     # Para que la evaluacion tenga valor, la muestra random sale de sitios que
     # realmente tienen mediciones dentro de la ventana usada por el backtesting.
-    start_time = cutoff - timedelta(days=request.lookback_days)
-    end_time = cutoff + timedelta(hours=request.horizon_hours)
+    start_time = cutoffs[0] - timedelta(days=request.lookback_days)
+    end_time = cutoffs[-1] + timedelta(hours=request.horizon_hours)
     before_cutoff_count = func.count(DataLevel.id).filter(
-        DataLevel.reading_date <= cutoff
+        DataLevel.reading_date <= cutoffs[0]
     )
     after_cutoff_count = func.count(DataLevel.id).filter(
-        DataLevel.reading_date > cutoff
+        DataLevel.reading_date > cutoffs[-1]
     )
     stmt = (
         select(Site.id)
@@ -671,7 +722,9 @@ def _build_evaluation_summary(results: list[SiteBacktestResult]) -> dict:
 
     compared_points = sum(result.compared_points for result in results)
     return {
-        "site_count": len(results),
+        "site_count": len({result.site_id for result in results}),
+        "cutoff_count": len({result.cutoff for result in results}),
+        "case_count": len(results),
         "compared_points": compared_points,
         "mae": _weighted_average(
             [(result.mae, result.compared_points) for result in results]
@@ -679,11 +732,11 @@ def _build_evaluation_summary(results: list[SiteBacktestResult]) -> dict:
         "rmse": _weighted_average(
             [(result.rmse, result.compared_points) for result in results]
         ),
-        "sites_with_observed_critical": sum(
-            1 for result in results if result.observed_critical_at is not None
+        "sites_with_observed_critical": len(
+            {r.site_id for r in results if r.observed_critical_at is not None}
         ),
-        "sites_with_predicted_critical": sum(
-            1 for result in results if result.predicted_critical_at is not None
+        "sites_with_predicted_critical": len(
+            {r.site_id for r in results if r.predicted_critical_at is not None}
         ),
     }
 
@@ -723,7 +776,7 @@ def _metrics_from_results(
             )
         )
 
-    for result in results:
+    for result in _merge_site_results(results):
         site_metrics = {
             "mae": result.mae,
             "rmse": result.rmse,
@@ -756,6 +809,52 @@ def _metrics_from_results(
                 )
             )
     return metrics
+
+
+def _merge_site_results(results: list[SiteBacktestResult]) -> list[SiteBacktestResult]:
+    """Una fila por sitio aunque se haya evaluado en varios cortes."""
+    by_site: dict[int, list[SiteBacktestResult]] = {}
+    for result in results:
+        by_site.setdefault(result.site_id, []).append(result)
+    return [_merge_site(site_results) for site_results in by_site.values()]
+
+
+def _merge_site(results: list[SiteBacktestResult]) -> SiteBacktestResult:
+    if len(results) == 1:
+        return results[0]
+    weighted = [(r.mae, r.compared_points) for r in results]
+    squared = [(r.rmse**2, r.compared_points) for r in results if r.rmse is not None]
+    mean_squared = _weighted_average(squared)
+    errors = [
+        abs(r.critical_time_error_hours)
+        for r in results
+        if r.critical_time_error_hours is not None
+    ]
+    thresholds = [r.threshold_metrics for r in results]
+    true_positives = sum(t.true_positives for t in thresholds)
+    false_positives = sum(t.false_positives for t in thresholds)
+    false_negatives = sum(t.false_negatives for t in thresholds)
+    last = max(results, key=lambda result: result.cutoff)
+    return replace(
+        last,
+        compared_points=sum(r.compared_points for r in results),
+        mae=_weighted_average(weighted),
+        rmse=round(math.sqrt(mean_squared), 4) if mean_squared is not None else None,
+        predicted_critical_at=None,
+        observed_critical_at=None,
+        critical_time_error_hours=(
+            round(sum(errors) / len(errors), 4) if errors else None
+        ),
+        threshold_metrics=ThresholdMetrics(
+            true_positives=true_positives,
+            false_positives=false_positives,
+            false_negatives=false_negatives,
+            true_negatives=sum(t.true_negatives for t in thresholds),
+            precision=_safe_divide(true_positives, true_positives + false_positives),
+            recall=_safe_divide(true_positives, true_positives + false_negatives),
+        ),
+        points=[],
+    )
 
 
 def _aggregate_threshold_metrics(
