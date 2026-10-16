@@ -1,7 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+import pandas as pd
+import pytest
+
+from app.services.site_projection import chronos
 from app.services.site_projection.generation import hourly_generation
 from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import ForecastContext, ForecastRequest
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -49,3 +54,40 @@ def test_hourly_generation_edge_cases():
 
 def test_hourly_generation_replaces_collection_drop_with_typical_increment():
     assert hourly_generation(_buckets([10, 13, 16, 2, 5, 8])) == [0, 3, 3, 3, 3, 3]
+
+
+def test_levels_from_hourly_accumulates_without_going_down():
+    assert chronos._levels_from_hourly(40, [5, -2, 3]) == [45, 45, 48]
+    assert chronos._levels_from_hourly(95, [10]) == [100]
+
+
+@pytest.mark.asyncio
+async def test_chronos_does_not_see_the_collection_and_accumulates_levels_and_bands(
+    monkeypatch,
+):
+    seen = []
+
+    class FakePipeline:
+        def predict_df(self, frame, **_kwargs):
+            seen.append(list(frame["target"]))
+            return pd.DataFrame({"0.1": [1, -1], "0.5": [4, 3], "0.9": [8, 6]})
+
+    monkeypatch.setattr(chronos, "_get_chronos_pipeline", FakePipeline)
+    # El camión pasa en la última hora: el sitio queda en 5.
+    history = _buckets([30, 40, 50, 60, 5])
+    result = await chronos.Chronos2SmallForecaster().forecast(
+        ForecastRequest(site_id=1, horizon_hours=2),
+        ForecastContext(
+            current_level=5,
+            history=history,
+            site_features={},
+            generated_at=history[-1].timestamp,
+            snapshot_at=history[-1].timestamp,
+        ),
+    )
+
+    assert seen == [[0, 10, 10, 10, 10]]
+    assert [
+        (point.lower_bound, point.predicted_level, point.upper_bound)
+        for point in result.points
+    ] == [(6, 9, 13), (6, 12, 19)]

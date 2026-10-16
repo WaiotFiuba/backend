@@ -33,7 +33,7 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
     class FakePipeline:
         def predict_df(self, frame, **_kwargs):
             seen.append(frame)
-            return pd.DataFrame({"0.1": [45], "0.5": [50], "0.9": [55]})
+            return pd.DataFrame({"0.1": [1], "0.5": [5], "0.9": [9]})
 
     def load_pipeline():
         initialization_threads.append(threading.get_ident())
@@ -51,7 +51,7 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
         ),
     )
 
-    assert seen[0].iloc[-1]["target"] == 45
+    assert list(seen[0]["target"]) == [0, 10, 10, 15]
     assert seen[0].iloc[-1]["timestamp"] == pd.Timestamp("2026-01-01 05:00:00")
     assert result.points[0].predicted_level == 50
     assert len(initialization_threads) == 1
@@ -106,9 +106,9 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
             return pd.DataFrame(
                 {
                     "id": [2, 2, 1, 1],
-                    "0.1": [55, 60, 45, 50],
-                    "0.5": [60, 65, 50, 55],
-                    "0.9": [65, 70, 55, 60],
+                    "0.1": [5, 0, 5, 0],
+                    "0.5": [10, 5, 10, 5],
+                    "0.9": [15, 10, 15, 10],
                 }
             )
 
@@ -136,12 +136,18 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
     assert len(initialization_threads) == 1
     assert initialization_threads[0] != threading.get_ident()
     assert set(calls[0][0]["id"]) == {1, 2}
-    for site_id, level in [(1, 40), (2, 50)]:
+    for site_id in (1, 2):
         site_rows = calls[0][0].loc[calls[0][0]["id"] == site_id]
         assert site_rows.iloc[-1]["timestamp"] == pd.Timestamp(
             as_of.replace(tzinfo=None)
         )
-        assert site_rows.iloc[-1]["target"] == level
+        assert list(site_rows["target"]) == [0, 10, 10, 10, 0]
     assert calls[0][1]["prediction_length"] == 2
-    assert [site.points[0].predicted_level for site in result.sites[:2]] == [50, 60]
+    assert calls[0][1]["quantile_levels"] == [0.1, 0.5, 0.9]
+    assert [
+        [point.predicted_level for point in site.points] for site in result.sites[:2]
+    ] == [[50, 55], [60, 65]]
+    assert [
+        (point.lower_bound, point.upper_bound) for point in result.sites[0].points
+    ] == [(45, 55), (45, 65)]
     assert result.sites[2].points[0].reason == "insufficient_history"
