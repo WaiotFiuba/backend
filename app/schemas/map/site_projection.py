@@ -140,6 +140,24 @@ class SiteProjectionEvaluationRequest(BaseModel):
         le=365,
         description="Se descartan los cortes con menos dias de historia que este.",
     )
+    critical_early_hours: int = Field(
+        default=3,
+        ge=0,
+        le=24,
+        description=(
+            "Un aviso hasta estas horas antes del cruce es acierto; antes es una "
+            "visita de mas y cuenta como falsa alarma."
+        ),
+    )
+    critical_late_hours: int = Field(
+        default=1,
+        ge=0,
+        le=24,
+        description=(
+            "Un aviso hasta estas horas despues del cruce es acierto; despues es "
+            "un desborde no anticipado y cuenta como cruce perdido."
+        ),
+    )
 
 
 class SiteProjectionEvaluationMetricResponse(BaseModel):

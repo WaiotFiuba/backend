@@ -27,6 +27,10 @@ from app.schemas.map.site_projection import (
     SiteProjectionEvaluationResponse,
     SiteProjectionEvaluationSiteReport,
 )
+from app.services.site_projection.generation import (
+    first_crossing,
+    uncollected_levels,
+)
 from app.services.site_projection.history import (
     SiteLevelBucket,
     aggregate_site_measurements,
@@ -99,6 +103,9 @@ class SiteBacktestResult:
     critical_time_error_hours: float | None
     threshold_metrics: ThresholdMetrics
     points: list[SiteBacktestPoint]
+    # Cuando hubiera llegado al umbral si no lo vaciaban: la verdad de los eventos.
+    uncollected_critical_at: datetime | None = None
+    uncollected_time_error_hours: float | None = None
 
 
 async def evaluate_site_forecast_backtest(
@@ -122,7 +129,7 @@ async def evaluate_site_forecast_backtest(
         history, request, site_features
     )
     forecast = await forecaster.forecast(forecast_request, context)
-    return _score_backtest(request, forecast, observed_history)
+    return _score_backtest(request, forecast, observed_history, context.history)
 
 
 def _prepare_backtest(
@@ -172,6 +179,7 @@ def _score_backtest(
     request: SiteBacktestRequest,
     forecast: ForecastResult,
     observed_history: list[SiteLevelBucket],
+    training_history: list[SiteLevelBucket] | None = None,
 ) -> SiteBacktestResult:
     # Comparo por timestamp exacto porque las proyecciones salen en buckets fijos
     # y el historico ya fue agregado con el mismo interval_minutes.
@@ -195,6 +203,10 @@ def _score_backtest(
         observed_history,
         request.critical_level,
     )
+    uncollected_critical_at = first_crossing(
+        uncollected_levels(training_history or [], observed_history),
+        request.critical_level,
+    )
 
     return SiteBacktestResult(
         site_id=request.site_id,
@@ -213,6 +225,11 @@ def _score_backtest(
         ),
         threshold_metrics=_threshold_metrics(compared_points),
         points=compared_points,
+        uncollected_critical_at=uncollected_critical_at,
+        uncollected_time_error_hours=_critical_time_error_hours(
+            predicted_critical_at,
+            uncollected_critical_at,
+        ),
     )
 
 
@@ -428,11 +445,22 @@ async def run_site_projection_evaluation(
                 evaluation.cutoff_start_at = cutoffs[0]
                 evaluation.cutoff_end_at = cutoffs[-1]
                 evaluation.summary = {
-                    **_build_evaluation_summary(results),
+                    **_build_evaluation_summary(
+                        results,
+                        request.critical_early_hours,
+                        request.critical_late_hours,
+                    ),
                     "short_history": short_history,
                 }
                 evaluation.completed_at = datetime.now(UTC)
-                db.add_all(_metrics_from_results(evaluation_id, results))
+                db.add_all(
+                    _metrics_from_results(
+                        evaluation_id,
+                        results,
+                        request.critical_early_hours,
+                        request.critical_late_hours,
+                    )
+                )
                 await db.commit()
         except Exception as exc:
             logger.exception("Fallo la evaluacion de proyecciones %s", evaluation_id)
@@ -482,10 +510,12 @@ async def _evaluate_backtest_batch(
     )
     return [
         replace(
-            _score_backtest(backtest, forecasts[backtest.site_id], observed),
+            _score_backtest(
+                backtest, forecasts[backtest.site_id], observed, context.history
+            ),
             points=[],
         )
-        for backtest, _, _, observed in prepared
+        for backtest, _, context, observed in prepared
     ]
 
 
@@ -717,14 +747,21 @@ async def _get_features_by_site(
     return features_by_site
 
 
-def _build_evaluation_summary(results: list[SiteBacktestResult]) -> dict:
+def _build_evaluation_summary(
+    results: list[SiteBacktestResult], early_hours: int = 3, late_hours: int = 1
+) -> dict:
     """Resumen compacto para mostrar una evaluacion sin leer todas sus metricas."""
 
     compared_points = sum(result.compared_points for result in results)
+    events = event_metrics(results, early_hours, late_hours)
     return {
         "site_count": len({result.site_id for result in results}),
         "cutoff_count": len({result.cutoff for result in results}),
         "case_count": len(results),
+        "events_observed": events["event_observed"],
+        "event_precision": events["event_precision"],
+        "event_recall": events["event_recall"],
+        "event_f1": events["event_f1"],
         "compared_points": compared_points,
         "mae": _weighted_average(
             [(result.mae, result.compared_points) for result in results]
@@ -741,9 +778,75 @@ def _build_evaluation_summary(results: list[SiteBacktestResult]) -> dict:
     }
 
 
+def event_metrics(
+    results: list[SiteBacktestResult], early_hours: int = 3, late_hours: int = 1
+) -> dict[str, float | None]:
+    """Un caso por sitio y corte: si llega al umbral en el horizonte si no lo
+    vacian. Acierta si avisa entre early_hours antes y late_hours despues del
+    cruce sin recoleccion; antes es una visita de mas (falsa alarma), despues un
+    desborde no anticipado (cruce perdido)."""
+    tp = fp = fn = tn = early = late = 0
+    for r in results:
+        predicted = r.predicted_critical_at is not None
+        observed = r.uncollected_critical_at is not None
+        if predicted and observed:
+            if r.uncollected_time_error_hours < -early_hours:
+                early += 1
+            elif r.uncollected_time_error_hours > late_hours:
+                late += 1
+            else:
+                tp += 1
+        elif predicted:
+            fp += 1
+        elif observed:
+            fn += 1
+        else:
+            tn += 1
+    errors = [
+        r.uncollected_time_error_hours
+        for r in results
+        if r.uncollected_time_error_hours is not None
+    ]
+    detected = tp + early + late
+    precision = _safe_divide(tp, tp + fp + early)
+    recall = _safe_divide(tp, tp + fn + late)
+    return {
+        "event_true_positives": float(tp),
+        "event_false_positives": float(fp + early),
+        "event_false_negatives": float(fn + late),
+        "event_true_negatives": float(tn),
+        "event_too_early": float(early),
+        "event_too_late": float(late),
+        "event_observed": float(detected + fn),
+        "event_prevalence": _safe_divide(detected + fn, len(results)),
+        "event_precision": precision,
+        "event_recall": recall,
+        "event_f1": _f1(precision, recall),
+        # Sin mirar la hora: solo si avisa y si cruza.
+        "event_horizon_f1": _f1(
+            _safe_divide(detected, detected + fp),
+            _safe_divide(detected, detected + fn),
+        ),
+        "critical_time_mae_hours": (
+            round(sum(abs(e) for e in errors) / len(errors), 4) if errors else None
+        ),
+        "critical_time_bias_hours": (
+            round(sum(errors) / len(errors), 4) if errors else None
+        ),
+    }
+
+
+def _f1(precision: float | None, recall: float | None) -> float | None:
+    if not precision or not recall:
+        return None
+    return round(2 * precision * recall / (precision + recall), 4)
+
+
 def _metrics_from_results(
     evaluation_id: int,
     results: list[SiteBacktestResult],
+    early_hours: int = 3,
+    late_hours: int = 1,
 ) -> list[SiteModelEvaluationMetric]:
     """Convierte resultados en filas metricas persistibles.
 
@@ -752,7 +855,7 @@ def _metrics_from_results(
     """
 
     metrics: list[SiteModelEvaluationMetric] = []
-    summary = _build_evaluation_summary(results)
+    summary = _build_evaluation_summary(results, early_hours, late_hours)
     for metric_key in ("mae", "rmse"):
         metrics.append(
             SiteModelEvaluationMetric(
@@ -773,6 +876,18 @@ def _metrics_from_results(
                 metric_key=metric_key,
                 metric_value=metric_value,
                 sample_count=summary["compared_points"],
+            )
+        )
+    for metric_key, metric_value in event_metrics(
+        results, early_hours, late_hours
+    ).items():
+        metrics.append(
+            SiteModelEvaluationMetric(
+                evaluation_id=evaluation_id,
+                metric_scope="global",
+                metric_key=metric_key,
+                metric_value=metric_value,
+                sample_count=len(results),
             )
         )
 
@@ -842,6 +957,8 @@ def _merge_site(results: list[SiteBacktestResult]) -> SiteBacktestResult:
         rmse=round(math.sqrt(mean_squared), 4) if mean_squared is not None else None,
         predicted_critical_at=None,
         observed_critical_at=None,
+        uncollected_critical_at=None,
+        uncollected_time_error_hours=None,
         critical_time_error_hours=(
             round(sum(errors) / len(errors), 4) if errors else None
         ),

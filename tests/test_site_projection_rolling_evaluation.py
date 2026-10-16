@@ -11,9 +11,12 @@ from app.services.site_projection.evaluation import (
     _evaluation_window_days,
     _merge_site_results,
     _prepare_backtest,
+    _score_backtest,
+    event_metrics,
     rolling_cutoffs,
 )
 from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import ForecastPoint, ForecastResult
 
 EARLIEST = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -96,7 +99,7 @@ def test_window_covers_history_of_first_cutoff_and_horizon_of_last():
     assert _evaluation_window_days(_request(), cutoffs) == 23
 
 
-def _bucket(timestamp, level):
+def _bucket(timestamp, level, collected=False):
     return SiteLevelBucket(
         site_id=1,
         timestamp=timestamp,
@@ -106,7 +109,7 @@ def _bucket(timestamp, level):
         min_level=level,
         measurement_count=1,
         container_count=1,
-        has_collection_signal=False,
+        has_collection_signal=collected,
     )
 
 
@@ -165,3 +168,126 @@ def test_one_row_per_site_weighted_by_compared_points():
         0.75,
         0.75,
     )
+
+
+def test_events_are_measured_against_the_crossing_without_collection():
+    cutoff = EARLIEST + timedelta(hours=5)
+    training = [_bucket(EARLIEST + timedelta(hours=h), 10 * h) for h in range(6)]
+    # El camion vacia en 70: el nivel real nunca llega a 80.
+    observed = [
+        _bucket(cutoff + timedelta(hours=1), 60),
+        _bucket(cutoff + timedelta(hours=2), 70),
+        _bucket(cutoff + timedelta(hours=3), 5, collected=True),
+        _bucket(cutoff + timedelta(hours=4), 15),
+    ]
+    forecast = ForecastResult(
+        site_id=1,
+        model_key="baseline_operational",
+        generated_at=cutoff,
+        points=[
+            ForecastPoint(
+                timestamp=cutoff + timedelta(hours=h),
+                predicted_level=level,
+                confidence=1,
+            )
+            for h, level in [(1, 60), (2, 70), (3, 80), (4, 90)]
+        ],
+    )
+
+    result = _score_backtest(
+        SiteBacktestRequest(site_id=1, cutoff=cutoff, horizon_hours=4),
+        forecast,
+        observed,
+        training,
+    )
+
+    assert result.observed_critical_at is None
+    assert result.uncollected_critical_at == cutoff + timedelta(hours=3)
+    assert result.predicted_critical_at == cutoff + timedelta(hours=3)
+    assert result.uncollected_time_error_hours == 0
+
+
+def _event(predicted_hour, observed_hour):
+    cutoff = EARLIEST
+
+    def at(hour):
+        return None if hour is None else cutoff + timedelta(hours=hour)
+
+    return SiteBacktestResult(
+        site_id=1,
+        model_key="baseline_operational",
+        cutoff=cutoff,
+        horizon_hours=24,
+        interval_minutes=60,
+        compared_points=24,
+        mae=None,
+        rmse=None,
+        predicted_critical_at=at(predicted_hour),
+        observed_critical_at=None,
+        critical_time_error_hours=None,
+        threshold_metrics=ThresholdMetrics(0, 0, 0, 0, None, None),
+        points=[],
+        uncollected_critical_at=at(observed_hour),
+        uncollected_time_error_hours=(
+            predicted_hour - observed_hour
+            if predicted_hour is not None and observed_hour is not None
+            else None
+        ),
+    )
+
+
+def test_event_metrics_count_one_case_per_site_and_cutoff():
+    events = event_metrics(
+        [
+            _event(5, 6),  # avisa 1 h antes: acierto
+            _event(9, 8),  # avisa 1 h despues: acierto
+            _event(3, None),  # avisa y no cruza: falsa alarma
+            _event(None, 4),  # cruza y no avisa: perdido
+            _event(None, None),  # ni una cosa ni la otra
+        ]
+    )
+
+    assert events["event_true_positives"] == 2
+    assert events["event_false_positives"] == 1
+    assert events["event_false_negatives"] == 1
+    assert events["event_true_negatives"] == 1
+    assert events["event_observed"] == 3
+    assert events["event_prevalence"] == 0.6
+    assert events["event_precision"] == round(2 / 3, 4)
+    assert events["event_recall"] == round(2 / 3, 4)
+    assert events["event_f1"] == round(2 / 3, 4)
+    assert events["critical_time_mae_hours"] == 1
+    assert events["critical_time_bias_hours"] == 0
+
+
+def test_warnings_outside_the_window_are_false_alarms_or_misses():
+    events = event_metrics(
+        [
+            _event(4, 6),  # 2 h antes: dentro de la ventana
+            _event(0, 6),  # 6 h antes: visita de mas, falsa alarma
+            _event(9, 6),  # 3 h despues: desborde, cruce perdido
+            _event(7, 6),  # 1 h despues: dentro de la ventana
+        ],
+        early_hours=3,
+        late_hours=1,
+    )
+
+    assert events["event_true_positives"] == 2
+    assert events["event_too_early"] == 1
+    assert events["event_too_late"] == 1
+    assert events["event_false_positives"] == 1
+    assert events["event_false_negatives"] == 1
+    assert events["event_observed"] == 4
+    assert events["event_precision"] == round(2 / 3, 4)
+    assert events["event_recall"] == round(2 / 3, 4)
+    # Sin mirar la hora, los cuatro son aciertos.
+    assert events["event_horizon_f1"] == 1
+    assert events["critical_time_bias_hours"] == -1
+
+
+def test_event_f1_is_none_without_hits():
+    events = event_metrics([_event(3, None), _event(None, None)])
+
+    assert events["event_precision"] == 0
+    assert events["event_recall"] is None
+    assert events["event_f1"] is None

@@ -192,6 +192,13 @@ async def test_background_evaluation_reads_once_and_evaluates_every_cutoff(
     assert evaluation.summary["cutoff_count"] == 2
     assert evaluation.summary["case_count"] == 4
     assert evaluation.summary["short_history"] is False
+    assert evaluation.summary["events_observed"] == 0
+    global_keys = {
+        metric.metric_key
+        for metric in state["metrics"]
+        if metric.metric_scope == "global"
+    }
+    assert {"event_precision", "event_recall", "event_f1"} <= global_keys
     assert evaluation.config["cutoffs"] == [c.isoformat() for c in cutoffs]
     assert evaluation.cutoff_start_at == cutoffs[0]
     assert evaluation.cutoff_end_at == cutoffs[-1]
