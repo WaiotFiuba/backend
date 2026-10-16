@@ -2,7 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
+from app.core.config import Settings
 from app.services.site_projection import chronos
 from app.services.site_projection.generation import hourly_generation
 from app.services.site_projection.history import SiteLevelBucket
@@ -73,6 +75,7 @@ async def test_chronos_does_not_see_the_collection_and_accumulates_levels_and_ba
             return pd.DataFrame({"0.1": [1, -1], "0.5": [4, 3], "0.9": [8, 6]})
 
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", FakePipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.5)
     # El camión pasa en la última hora: el sitio queda en 5.
     history = _buckets([30, 40, 50, 60, 5])
     result = await chronos.Chronos2SmallForecaster().forecast(
@@ -91,3 +94,43 @@ async def test_chronos_does_not_see_the_collection_and_accumulates_levels_and_ba
         (point.lower_bound, point.predicted_level, point.upper_bound)
         for point in result.points
     ] == [(6, 9, 13), (6, 12, 19)]
+
+
+def test_forecast_quantile_is_configurable_and_bounded():
+    assert Settings().chronos_forecast_quantile == 0.6
+    assert Settings(chronos_forecast_quantile=0.5).chronos_forecast_quantile == 0.5
+    with pytest.raises(ValidationError):
+        Settings(chronos_forecast_quantile=0.95)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("quantile", "levels", "expected"),
+    [(0.5, [0.1, 0.5, 0.9], 42), (0.6, [0.1, 0.6, 0.9], 44)],
+)
+async def test_chronos_reads_the_configured_quantile(
+    monkeypatch, quantile, levels, expected
+):
+    seen = []
+
+    class FakePipeline:
+        def predict_df(self, _frame, **kwargs):
+            seen.append(kwargs["quantile_levels"])
+            return pd.DataFrame({"0.1": [1], "0.5": [2], "0.6": [4], "0.9": [6]})
+
+    monkeypatch.setattr(chronos, "_get_chronos_pipeline", FakePipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: quantile)
+    history = _buckets([10, 20, 30, 40])
+    result = await chronos.Chronos2SmallForecaster().forecast(
+        ForecastRequest(site_id=1, horizon_hours=1),
+        ForecastContext(
+            current_level=40,
+            history=history,
+            site_features={},
+            generated_at=history[-1].timestamp,
+            snapshot_at=history[-1].timestamp,
+        ),
+    )
+
+    assert seen == [levels]
+    assert result.points[0].predicted_level == expected

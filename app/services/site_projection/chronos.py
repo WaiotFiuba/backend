@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.core.config import get_settings
 from app.services.site_projection.generation import hourly_generation
 from app.services.site_projection.history import SiteLevelBucket, floor_to_interval
 from app.services.site_projection.models import (
@@ -32,7 +33,7 @@ CHRONOS_2_SMALL_MODEL = ForecastModelInfo(
     description=(
         "Modelo fundacional zero-shot para series temporales (28M params). "
         "Pronostica lo generado por hora, sin las bajadas por recolección; "
-        "mediana como nivel previsto e intervalo del 10% al 90%."
+        "nivel previsto con el cuantil configurado e intervalo del 10% al 90%."
     ),
     status="available",
     requires_training=False,
@@ -59,6 +60,10 @@ def _get_chronos_pipeline() -> Any:
                 )
                 logger.info("Pipeline de Chronos-2 Small cargado exitosamente.")
     return _pipeline_instance
+
+
+def _forecast_quantile() -> float:
+    return get_settings().chronos_forecast_quantile
 
 
 def _levels_from_hourly(current_level: float, forecast) -> list[float]:
@@ -127,6 +132,7 @@ class Chronos2SmallForecaster:
 
         try:
             pipeline = await asyncio.to_thread(_get_chronos_pipeline)
+            quantile = _forecast_quantile()
 
             # Normalizar serie temporal a DataFrame para Chronos2Pipeline
             # tz_localize(None) es necesario para que numpy/pandas maneje datetime64 nativo
@@ -144,7 +150,7 @@ class Chronos2SmallForecaster:
                 pipeline.predict_df,
                 df,
                 prediction_length=steps,
-                quantile_levels=[0.1, 0.5, 0.9],
+                quantile_levels=sorted({0.1, quantile, 0.9}),
                 id_column="id",
                 timestamp_column="timestamp",
                 target="target",
@@ -156,7 +162,7 @@ class Chronos2SmallForecaster:
                 _levels_from_hourly(
                     history[-1].level, forecast_df[str(q)].iloc[:num_rows]
                 )
-                for q in (0.5, 0.1, 0.9)
+                for q in (quantile, 0.1, 0.9)
             )
 
             for step in range(num_rows):
@@ -265,11 +271,12 @@ class Chronos2SmallForecaster:
         steps = max(1, int(request.horizon_hours * 60 / request.interval_minutes))
         try:
             pipeline = await asyncio.to_thread(_get_chronos_pipeline)
+            quantile = _forecast_quantile()
             forecast_df = await asyncio.to_thread(
                 pipeline.predict_df,
                 pd.DataFrame(rows),
                 prediction_length=steps,
-                quantile_levels=[0.1, 0.5, 0.9],
+                quantile_levels=sorted({0.1, quantile, 0.9}),
                 id_column="id",
                 timestamp_column="timestamp",
                 target="target",
@@ -291,7 +298,7 @@ class Chronos2SmallForecaster:
                         current_levels[request.site_id],
                         site_rows[str(q)].iloc[:steps],
                     )
-                    for q in (0.5, 0.1, 0.9)
+                    for q in (quantile, 0.1, 0.9)
                 )
                 for step in range(steps):
                     predicted = predicted_levels[step]

@@ -33,13 +33,14 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
     class FakePipeline:
         def predict_df(self, frame, **_kwargs):
             seen.append(frame)
-            return pd.DataFrame({"0.1": [1], "0.5": [5], "0.9": [9]})
+            return pd.DataFrame({"0.1": [1], "0.6": [5], "0.9": [9]})
 
     def load_pipeline():
         initialization_threads.append(threading.get_ident())
         return FakePipeline()
 
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.6)
     result = await chronos.Chronos2SmallForecaster().forecast(
         ForecastRequest(site_id=1, horizon_hours=1),
         ForecastContext(
@@ -107,7 +108,7 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
                 {
                     "id": [2, 2, 1, 1],
                     "0.1": [5, 0, 5, 0],
-                    "0.5": [10, 5, 10, 5],
+                    "0.6": [10, 5, 10, 5],
                     "0.9": [15, 10, 15, 10],
                 }
             )
@@ -121,6 +122,7 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
         return FakePipeline()
 
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.6)
 
     result = await service.project_sites(
         object(),
@@ -143,7 +145,7 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
         )
         assert list(site_rows["target"]) == [0, 10, 10, 10, 0]
     assert calls[0][1]["prediction_length"] == 2
-    assert calls[0][1]["quantile_levels"] == [0.1, 0.5, 0.9]
+    assert calls[0][1]["quantile_levels"] == [0.1, 0.6, 0.9]
     assert [
         [point.predicted_level for point in site.points] for site in result.sites[:2]
     ] == [[50, 55], [60, 65]]
