@@ -6,18 +6,22 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.services.site_projection import chronos
-from app.services.site_projection.generation import hourly_generation
+from app.services.site_projection.generation import (
+    first_crossing,
+    hourly_generation,
+    uncollected_levels,
+)
 from app.services.site_projection.history import SiteLevelBucket
 from app.services.site_projection.models import ForecastContext, ForecastRequest
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _buckets(levels, signal_at=()):
+def _buckets(levels, signal_at=(), start=START):
     return [
         SiteLevelBucket(
             site_id=1,
-            timestamp=START + timedelta(hours=index),
+            timestamp=start + timedelta(hours=index),
             level=level,
             avg_level=level,
             max_level=level,
@@ -134,3 +138,37 @@ async def test_chronos_reads_the_configured_quantile(
 
     assert seen == [levels]
     assert result.points[0].predicted_level == expected
+
+
+def test_uncollected_levels_continue_after_a_real_collection():
+    training = _buckets([0, 10, 20, 30, 40, 50])
+    observed = _buckets(
+        [60, 70, 5, 15, 25], signal_at={2}, start=START + timedelta(hours=6)
+    )
+
+    levels = uncollected_levels(training, observed)
+
+    assert [level for _, level in levels] == [50, 60, 70, 80, 90, 100]
+    assert first_crossing(levels, 80) == START + timedelta(hours=8)
+
+
+def test_uncollected_crossing_is_none_when_it_never_gets_there():
+    training = _buckets([0, 1, 2, 3])
+    observed = _buckets([4, 5, 6], start=START + timedelta(hours=4))
+
+    assert first_crossing(uncollected_levels(training, observed), 80) is None
+
+
+def test_uncollected_crossing_of_an_already_critical_site_is_the_first_reading():
+    training = _buckets([70, 80, 85])
+    observed = _buckets([90, 95], start=START + timedelta(hours=3))
+
+    assert first_crossing(uncollected_levels(training, observed), 80) == (
+        START + timedelta(hours=3)
+    )
+
+
+def test_uncollected_levels_need_history_on_both_sides():
+    assert uncollected_levels([], _buckets([10])) == []
+    assert uncollected_levels(_buckets([10]), []) == []
+    assert first_crossing([], 80) is None

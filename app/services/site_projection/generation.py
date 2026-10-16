@@ -5,6 +5,7 @@ usa lo típico de esa hora."""
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from itertools import pairwise
 from statistics import median
 
@@ -47,6 +48,35 @@ def hourly_generation(history: list[SiteLevelBucket]) -> list[float]:
         round(generation_increment(previous, current, typical), 4)
         for previous, current in pairwise(ordered)
     ]
+
+
+def uncollected_levels(
+    training: list[SiteLevelBucket], observed: list[SiteLevelBucket]
+) -> list[tuple[datetime, float]]:
+    """Nivel que hubiera tenido el sitio si no lo vaciaban después del corte:
+    el nivel del corte (primer punto) más lo que se generó desde entonces."""
+    training = sorted(training, key=lambda bucket: bucket.timestamp)
+    observed = sorted(observed, key=lambda bucket: bucket.timestamp)
+    if not training or not observed:
+        return []
+    typical = typical_increments(training)
+    previous = training[-1]
+    levels = [(previous.timestamp, previous.level)]
+    for bucket in observed:
+        level = levels[-1][1] + generation_increment(previous, bucket, typical)
+        levels.append((bucket.timestamp, level))
+        previous = bucket
+    return levels
+
+
+def first_crossing(
+    levels: list[tuple[datetime, float]], level: float
+) -> datetime | None:
+    """Primera lectura después del corte en la que se está en level o más."""
+    for (_, before), (timestamp, after) in pairwise(levels):
+        if before >= level or after >= level:
+            return timestamp
+    return None
 
 
 def _is_collection(previous: SiteLevelBucket, current: SiteLevelBucket) -> bool:
