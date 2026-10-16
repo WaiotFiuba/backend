@@ -204,9 +204,13 @@ async def test_batch_backtest_matches_individual_metrics():
     assert [result.site_id for result in results] == [1, 2]
     assert all(result.mae == individual.mae for result in results)
     assert all(result.rmse == individual.rmse for result in results)
-    assert all(result.compared_points == individual.compared_points for result in results)
+    assert all(
+        result.compared_points == individual.compared_points for result in results
+    )
     assert all(result.points == [] for result in results)
 
 
 def test_evaluation_sample_size_accepts_5000_sites():
-    assert SiteProjectionEvaluationRequest(site_sample_size=5000).site_sample_size == 5000
+    assert (
+        SiteProjectionEvaluationRequest(site_sample_size=5000).site_sample_size == 5000
+    )

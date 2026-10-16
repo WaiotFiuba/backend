@@ -78,7 +78,9 @@ async def test_background_evaluation_persists_status_and_batch_metrics(monkeypat
         }
 
     monkeypatch.setattr(evaluation_service, "_resolve_automatic_cutoff", resolve_cutoff)
-    monkeypatch.setattr(evaluation_service, "_resolve_evaluation_site_ids", resolve_sites)
+    monkeypatch.setattr(
+        evaluation_service, "_resolve_evaluation_site_ids", resolve_sites
+    )
     monkeypatch.setattr(evaluation_service, "fetch_site_measurements", fetch_samples)
     monkeypatch.setattr(evaluation_service, "_get_features_by_site", fetch_features)
     monkeypatch.setattr(evaluation_service, "aggregate_site_measurements", aggregate)

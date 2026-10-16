@@ -366,7 +366,9 @@ async def run_site_projection_evaluation(
             results: list[SiteBacktestResult] = []
             forecaster = get_forecaster(request.model_key)
             if forecaster is None:
-                raise ValueError(f"Modelo de proyeccion desconocido: {request.model_key}")
+                raise ValueError(
+                    f"Modelo de proyeccion desconocido: {request.model_key}"
+                )
             for start in range(0, len(site_ids), EVALUATION_BATCH_SIZE):
                 batch_ids = site_ids[start : start + EVALUATION_BATCH_SIZE]
                 async with MapSessionLocal() as db:
