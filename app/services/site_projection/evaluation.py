@@ -103,6 +103,7 @@ class SiteBacktestResult:
     critical_time_error_hours: float | None
     threshold_metrics: ThresholdMetrics
     points: list[SiteBacktestPoint]
+    critical_at_cutoff: bool = False
 
 
 async def evaluate_site_forecast_backtest(
@@ -200,6 +201,9 @@ def _score_backtest(
         request.critical_level,
     )
     observed_critical_at = first_crossing(uncollected, request.critical_level)
+    critical_at_cutoff = (
+        bool(uncollected) and uncollected[0][1] >= request.critical_level
+    )
 
     return SiteBacktestResult(
         site_id=request.site_id,
@@ -218,6 +222,7 @@ def _score_backtest(
         ),
         threshold_metrics=_threshold_metrics(compared_points),
         points=compared_points,
+        critical_at_cutoff=critical_at_cutoff,
     )
 
 
@@ -737,6 +742,7 @@ def _build_evaluation_summary(
         "site_count": len({result.site_id for result in results}),
         "cutoff_count": len({result.cutoff for result in results}),
         "case_count": len(results),
+        "critical_at_cutoff": sum(result.critical_at_cutoff for result in results),
         "events_observed": events["event_observed"],
         "event_precision": events["event_precision"],
         "event_recall": events["event_recall"],
@@ -763,7 +769,9 @@ def event_metrics(
     """Un caso por sitio y corte: si llega al umbral en el horizonte si no lo
     vacian. Acierta si avisa entre early_hours antes y late_hours despues del
     cruce sin recoleccion; antes es una visita de mas (falsa alarma), despues un
-    desborde no anticipado (cruce perdido)."""
+    desborde no anticipado (cruce perdido). Sin los casos ya criticos en el
+    corte, que cualquier modelo acierta."""
+    results = [r for r in results if not r.critical_at_cutoff]
     tp = fp = fn = tn = early = late = 0
     for r in results:
         predicted = r.predicted_critical_at is not None
@@ -857,6 +865,7 @@ def _metrics_from_results(
                 sample_count=summary["compared_points"],
             )
         )
+    event_cases = sum(not result.critical_at_cutoff for result in results)
     for metric_key, metric_value in event_metrics(
         results, early_hours, late_hours
     ).items():
@@ -866,7 +875,7 @@ def _metrics_from_results(
                 metric_scope="global",
                 metric_key=metric_key,
                 metric_value=metric_value,
-                sample_count=len(results),
+                sample_count=event_cases,
             )
         )
 

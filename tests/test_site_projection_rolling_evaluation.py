@@ -11,6 +11,7 @@ from app.services.site_projection.evaluation import (
     _evaluation_window_days,
     _merge_site_results,
     _prepare_backtest,
+    _build_evaluation_summary,
     _score_backtest,
     event_metrics,
     rolling_cutoffs,
@@ -243,7 +244,7 @@ def test_level_reference_is_capped_at_100():
     assert result.mae == 0
 
 
-def _event(predicted_hour, observed_hour):
+def _event(predicted_hour, observed_hour, critical_at_cutoff=False):
     cutoff = EARLIEST
 
     def at(hour):
@@ -267,6 +268,7 @@ def _event(predicted_hour, observed_hour):
         ),
         threshold_metrics=ThresholdMetrics(0, 0, 0, 0, None, None),
         points=[],
+        critical_at_cutoff=critical_at_cutoff,
     )
 
 
@@ -325,3 +327,44 @@ def test_event_f1_is_none_without_hits():
     assert events["event_precision"] == 0
     assert events["event_recall"] is None
     assert events["event_f1"] is None
+
+
+def test_a_site_already_critical_at_the_cutoff_is_flagged():
+    cutoff = EARLIEST + timedelta(hours=2)
+    training = [_bucket(EARLIEST + timedelta(hours=h), 70 + 5 * h) for h in range(3)]
+    observed = [_bucket(cutoff + timedelta(hours=1), 85)]
+    forecast = ForecastResult(
+        site_id=1,
+        model_key="baseline_operational",
+        generated_at=cutoff,
+        points=[
+            ForecastPoint(
+                timestamp=cutoff + timedelta(hours=1), predicted_level=85, confidence=1
+            )
+        ],
+    )
+
+    result = _score_backtest(
+        SiteBacktestRequest(site_id=1, cutoff=cutoff, horizon_hours=1),
+        forecast,
+        observed,
+        training,
+    )
+
+    assert result.critical_at_cutoff is True
+
+
+def test_event_metrics_leave_out_sites_already_critical_at_the_cutoff():
+    results = [
+        _event(1, 1, critical_at_cutoff=True),  # ya critico: se sabe sin pronosticar
+        _event(1, 1, critical_at_cutoff=True),
+        _event(5, 6),  # acierto
+        _event(None, 4),  # perdido
+    ]
+
+    summary = _build_evaluation_summary(results)
+
+    assert summary["case_count"] == 4
+    assert summary["critical_at_cutoff"] == 2
+    assert summary["events_observed"] == 2
+    assert summary["event_recall"] == 0.5
