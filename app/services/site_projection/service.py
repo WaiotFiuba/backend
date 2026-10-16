@@ -106,7 +106,7 @@ async def project_site_level(
         history=history_by_site.get(numeric_site_id, []),
         site_features=await _get_site_features(db, numeric_site_id),
         generated_at=generated_at,
-        snapshot_at=generated_at if as_of is not None else None,
+        snapshot_at=generated_at,
     )
     forecast_result = await forecaster.forecast(request, context)
     return build_site_projection_response(
@@ -252,7 +252,7 @@ async def project_sites(
                 history=history_by_site.get(site_id, []),
                 site_features=features_by_site.get(site_id, {}),
                 generated_at=generated_at,
-                snapshot_at=generated_at if as_of is not None else None,
+                snapshot_at=generated_at,
             ),
         )
         for site_id in eligible_site_ids
