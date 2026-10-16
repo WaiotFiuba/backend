@@ -201,10 +201,46 @@ def test_events_are_measured_against_the_crossing_without_collection():
         training,
     )
 
-    assert result.observed_critical_at is None
-    assert result.uncollected_critical_at == cutoff + timedelta(hours=3)
+    assert result.observed_critical_at == cutoff + timedelta(hours=3)
     assert result.predicted_critical_at == cutoff + timedelta(hours=3)
-    assert result.uncollected_time_error_hours == 0
+    assert result.critical_time_error_hours == 0
+    # El vaciado no cuenta en contra: se compara contra 60, 70, 80 y 90.
+    assert [point.observed_level for point in result.points] == [60, 70, 80, 90]
+    assert result.mae == 0
+    assert result.threshold_metrics.true_positives == 2
+
+
+def test_level_reference_is_capped_at_100():
+    cutoff = EARLIEST + timedelta(hours=2)
+    training = [_bucket(EARLIEST + timedelta(hours=h), 70 + 10 * h) for h in range(3)]
+    observed = [
+        _bucket(cutoff + timedelta(hours=1), 100),
+        _bucket(cutoff + timedelta(hours=2), 5, collected=True),
+    ]
+    forecast = ForecastResult(
+        site_id=1,
+        model_key="baseline_operational",
+        generated_at=cutoff,
+        points=[
+            ForecastPoint(
+                timestamp=cutoff + timedelta(hours=h),
+                predicted_level=100,
+                confidence=1,
+            )
+            for h in (1, 2)
+        ],
+    )
+
+    result = _score_backtest(
+        SiteBacktestRequest(site_id=1, cutoff=cutoff, horizon_hours=2),
+        forecast,
+        observed,
+        training,
+    )
+
+    # Sin recoleccion llegaria a 110: se compara contra 100.
+    assert [point.observed_level for point in result.points] == [100, 100]
+    assert result.mae == 0
 
 
 def _event(predicted_hour, observed_hour):
@@ -223,16 +259,14 @@ def _event(predicted_hour, observed_hour):
         mae=None,
         rmse=None,
         predicted_critical_at=at(predicted_hour),
-        observed_critical_at=None,
-        critical_time_error_hours=None,
-        threshold_metrics=ThresholdMetrics(0, 0, 0, 0, None, None),
-        points=[],
-        uncollected_critical_at=at(observed_hour),
-        uncollected_time_error_hours=(
+        observed_critical_at=at(observed_hour),
+        critical_time_error_hours=(
             predicted_hour - observed_hour
             if predicted_hour is not None and observed_hour is not None
             else None
         ),
+        threshold_metrics=ThresholdMetrics(0, 0, 0, 0, None, None),
+        points=[],
     )
 
 

@@ -103,9 +103,6 @@ class SiteBacktestResult:
     critical_time_error_hours: float | None
     threshold_metrics: ThresholdMetrics
     points: list[SiteBacktestPoint]
-    # Cuando hubiera llegado al umbral si no lo vaciaban: la verdad de los eventos.
-    uncollected_critical_at: datetime | None = None
-    uncollected_time_error_hours: float | None = None
 
 
 async def evaluate_site_forecast_backtest(
@@ -181,32 +178,28 @@ def _score_backtest(
     observed_history: list[SiteLevelBucket],
     training_history: list[SiteLevelBucket] | None = None,
 ) -> SiteBacktestResult:
-    # Comparo por timestamp exacto porque las proyecciones salen en buckets fijos
-    # y el historico ya fue agregado con el mismo interval_minutes.
-    observed_by_timestamp = {bucket.timestamp: bucket for bucket in observed_history}
+    # Se compara contra el nivel que hubiera tenido el sitio si no lo vaciaban,
+    # que es lo que se proyecta (topeado en 100, como los pronosticos). Comparo
+    # por timestamp exacto porque las proyecciones salen en buckets fijos y el
+    # historico ya fue agregado con el mismo interval_minutes.
+    uncollected = uncollected_levels(training_history or [], observed_history)
+    reference = {timestamp: min(level, 100.0) for timestamp, level in uncollected[1:]}
     compared_points = [
         _compare_point(
             timestamp=point.timestamp,
             predicted_level=point.predicted_level,
-            observed_level=observed_by_timestamp[point.timestamp].level,
+            observed_level=reference[point.timestamp],
             critical_level=request.critical_level,
         )
         for point in forecast.points
-        if point.timestamp in observed_by_timestamp
+        if point.timestamp in reference
     ]
 
     predicted_critical_at = _first_predicted_critical_at(
         forecast.points,
         request.critical_level,
     )
-    observed_critical_at = _first_observed_critical_at(
-        observed_history,
-        request.critical_level,
-    )
-    uncollected_critical_at = first_crossing(
-        uncollected_levels(training_history or [], observed_history),
-        request.critical_level,
-    )
+    observed_critical_at = first_crossing(uncollected, request.critical_level)
 
     return SiteBacktestResult(
         site_id=request.site_id,
@@ -225,11 +218,6 @@ def _score_backtest(
         ),
         threshold_metrics=_threshold_metrics(compared_points),
         points=compared_points,
-        uncollected_critical_at=uncollected_critical_at,
-        uncollected_time_error_hours=_critical_time_error_hours(
-            predicted_critical_at,
-            uncollected_critical_at,
-        ),
     )
 
 
@@ -274,16 +262,6 @@ def _first_predicted_critical_at(points, critical_level: int) -> datetime | None
     for point in points:
         if point.predicted_level >= critical_level:
             return point.timestamp
-    return None
-
-
-def _first_observed_critical_at(
-    buckets: list[SiteLevelBucket],
-    critical_level: int,
-) -> datetime | None:
-    for bucket in buckets:
-        if bucket.level >= critical_level:
-            return bucket.timestamp
     return None
 
 
@@ -437,6 +415,7 @@ async def run_site_projection_evaluation(
                     cutoffs=[cutoff.isoformat() for cutoff in cutoffs],
                     interval_minutes=EVALUATION_INTERVAL_MINUTES,
                     cutoff_strategy="anchored_rolling",
+                    level_reference="uncollected",
                     selected_site_ids=site_ids,
                 )
                 evaluation.config = config
@@ -788,11 +767,11 @@ def event_metrics(
     tp = fp = fn = tn = early = late = 0
     for r in results:
         predicted = r.predicted_critical_at is not None
-        observed = r.uncollected_critical_at is not None
+        observed = r.observed_critical_at is not None
         if predicted and observed:
-            if r.uncollected_time_error_hours < -early_hours:
+            if r.critical_time_error_hours < -early_hours:
                 early += 1
-            elif r.uncollected_time_error_hours > late_hours:
+            elif r.critical_time_error_hours > late_hours:
                 late += 1
             else:
                 tp += 1
@@ -803,9 +782,9 @@ def event_metrics(
         else:
             tn += 1
     errors = [
-        r.uncollected_time_error_hours
+        r.critical_time_error_hours
         for r in results
-        if r.uncollected_time_error_hours is not None
+        if r.critical_time_error_hours is not None
     ]
     detected = tp + early + late
     precision = _safe_divide(tp, tp + fp + early)
@@ -957,8 +936,6 @@ def _merge_site(results: list[SiteBacktestResult]) -> SiteBacktestResult:
         rmse=round(math.sqrt(mean_squared), 4) if mean_squared is not None else None,
         predicted_critical_at=None,
         observed_critical_at=None,
-        uncollected_critical_at=None,
-        uncollected_time_error_hours=None,
         critical_time_error_hours=(
             round(sum(errors) / len(errors), 4) if errors else None
         ),
