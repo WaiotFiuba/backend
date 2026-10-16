@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -79,37 +80,54 @@ async def is_partitioned(connection: AsyncConnection) -> bool:
 async def ensure_partitions(db: AsyncSession, dates: Iterable[datetime]) -> int:
     """Crea las particiones que falten para las fechas dadas. Devuelve cuántas creó.
 
+    También crea la del día siguiente a cada fecha: así la partición de un día
+    nuevo casi siempre existe antes de que llegue su primera lectura.
+
     Corre en una conexión y una transacción propias y cortas, no en la de `db`:
     así el lock exclusivo que necesita crear una partición no queda tomado
-    mientras dura el lote de la ingesta.
+    mientras dura el lote de la ingesta. Si no se puede crear (por ejemplo, otra
+    consulta retiene data_level más que el lock_timeout), se registra un aviso y
+    se reintenta en el próximo lote.
     """
     global _partitioned
-    missing = {day_of(value) for value in dates} - _known_days
+    wanted = set()
+    for value in dates:
+        day = day_of(value)
+        wanted.update((day, day + timedelta(days=1)))
+    missing = wanted - _known_days
     if not missing or _partitioned is False:
         return 0
     engine = db.bind
     if engine is None or engine.dialect.name != "postgresql":
         return 0
-    async with engine.begin() as connection:
-        _partitioned = await is_partitioned(connection)
-        if not _partitioned:
-            return 0
-        await connection.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
-        await connection.execute(
-            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _PARTITION_LOCK_KEY}
-        )
-        existing = await _existing_days(connection)
-        created = 0
-        for day in sorted(missing - existing):
-            start, end = day_bounds(day)
+    try:
+        async with engine.begin() as connection:
+            _partitioned = await is_partitioned(connection)
+            if not _partitioned:
+                return 0
             await connection.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS {partition_name(day)} "
-                    f"PARTITION OF {PARENT_TABLE} "
-                    f"FOR VALUES FROM ('{start.isoformat()}') TO ('{end.isoformat()}')"
-                )
+                text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'")
             )
-            created += 1
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": _PARTITION_LOCK_KEY},
+            )
+            existing = await _existing_days(connection)
+            created = 0
+            for day in sorted(missing - existing):
+                start, end = day_bounds(day)
+                await connection.execute(
+                    text(
+                        f"CREATE TABLE IF NOT EXISTS {partition_name(day)} "
+                        f"PARTITION OF {PARENT_TABLE} "
+                        f"FOR VALUES FROM ('{start.isoformat()}') "
+                        f"TO ('{end.isoformat()}')"
+                    )
+                )
+                created += 1
+    except DBAPIError:
+        logger.warning("No se pudieron crear particiones de data_level.", exc_info=True)
+        return 0
     _known_days.update(missing)
     if created:
         logger.info("Particiones de data_level creadas: %d.", created)
