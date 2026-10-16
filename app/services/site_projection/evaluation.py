@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.map_database import MapSessionLocal
 from app.core.thresholds import get_level_thresholds
 from app.models.map.container import Container
 from app.models.map.data_level import DataLevel
@@ -26,17 +29,23 @@ from app.schemas.map.site_projection import (
 )
 from app.services.site_projection.history import (
     SiteLevelBucket,
+    aggregate_site_measurements,
+    fetch_site_measurements,
     floor_to_interval,
-    get_site_level_series,
 )
 from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     ForecastContext,
     ForecastRequest,
+    ForecastResult,
+    SiteLevelForecaster,
     get_forecaster,
 )
 
 EVALUATION_INTERVAL_MINUTES = 60
+EVALUATION_BATCH_SIZE = 100
+logger = logging.getLogger(__name__)
+_evaluation_lock = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -107,6 +116,18 @@ async def evaluate_site_forecast_backtest(
     if forecaster is None:
         raise ValueError(f"Modelo de proyeccion desconocido: {request.model_key}")
 
+    forecast_request, context, observed_history = _prepare_backtest(
+        history, request, site_features
+    )
+    forecast = await forecaster.forecast(forecast_request, context)
+    return _score_backtest(request, forecast, observed_history)
+
+
+def _prepare_backtest(
+    history: list[SiteLevelBucket],
+    request: SiteBacktestRequest,
+    site_features: dict[str, float | str] | None = None,
+) -> tuple[ForecastRequest, ForecastContext, list[SiteLevelBucket]]:
     ordered_history = sorted(history, key=lambda bucket: bucket.timestamp)
     # Backtesting clasico: el modelo solo ve lo que existia hasta el cutoff.
     # Todo lo posterior queda reservado como "verdad observada" para medir error.
@@ -122,7 +143,7 @@ async def evaluate_site_forecast_backtest(
     current_level = training_history[-1].level if training_history else 0.0
     # Uso el mismo contrato que usa produccion para proyectar. Asi evaluamos el
     # modelo real y no una version especial preparada solo para tests/reportes.
-    forecast = await forecaster.forecast(
+    return (
         ForecastRequest(
             site_id=request.site_id,
             horizon_hours=request.horizon_hours,
@@ -138,8 +159,15 @@ async def evaluate_site_forecast_backtest(
             site_features=site_features or {},
             generated_at=request.cutoff,
         ),
+        observed_history,
     )
 
+
+def _score_backtest(
+    request: SiteBacktestRequest,
+    forecast: ForecastResult,
+    observed_history: list[SiteLevelBucket],
+) -> SiteBacktestResult:
     # Comparo por timestamp exacto porque las proyecciones salen en buckets fijos
     # y el historico ya fue agregado con el mismo interval_minutes.
     observed_by_timestamp = {bucket.timestamp: bucket for bucket in observed_history}
@@ -287,78 +315,165 @@ async def create_site_projection_evaluation(
     db: AsyncSession,
     request: SiteProjectionEvaluationRequest,
 ) -> SiteProjectionEvaluationResponse:
-    cutoff = await _resolve_automatic_cutoff(db=db, request=request)
-    unique_site_ids = await _resolve_evaluation_site_ids(
-        db=db,
-        request=request,
-        cutoff=cutoff,
-    )
-    # Necesito traer historico antes del cutoff para construir el perfil del
-    # modelo, y tambien despues del cutoff para tener observaciones contra las
-    # cuales comparar. Por eso la ventana suma lookback + horizonte.
-    history_by_site = await get_site_level_series(
-        db=db,
-        site_ids=unique_site_ids,
-        interval_minutes=EVALUATION_INTERVAL_MINUTES,
-        level_aggregation=request.level_aggregation,
-        lookback_days=_evaluation_window_days(request),
-        end_time=cutoff + timedelta(hours=request.horizon_hours),
-    )
-    features_by_site = await _get_features_by_site(db, unique_site_ids)
-
-    # La v1 evalua sitios uno por uno. Mantener este loop simple nos deja
-    # agregar segmentacion o ejecucion paralela despues sin cambiar el contrato.
-    results = [
-        await evaluate_site_forecast_backtest(
-            history=history_by_site.get(site_id, []),
-            request=SiteBacktestRequest(
-                site_id=site_id,
-                cutoff=cutoff,
-                horizon_hours=request.horizon_hours,
-                interval_minutes=EVALUATION_INTERVAL_MINUTES,
-                critical_level=request.critical_level,
-                level_aggregation=request.level_aggregation,
-                lookback_days=request.lookback_days,
-                stop_at_full=request.stop_at_full,
-                model_key=request.model_key,
-            ),
-            site_features=features_by_site.get(site_id, {}),
+    if not request.site_ids and request.site_sample_size is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe enviarse site_ids o site_sample_size.",
         )
-        for site_id in unique_site_ids
-    ]
-
-    completed_at = datetime.now(UTC)
-    config = request.model_dump(mode="json")
-    config["cutoff"] = cutoff.isoformat()
-    config["interval_minutes"] = EVALUATION_INTERVAL_MINUTES
-    config["cutoff_strategy"] = "latest_observation_minus_horizon"
-    config["selected_site_ids"] = unique_site_ids
+    if get_forecaster(request.model_key) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Modelo de proyeccion desconocido: {request.model_key}",
+        )
     evaluation = SiteModelEvaluation(
         model_key=request.model_key,
-        status="completed",
-        config=config,
+        status="pending",
+        config=request.model_dump(mode="json"),
         horizon_hours=request.horizon_hours,
         interval_minutes=EVALUATION_INTERVAL_MINUTES,
         critical_level=request.critical_level,
         level_aggregation=request.level_aggregation,
         lookback_days=request.lookback_days,
-        site_count=len(unique_site_ids),
-        cutoff_start_at=cutoff,
-        cutoff_end_at=cutoff,
-        summary=_build_evaluation_summary(results),
-        completed_at=completed_at,
+        site_count=0,
     )
     db.add(evaluation)
-    await db.flush()
-
-    # Separo cabecera y metricas: la cabecera describe la corrida; las metricas
-    # quedan en filas comparables para poder consultar global/site/segmento.
-    metric_models = _metrics_from_results(evaluation.id, results)
-    db.add_all(metric_models)
     await db.commit()
     await db.refresh(evaluation)
+    return _evaluation_response(evaluation, [], None)
 
-    return _evaluation_response(evaluation, metric_models, cutoff)
+
+async def run_site_projection_evaluation(
+    evaluation_id: int,
+    request: SiteProjectionEvaluationRequest,
+) -> None:
+    async with _evaluation_lock:
+        try:
+            async with MapSessionLocal() as db:
+                evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+                if evaluation is None:
+                    return
+                evaluation.status = "running"
+                await db.commit()
+
+                cutoff = await _resolve_automatic_cutoff(db, request)
+                site_ids = await _resolve_evaluation_site_ids(db, request, cutoff)
+                evaluation.site_count = len(site_ids)
+                evaluation.cutoff_start_at = cutoff
+                evaluation.cutoff_end_at = cutoff
+                evaluation.summary = {"processed_sites": 0}
+                await db.commit()
+
+            results: list[SiteBacktestResult] = []
+            forecaster = get_forecaster(request.model_key)
+            if forecaster is None:
+                raise ValueError(f"Modelo de proyeccion desconocido: {request.model_key}")
+            for start in range(0, len(site_ids), EVALUATION_BATCH_SIZE):
+                batch_ids = site_ids[start : start + EVALUATION_BATCH_SIZE]
+                async with MapSessionLocal() as db:
+                    samples = await fetch_site_measurements(
+                        db,
+                        batch_ids,
+                        lookback_days=_evaluation_window_days(request),
+                        end_time=cutoff + timedelta(hours=request.horizon_hours),
+                    )
+                    features_by_site = await _get_features_by_site(db, batch_ids)
+
+                history_by_site = await asyncio.to_thread(
+                    aggregate_site_measurements,
+                    samples,
+                    interval_minutes=EVALUATION_INTERVAL_MINUTES,
+                    level_aggregation=request.level_aggregation,
+                )
+                results.extend(
+                    await _evaluate_backtest_batch(
+                        batch_ids,
+                        history_by_site,
+                        features_by_site,
+                        cutoff,
+                        request,
+                        forecaster,
+                    )
+                )
+                async with MapSessionLocal() as db:
+                    evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+                    if evaluation is None:
+                        return
+                    evaluation.summary = {"processed_sites": len(results)}
+                    await db.commit()
+
+            async with MapSessionLocal() as db:
+                evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+                if evaluation is None:
+                    return
+                config = dict(evaluation.config)
+                config.update(
+                    cutoff=cutoff.isoformat(),
+                    interval_minutes=EVALUATION_INTERVAL_MINUTES,
+                    cutoff_strategy="latest_observation_minus_horizon",
+                    selected_site_ids=site_ids,
+                )
+                evaluation.config = config
+                evaluation.status = "completed"
+                evaluation.site_count = len(site_ids)
+                evaluation.cutoff_start_at = cutoff
+                evaluation.cutoff_end_at = cutoff
+                evaluation.summary = _build_evaluation_summary(results)
+                evaluation.completed_at = datetime.now(UTC)
+                db.add_all(_metrics_from_results(evaluation_id, results))
+                await db.commit()
+        except Exception as exc:
+            logger.exception("Fallo la evaluacion de proyecciones %s", evaluation_id)
+            async with MapSessionLocal() as db:
+                evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+                if evaluation is not None:
+                    evaluation.status = "failed"
+                    error = (
+                        str(exc.detail)
+                        if isinstance(exc, HTTPException)
+                        else "No se pudo completar la evaluacion. Revisa los logs del servidor."
+                    )
+                    evaluation.summary = {"error": error}
+                    evaluation.completed_at = datetime.now(UTC)
+                    await db.commit()
+
+
+async def _evaluate_backtest_batch(
+    site_ids: list[int],
+    history_by_site: dict[int, list[SiteLevelBucket]],
+    features_by_site: dict[int, dict[str, float | str]],
+    cutoff: datetime,
+    request: SiteProjectionEvaluationRequest,
+    forecaster: SiteLevelForecaster,
+) -> list[SiteBacktestResult]:
+    prepared = []
+    for site_id in site_ids:
+        backtest = SiteBacktestRequest(
+            site_id=site_id,
+            cutoff=cutoff,
+            horizon_hours=request.horizon_hours,
+            interval_minutes=EVALUATION_INTERVAL_MINUTES,
+            critical_level=request.critical_level,
+            level_aggregation=request.level_aggregation,
+            lookback_days=request.lookback_days,
+            stop_at_full=request.stop_at_full,
+            model_key=request.model_key,
+        )
+        forecast_request, context, observed = _prepare_backtest(
+            history_by_site.get(site_id, []),
+            backtest,
+            features_by_site.get(site_id, {}),
+        )
+        prepared.append((backtest, forecast_request, context, observed))
+    forecasts = await forecaster.forecast_many(
+        [(forecast_request, context) for _, forecast_request, context, _ in prepared]
+    )
+    return [
+        replace(
+            _score_backtest(backtest, forecasts[backtest.site_id], observed),
+            points=[],
+        )
+        for backtest, _, _, observed in prepared
+    ]
 
 
 async def get_site_projection_evaluation(
@@ -382,10 +497,26 @@ async def get_site_projection_evaluation(
         )
     )
     metrics = list(result.scalars().all())
-    cutoff = _parse_cutoff_from_config(evaluation.config) or _as_utc(
-        evaluation.cutoff_start_at or evaluation.created_at
-    )
+    cutoff = _parse_cutoff_from_config(evaluation.config)
+    if cutoff is None and evaluation.cutoff_start_at is not None:
+        cutoff = _as_utc(evaluation.cutoff_start_at)
     return _evaluation_response(evaluation, metrics, cutoff)
+
+
+async def get_site_projection_evaluation_status(
+    db: AsyncSession,
+    evaluation_id: int,
+) -> SiteProjectionEvaluationResponse:
+    evaluation = await db.get(SiteModelEvaluation, evaluation_id)
+    if evaluation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Evaluacion de modelo no encontrada.",
+        )
+    cutoff = _parse_cutoff_from_config(evaluation.config)
+    if cutoff is None and evaluation.cutoff_start_at is not None:
+        cutoff = _as_utc(evaluation.cutoff_start_at)
+    return _evaluation_response(evaluation, [], cutoff)
 
 
 async def get_site_projection_evaluation_report(
@@ -670,7 +801,7 @@ def _weighted_average(values: list[tuple[float | None, int]]) -> float | None:
 def _evaluation_response(
     evaluation: SiteModelEvaluation,
     metrics: list[SiteModelEvaluationMetric],
-    cutoff: datetime,
+    cutoff: datetime | None,
 ) -> SiteProjectionEvaluationResponse:
     # Mantengo la traduccion ORM -> schema en un solo lugar para que POST y GET
     # devuelvan exactamente la misma forma.

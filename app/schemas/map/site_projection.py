@@ -100,12 +100,14 @@ class SiteProjectionBatchResponse(BaseModel):
 
 class SiteProjectionEvaluationRequest(BaseModel):
     site_ids: list[int] | None = Field(
-        default=None, description="Sitios a evaluar contra historico observado."
+        default=None,
+        max_length=5000,
+        description="Sitios a evaluar contra historico observado.",
     )
     site_sample_size: int | None = Field(
         default=None,
         ge=1,
-        le=1000,
+        le=5000,
         description=(
             "Cantidad de sitios random a evaluar cuando no se envian site_ids. "
             "La muestra se toma entre sitios con mediciones en la ventana evaluable."
@@ -137,7 +139,7 @@ class SiteProjectionEvaluationResponse(BaseModel):
     id: int
     model_key: str
     status: str
-    cutoff: datetime
+    cutoff: datetime | None = None
     completed_at: datetime | None = None
     horizon_hours: int
     interval_minutes: int

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
@@ -19,6 +19,8 @@ from app.services.site_projection.evaluation import (
     create_site_projection_evaluation,
     get_site_projection_evaluation,
     get_site_projection_evaluation_report,
+    get_site_projection_evaluation_status,
+    run_site_projection_evaluation,
 )
 from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
@@ -68,7 +70,7 @@ async def project_multiple_sites(
 @router.post(
     "/evaluations",
     response_model=SiteProjectionEvaluationResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Ejecutar backtesting de un modelo de proyeccion",
     description=(
         "Calcula automaticamente un punto de corte usando las mediciones "
@@ -82,8 +84,23 @@ async def project_multiple_sites(
 async def create_site_projection_evaluation_endpoint(
     db: MapDbDep,
     request: SiteProjectionEvaluationRequest,
+    background_tasks: BackgroundTasks,
 ) -> SiteProjectionEvaluationResponse:
-    return await create_site_projection_evaluation(db=db, request=request)
+    evaluation = await create_site_projection_evaluation(db=db, request=request)
+    background_tasks.add_task(run_site_projection_evaluation, evaluation.id, request)
+    return evaluation
+
+
+@router.get(
+    "/evaluations/{evaluation_id}/status",
+    response_model=SiteProjectionEvaluationResponse,
+    summary="Consultar estado de una evaluacion sin cargar metricas",
+)
+async def get_site_projection_evaluation_status_endpoint(
+    db: MapDbDep,
+    evaluation_id: Annotated[int, Path(ge=1)],
+) -> SiteProjectionEvaluationResponse:
+    return await get_site_projection_evaluation_status(db, evaluation_id)
 
 
 @router.get(
