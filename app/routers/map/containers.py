@@ -12,11 +12,9 @@ from app.schemas.map.container import (
     ContainerCreateSchema,
     ContainerStatsOutputSchema,
     PaginatedContainersOutputSchema,
-    ContainerMapSnapshot,
 )
 from app.services.map.container_service import (
     get_container_changes,
-    get_container_map_snapshot,
     get_containers_clustered,
     get_container_by_id,
     get_container_stats,
@@ -94,27 +92,6 @@ async def get_containers_by_bbox(
     )
 
 
-@router.get("/bbox/snapshot", response_model=ContainerMapSnapshot)
-async def get_containers_snapshot_by_bbox(
-    lat_min: Annotated[float, Query()],
-    lat_max: Annotated[float, Query()],
-    lng_min: Annotated[float, Query()],
-    lng_max: Annotated[float, Query()],
-    zoom: Annotated[int, Query(ge=0, le=22)],
-    db: MapDbDep,
-    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
-) -> ContainerMapSnapshot:
-    return await get_container_map_snapshot(
-        db=db,
-        lat_min=lat_min,
-        lat_max=lat_max,
-        lng_min=lng_min,
-        lng_max=lng_max,
-        zoom=zoom,
-        limit=limit,
-    )
-
-
 @router.get("/changes", response_model=ContainerChanges)
 async def read_container_changes(
     after: Annotated[int, Query(ge=0)],
@@ -186,8 +163,10 @@ async def generate_containers(
     #     await db.commit()
 
     from app.core.map_migrations import seed_map_data
+    from app.services.digital_twin_ingest_service import invalidate_container_cache
 
     await seed_map_data()
+    invalidate_container_cache()
     return {"message": "Contenedores generados exitosamente"}
 
 

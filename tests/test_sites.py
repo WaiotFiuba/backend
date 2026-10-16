@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import LineString
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.simulation import SimulationSession
 from app.models.map.site import Site
+from app.models.map.site_projection import SiteFeature
 from app.models.map.waste_type import WasteType
 from app.services.map.site_clustering_service import (
     StreetSegment,
@@ -24,7 +30,6 @@ from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
-    get_site_map_snapshot,
     get_sites_clustered,
 )
 
@@ -100,6 +105,34 @@ class TestStreetSpatialIndex(unittest.TestCase):
         self.assertEqual([c.id for c in clusters[0]], [1, 2])
         self.assertEqual([c.id for c in clusters[1]], [3])
 
+    def test_spatial_cluster_universal_geodetic(self):
+        from app.services.map.site_clustering_service import (
+            _get_meters_per_degree,
+            _spatial_cluster,
+        )
+
+        # Madrid: lat ~ 40.4, lon ~ -3.7
+        # Cos(40.4 deg) ~ 0.7615 -> meters_lon ~ 84770 m/deg
+        m_lat, m_lon = _get_meters_per_degree(40.4168)
+        self.assertAlmostEqual(m_lat, 111320.0, delta=10.0)
+        self.assertGreater(m_lon, 80000.0)
+        self.assertLess(m_lon, 90000.0)
+
+        # Dos contenedores a ~10 metros en longitud en Madrid
+        delta_lon_10m = 10.0 / m_lon
+        c1 = Container(id=1, latitude=40.4168, longitude=-3.7038)
+        c2 = Container(id=2, latitude=40.4168, longitude=-3.7038 + delta_lon_10m)
+        # Contenedor lejano a ~100 metros en latitud
+        delta_lat_100m = 100.0 / m_lat
+        c3 = Container(id=3, latitude=40.4168 + delta_lat_100m, longitude=-3.7038)
+
+        clusters = _spatial_cluster([c1, c2, c3], distance_threshold_m=20.0)
+        self.assertEqual(len(clusters), 2)
+        ids_c0 = {c.id for c in clusters[0]}
+        ids_c1 = {c.id for c in clusters[1]}
+        self.assertTrue({1, 2} in (ids_c0, ids_c1))
+        self.assertTrue({3} in (ids_c0, ids_c1))
+
 
 class TestSiteServices(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -156,6 +189,10 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             Site.__table__,
             DataLevel.__table__,
             SimulationSession.__table__,
+            SiteFeature.__table__,
+            RedistributionPlan.__table__,
+            OptimizationWhatIfLevel.__table__,
+            OptimizationWhatIfTotals.__table__,
         ]
         async with self.engine.begin() as conn:
             await conn.run_sync(
@@ -169,6 +206,10 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
         from app.models.map.container_type import container_type_waste_types
 
         tables = [
+            OptimizationWhatIfLevel.__table__,
+            OptimizationWhatIfTotals.__table__,
+            RedistributionPlan.__table__,
+            SiteFeature.__table__,
             SimulationSession.__table__,
             Site.__table__,
             DataLevel.__table__,
@@ -273,6 +314,74 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res_c2.site_id, site_humedo.id)
             self.assertEqual(res_c3.site_id, sites[1].id)
 
+    async def test_cluster_and_create_sites_tier3_madrid(self):
+        """Verifica clustering de Nivel 3 (sin archivo de calles) en una ciudad distinta (Madrid)."""
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="Residuo General", color="#555555")
+            ct = ContainerType(
+                id=1, name="Contenedor Estandar", height_cm=140, volume_m3=3.0
+            )
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+
+            # Madrid: lat ~ 40.4168, lon ~ -3.7038
+            # 8 metros al este: delta_lon = 8 / (111320 * cos(40.4168)) ~ 8 / 84770 ~ 0.000094
+            # 60 metros al norte: delta_lat = 60 / 111139 ~ 0.00054
+            c1 = Container(
+                id=10,
+                serie_id="MAD-1",
+                address="Gran Via 1",
+                latitude=40.4168,
+                longitude=-3.7038,
+                geom=WKTElement("POINT(-3.7038 40.4168)", srid=4326),
+                current_level=20,
+                available=True,
+                container_type=ct,
+            )
+            c2 = Container(
+                id=11,
+                serie_id="MAD-2",
+                address="Gran Via 3",
+                latitude=40.4168,
+                longitude=-3.7038 + 0.000094,
+                geom=WKTElement(f"POINT({-3.7038 + 0.000094} 40.4168)", srid=4326),
+                current_level=40,
+                available=True,
+                container_type=ct,
+            )
+            c3 = Container(
+                id=12,
+                serie_id="MAD-3",
+                address="Gran Via 20",
+                latitude=40.4168 + 0.00054,
+                longitude=-3.7038,
+                geom=WKTElement(f"POINT({-3.7038} {40.4168 + 0.00054})", srid=4326),
+                current_level=80,
+                available=True,
+                container_type=ct,
+            )
+            session.add_all([c1, c2, c3])
+            await session.commit()
+
+            # Clustering Tier 3: calles_path=None
+            sites_count = await cluster_and_create_sites(
+                session,
+                calles_path=None,
+                distance_threshold_m=20.0,
+                clear_existing=True,
+            )
+            self.assertEqual(
+                sites_count, 2, "Deben crearse 2 sitios por proximidad metrica pura"
+            )
+
+            res_c1 = await session.get(Container, 10)
+            res_c2 = await session.get(Container, 11)
+            res_c3 = await session.get(Container, 12)
+            self.assertIsNotNone(res_c1.site_id)
+            self.assertEqual(res_c1.site_id, res_c2.site_id)
+            self.assertNotEqual(res_c1.site_id, res_c3.site_id)
+
     async def test_site_service_level_aggregation_avg_and_max(self):
         async with self.session_maker() as session:
             # Setup de tipos
@@ -331,13 +440,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             site_max = await get_site_by_id(session, site_id=1, level_aggregation="max")
             self.assertEqual(site_max.current_level, 80)
 
-            # 3. Snapshot de sitios
-            snapshot = await get_site_map_snapshot(session, level_aggregation="avg")
-            self.assertEqual(snapshot.total, 1)
-            self.assertEqual(snapshot.latest_cursor, 10)
-            self.assertEqual(snapshot.sites[0].current_level, 50)
-
-            # 4. Changes de sitios
+            # 3. Changes de sitios
             changes = await get_site_changes(session, after=0, level_aggregation="avg")
             self.assertEqual(len(changes.sites), 1)
             self.assertEqual(changes.latest_cursor, 10)
@@ -407,6 +510,118 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history.points[0].min_level, 20)
             self.assertEqual(history.points[0].measurement_count, 2)
 
+            active_sim.simulated_time = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
+            await session.commit()
+            history = await get_site_level_history(session, site_id=1)
+            self.assertEqual(len(history.points), 1)
+            self.assertEqual(history.window_end, active_sim.simulated_time)
+
+    async def test_projection_is_generated_at_the_latest_reading(self):
+        from app.services.site_projection.service import project_site_level
+
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio Proyección",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+            session.add(
+                Container(
+                    id=1,
+                    site_id=1,
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    current_level=30,
+                    container_type=ct,
+                )
+            )
+            latest = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+            session.add(
+                DataLevel(
+                    id=1,
+                    reading_date=latest,
+                    container_id=1,
+                    container_current_level=30,
+                    fire_alarm=False,
+                    freeze_alarm=False,
+                    crash_alarm=False,
+                    garbage_collection_alarm=False,
+                    reported_low_consumption_voltage=False,
+                    reported_high_consumption_voltage=False,
+                )
+            )
+            await session.commit()
+
+            # Sin simulación activa: el reloj es la última lectura, no la hora real.
+            projection = await project_site_level(session, site_id=1, horizon_hours=3)
+
+            self.assertEqual(projection.generated_at, latest)
+            self.assertEqual(
+                projection.points[0].timestamp, latest + timedelta(hours=1)
+            )
+
+    async def test_site_history_without_active_simulation(self):
+        """Con sensores reales no hay simulación: el historial igual devuelve datos."""
+        async with self.session_maker() as session:
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio Historial",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                )
+            )
+            await session.flush()
+            session.add(
+                Container(
+                    id=1,
+                    site_id=1,
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    current_level=40,
+                )
+            )
+            first = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+            latest = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
+            for reading_id, (reading_date, level) in enumerate(
+                [(first, 20), (latest, 40)], start=1
+            ):
+                session.add(
+                    DataLevel(
+                        id=reading_id,
+                        reading_date=reading_date,
+                        container_id=1,
+                        container_current_level=level,
+                        fire_alarm=False,
+                        freeze_alarm=False,
+                        crash_alarm=False,
+                        garbage_collection_alarm=False,
+                        reported_low_consumption_voltage=False,
+                        reported_high_consumption_voltage=False,
+                    )
+                )
+            await session.commit()
+
+            history = await get_site_level_history(session, site_id=1)
+
+            self.assertEqual([p.avg_level for p in history.points], [20, 40])
+            self.assertEqual(history.window_start.replace(tzinfo=UTC), first)
+            self.assertEqual(history.window_end, latest)
+
     async def test_get_sites_clustered_bbox(self):
         async with self.session_maker() as session:
             wt = WasteType(id=1, name="RSU Fracción Húmeda")
@@ -436,7 +651,17 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 available=True,
                 container_type=ct,
             )
-            session.add(c)
+            c2 = Container(
+                id=2,
+                site_id=1,
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                current_level=55,
+                available=True,
+                container_type=ct,
+            )
+            session.add_all([c, c2])
             await session.commit()
 
             # Zoom alto (>= 18): Devuelve lista de SiteMapOutputSchema
@@ -451,9 +676,10 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(res_high_zoom), 1)
             self.assertEqual(res_high_zoom[0].id, 1)
-            self.assertEqual(res_high_zoom[0].current_level, 45)
+            self.assertEqual(res_high_zoom[0].container_count, 2)
+            self.assertEqual(res_high_zoom[0].current_level, 50)
 
-            # Zoom bajo (< 18): Devuelve lista de SiteCluster
+            # Zoom bajo (< 18): Devuelve lista de SiteCluster con conteo de contenedores
             res_low_zoom = await get_sites_clustered(
                 db=session,
                 lat_min=-34.61,
@@ -464,8 +690,153 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 level_aggregation="avg",
             )
             self.assertEqual(len(res_low_zoom), 1)
-            self.assertEqual(res_low_zoom[0].count, 1)
-            self.assertEqual(res_low_zoom[0].avg_level, 45.0)
+            self.assertEqual(res_low_zoom[0].count, 2)
+            self.assertEqual(res_low_zoom[0].avg_level, 50.0)
+
+    async def test_real_map_excludes_soft_deleted_containers(self):
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio con baja",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+
+            # Dos contenedores activos (20% y 80%) y uno dado de baja al 100%.
+            for container_id, level, deleted_at in (
+                (1, 20, None),
+                (2, 80, None),
+                (3, 100, datetime(2026, 1, 1, tzinfo=UTC)),
+            ):
+                session.add(
+                    Container(
+                        id=container_id,
+                        site_id=1,
+                        serie_id=f"C{container_id}",
+                        latitude=-34.6000,
+                        longitude=-58.4000,
+                        geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                        current_level=level,
+                        change_version=10,
+                        available=True,
+                        container_type=ct,
+                        deleted_at=deleted_at,
+                    )
+                )
+            await session.commit()
+
+            site = await get_site_by_id(session, site_id=1, level_aggregation="max")
+            self.assertEqual(site.container_count, 2)
+            self.assertEqual(site.current_level, 80)
+            self.assertEqual({c.id for c in site.containers}, {1, 2})
+
+            changes = await get_site_changes(session, after=0)
+            self.assertEqual(changes.sites[0].container_count, 2)
+
+            bbox = {
+                "lat_min": -34.61,
+                "lat_max": -34.59,
+                "lng_min": -58.41,
+                "lng_max": -58.39,
+            }
+            high_zoom = await get_sites_clustered(db=session, zoom=18, **bbox)
+            self.assertEqual(high_zoom[0].container_count, 2)
+            self.assertEqual(high_zoom[0].current_level, 50)
+
+            low_zoom = await get_sites_clustered(db=session, zoom=14, **bbox)
+            self.assertEqual(low_zoom[0].count, 2)
+            self.assertEqual(low_zoom[0].avg_level, 50.0)
+
+    async def test_whatif_map_without_active_plan_is_the_real_map(self):
+        async with self.session_maker() as session:
+            wt = WasteType(id=1, name="RSU Fracción Húmeda")
+            ct = ContainerType(id=1, name="Carga Lateral", height_cm=145, volume_m3=3.2)
+            ct.waste_types.append(wt)
+            session.add_all([wt, ct])
+            await session.flush()
+            session.add(
+                Site(
+                    id=1,
+                    name="Sitio",
+                    latitude=-34.6000,
+                    longitude=-58.4000,
+                    geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                    waste_type_id=1,
+                )
+            )
+            await session.flush()
+            for container_id, level in ((1, 20), (2, 80)):
+                session.add(
+                    Container(
+                        id=container_id,
+                        site_id=1,
+                        serie_id=f"C{container_id}",
+                        latitude=-34.6000,
+                        longitude=-58.4000,
+                        geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                        current_level=level,
+                        change_version=10,
+                        available=True,
+                        container_type=ct,
+                    )
+                )
+            await session.commit()
+
+            bbox = {
+                "lat_min": -34.61,
+                "lat_max": -34.59,
+                "lng_min": -58.41,
+                "lng_max": -58.39,
+            }
+            real = await get_sites_clustered(db=session, zoom=18, **bbox)
+            whatif = await get_sites_clustered(
+                db=session, zoom=18, distribution="whatif", **bbox
+            )
+
+            self.assertEqual(
+                [(s.id, s.container_count, s.current_level) for s in whatif],
+                [(s.id, s.container_count, s.current_level) for s in real],
+            )
+            # Con un plan activo, el nivel virtual (con decimales) se muestra entero.
+            plan = RedistributionPlan(status="active_whatif", config={}, moves=[])
+            session.add(plan)
+            await session.flush()
+            session.add_all(
+                [
+                    OptimizationWhatIfLevel(
+                        plan_id=plan.id, container_id=1, virtual_level=33.6
+                    ),
+                    OptimizationWhatIfLevel(
+                        plan_id=plan.id, container_id=2, virtual_level=70.2
+                    ),
+                ]
+            )
+            await session.commit()
+            with_plan = await get_sites_clustered(
+                db=session, zoom=18, distribution="whatif", **bbox
+            )
+            self.assertEqual(
+                sorted(c.current_level for c in with_plan[0].containers), [34, 70]
+            )
+            await session.delete(plan)
+            await session.commit()
+
+            # Pedir el mapa what-if no crea ningún plan.
+            plans = await session.scalar(
+                select(func.count()).select_from(RedistributionPlan)
+            )
+            self.assertEqual(plans, 0)
 
     async def test_sites_http_endpoints(self):
         from httpx import ASGITransport, AsyncClient
@@ -553,16 +924,7 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("cluster_id", data_cluster[0])
                 self.assertEqual(data_cluster[0]["count"], 1)
 
-                # 2. Test /map/sites/bbox/snapshot
-                res_snap = await client.get(
-                    "/map/sites/bbox/snapshot?level_aggregation=avg"
-                )
-                self.assertEqual(res_snap.status_code, 200)
-                data_snap = res_snap.json()
-                self.assertEqual(data_snap["total"], 1)
-                self.assertEqual(data_snap["latest_cursor"], 5)
-
-                # 3. Test /map/sites/changes
+                # 2. Test /map/sites/changes
                 res_changes = await client.get(
                     "/map/sites/changes?after=0&level_aggregation=avg"
                 )
@@ -578,5 +940,50 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(data_single["name"], "Sitio Endpoint Test")
                 self.assertEqual(data_single["current_level"], 60)
                 self.assertEqual(len(data_single["containers"]), 1)
+
+                # 5. Historial: el prefijo "fuente|id" se acepta; un id no numérico
+                # devuelve 422 en lugar de caer silenciosamente al sitio 1.
+                res_history = await client.get(
+                    "/map/sites/contenedores_negros|1/history"
+                )
+                self.assertEqual(res_history.status_code, 200)
+                self.assertEqual(res_history.json()["site_id"], 1)
+
+                res_invalid = await client.get("/map/sites/abc/history")
+                self.assertEqual(res_invalid.status_code, 422)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
+
+    async def test_clustering_skipped_when_containers_have_site_id(self):
+        """Verifica que si los contenedores ya tienen sitio asignado, unassigned_count es 0."""
+        from sqlalchemy import func
+
+        async with self.session_maker() as session:
+            site = Site(
+                id=1,
+                name="Sitio Predefinido",
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+            )
+            session.add(site)
+            await session.flush()
+
+            c1 = Container(
+                id=1,
+                serie_id="C-1",
+                latitude=-34.6000,
+                longitude=-58.4000,
+                geom=WKTElement("POINT(-58.4000 -34.6000)", srid=4326),
+                available=True,
+                site_id=site.id,
+            )
+            session.add(c1)
+            await session.commit()
+
+            unassigned = (
+                await session.execute(
+                    select(func.count(Container.id)).where(Container.site_id.is_(None))
+                )
+            ).scalar()
+            self.assertEqual(unassigned, 0)

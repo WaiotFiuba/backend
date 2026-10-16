@@ -13,6 +13,7 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container  # noqa: F401
 from app.models.map.container_type import ContainerType  # noqa: F401
 from app.models.map.data_level import DataLevel  # noqa: F401
+from app.models.map.neighborhood import Neighborhood  # noqa: F401
 from app.models.map.neighborhood_demographic import (
     NeighborhoodDemographic,  # noqa: F401
 )
@@ -27,10 +28,9 @@ from app.models.map.simulation import (  # noqa: F401
 from app.models.map.site import Site  # noqa: F401
 from app.models.map.site_projection import (  # noqa: F401
     SiteFeature,
-    SiteProjectionPoint,
-    SiteProjectionRun,
 )
 from app.models.map.waste_type import WasteType  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

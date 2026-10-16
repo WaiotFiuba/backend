@@ -7,11 +7,11 @@ from app.commands.import_neighborhood_demographics import (
     density_factor,
     normalize_neighborhood,
 )
-from app.digital_twin.synthetic_data.domain.entities import Container, Device, Site
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import ScenarioConfig
-from app.digital_twin.synthetic_data.topology import SimulationTopology
-from app.services.simulation_control_service import effective_multiplier
+from simulator.domain.entities import Container, Device, Site
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.simulation.scenario import ScenarioConfig
+from simulator.topology import SimulationTopology
+from app.services.simulation_session_service import effective_multiplier
 
 
 def test_density_factor_is_normalized_and_clamped():

@@ -1,0 +1,18 @@
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Solo las dependencias del simulador (grupo "simulator" de pyproject.toml),
+# sin las del backend.
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --only-group simulator --no-install-project
+
+COPY simulator/ ./simulator/
+COPY datos/simulator/demography/ ./datos/simulator/demography/
+COPY datos/simulator/land_use/ ./datos/simulator/land_use/
+COPY datos/simulator/routes/ ./datos/simulator/routes/
+
+# --no-sync: sin esto, uv run instalaria el proyecto entero (todo el backend).
+CMD ["uv", "run", "--no-sync", "python", "-m", "simulator.worker"]

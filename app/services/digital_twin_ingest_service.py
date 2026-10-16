@@ -5,15 +5,15 @@ from datetime import datetime
 import logging
 import time
 
-from sqlalchemy import func, select, insert, update
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
-from app.models.map.caba_geo_extension import Barrio, CabaContainerSpatialMetadata
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
+from app.services.map.whatif_allocation import Reading, as_utc
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,18 @@ class ContainerCacheMeta:
     waste_type_name: str | None
     zone_id: int | None
     zone_name: str | None
+    last_reading: datetime | None = None
 
 
 _cache_by_id: dict[int, ContainerCacheMeta] = {}
 _cache_by_imei: dict[str, ContainerCacheMeta] = {}
 _cache_loaded: bool = False
+_cache_loaded_at: float = 0.0
+
+# Si llega una lectura de un contenedor que no está en la caché (por ejemplo, uno
+# creado después de cargarla), la caché se recarga en el próximo batch, como
+# máximo una vez por este intervalo.
+CACHE_MISS_RELOAD_SECONDS = 60.0
 
 DATA_LEVEL_COLS = [
     "message_time",
@@ -76,24 +83,35 @@ DATA_LEVEL_COLS = [
 ]
 
 
-async def ensure_cache(db: AsyncSession):
+def invalidate_container_cache() -> None:
+    """Fuerza a recargar la caché de contenedores en el próximo batch."""
     global _cache_loaded
-    if _cache_loaded and len(_cache_by_id) >= 20000:
+    _cache_loaded = False
+
+
+async def ensure_cache(db: AsyncSession):
+    """Carga la caché de contenedores activos una sola vez (o tras invalidarla)."""
+    global _cache_loaded, _cache_loaded_at
+    if _cache_loaded:
         return
     _cache_by_id.clear()
     _cache_by_imei.clear()
-    query = select(Container).options(
-        joinedload(Container.container_type).selectinload(ContainerType.waste_types),
-        joinedload(Container.spatial_metadata)
-        .joinedload(CabaContainerSpatialMetadata.barrio)
-        .selectinload(Barrio.demographic),
+    query = (
+        select(Container)
+        .options(
+            joinedload(Container.container_type).selectinload(
+                ContainerType.waste_types
+            ),
+            joinedload(Container.neighborhood),
+        )
+        .where(Container.deleted_at.is_(None))
     )
     result = await db.execute(query)
     containers = result.scalars().all()
     for c in containers:
         ctype = c.container_type
         wtype = ctype.waste_types[0] if ctype and ctype.waste_types else None
-        barrio = c.spatial_metadata.barrio if c.spatial_metadata else None
+        neighborhood = c.neighborhood
         meta = ContainerCacheMeta(
             id=c.id,
             device_imei=c.device_imei,
@@ -108,23 +126,25 @@ async def ensure_cache(db: AsyncSession):
             container_type_volume_m3=ctype.volume_m3 if ctype else None,
             waste_type_id=wtype.id if wtype else None,
             waste_type_name=wtype.name if wtype else None,
-            zone_id=barrio.id if barrio else None,
-            zone_name=barrio.nombre if barrio else None,
+            zone_id=neighborhood.id if neighborhood else None,
+            zone_name=neighborhood.name if neighborhood else None,
+            last_reading=as_utc(c.last_reading),
         )
         _cache_by_id[meta.id] = meta
         if meta.device_imei:
             _cache_by_imei[meta.device_imei] = meta
     _cache_loaded = True
+    _cache_loaded_at = time.monotonic()
     logger.info("Caché de telemetría cargada con %d contenedores.", len(_cache_by_id))
 
 
 async def reset_database_container_levels(db: AsyncSession) -> None:
     """Reinicia los niveles de los contenedores en memoria y en la base de datos de forma segura."""
-    global _cache_loaded
     # 1. Resetear siempre la memoria de inmediato
     for meta in _cache_by_id.values():
         meta.current_level = 0
-    _cache_loaded = False
+        meta.last_reading = None
+    invalidate_container_cache()
 
     # 2. Resetear en la base de datos los niveles de los contenedores a 0
     try:
@@ -145,6 +165,21 @@ async def reset_database_container_levels(db: AsyncSession) -> None:
         )
 
 
+async def clear_level_readings(db: AsyncSession) -> None:
+    """Borra todas las lecturas de nivel (tabla data_level).
+
+    Se usa al iniciar una simulación nueva: las lecturas de corridas anteriores no
+    se reutilizan, y mezclarlas rompería el reloj de referencia (última lectura)
+    y las series históricas por sitio.
+    """
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await db.execute(text("TRUNCATE TABLE data_level"))
+    else:
+        await db.execute(delete(DataLevel))
+    logger.info("Lecturas de nivel borradas para iniciar una simulación nueva.")
+
+
 async def ingest_telemetry_batch(
     db: AsyncSession,
     measurements: list[TelemetryIngestPayload | dict],
@@ -161,6 +196,10 @@ async def ingest_telemetry_batch(
     data_level_inserts = []
     container_updates = []
     update_tuples = []
+    # Lecturas para el what-if: solo las que la ingesta acepta (más nuevas que
+    # la última de cada contenedor), en el orden en que llegaron.
+    whatif_readings: list[Reading] = []
+    site_by_container: dict[int, int | None] = {}
     _cache_by_serie: dict[str, ContainerCacheMeta] = {}
     for meta in _cache_by_id.values():
         if meta.serie_id:
@@ -337,10 +376,29 @@ async def ingest_telemetry_batch(
             upd["last_pickup"] = ts
 
         container_updates.append(upd)
-        meta.current_level = new_level
         updated += 1
 
+        # Las lecturas que llegan fuera de orden se guardan en data_level, pero no
+        # cambian el contenedor (el UPDATE las descarta) ni el what-if.
+        reading_date = as_utc(ts)
+        if meta.last_reading is None or reading_date > meta.last_reading:
+            whatif_readings.append(
+                Reading(
+                    container_id=meta.id,
+                    level_before=old_level,
+                    level_after=new_level,
+                    reading_date=reading_date,
+                    collected=is_pickup,
+                )
+            )
+            site_by_container[meta.id] = meta.site_id
+            meta.current_level = new_level
+            meta.last_reading = reading_date
+
     t_dict_prep = time.perf_counter()
+
+    if not_found and time.monotonic() - _cache_loaded_at > CACHE_MISS_RELOAD_SECONDS:
+        invalidate_container_cache()
 
     # Try high-performance native asyncpg COPY + Staging Table in PostgreSQL
     try:
@@ -349,54 +407,57 @@ async def ingest_telemetry_batch(
         asyncpg_conn = getattr(raw_conn, "driver_connection", raw_conn)
 
         if hasattr(asyncpg_conn, "copy_records_to_table"):
-            if data_level_tuples:
-                await asyncpg_conn.copy_records_to_table(
-                    "data_level",
-                    records=data_level_tuples,
-                    columns=DATA_LEVEL_COLS,
-                )
-            if update_tuples:
-                await asyncpg_conn.execute(
-                    """
-                    CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
-                        id bigint,
-                        level integer,
-                        reading_date timestamptz,
-                        is_pickup boolean
-                    );
-                    TRUNCATE temp_container_updates;
-                    """
-                )
-                await asyncpg_conn.copy_records_to_table(
-                    "temp_container_updates",
-                    records=update_tuples,
-                    columns=["id", "level", "reading_date", "is_pickup"],
-                )
-                await asyncpg_conn.execute(
-                    """
-                    UPDATE containers AS c
-                    SET current_level = a.level,
-                        last_reading = a.reading_date,
-                        last_pickup = COALESCE(a.pickup_date, c.last_pickup),
-                        available = true,
-                        change_version = nextval('container_change_version_seq')
-                    FROM (
-                        SELECT
-                            id,
-                            (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
-                            max(reading_date) AS reading_date,
-                            max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
-                        FROM temp_container_updates
-                        GROUP BY id
-                    ) AS a
-                    WHERE c.id = a.id
-                      AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
-                    """
-                )
+            # Todo el camino rápido corre en una sola transacción: si algo falla a
+            # mitad de camino no queda nada insertado y el respaldo de abajo no
+            # duplica las lecturas. Si SQLAlchemy ya abrió una transacción en esta
+            # conexión, asyncpg usa un savepoint y el commit de abajo la cierra.
+            async with asyncpg_conn.transaction():
+                if data_level_tuples:
+                    await asyncpg_conn.copy_records_to_table(
+                        "data_level",
+                        records=data_level_tuples,
+                        columns=DATA_LEVEL_COLS,
+                    )
+                if update_tuples:
+                    await asyncpg_conn.execute(
+                        """
+                        CREATE TEMP TABLE IF NOT EXISTS temp_container_updates (
+                            id bigint,
+                            level integer,
+                            reading_date timestamptz,
+                            is_pickup boolean
+                        );
+                        TRUNCATE temp_container_updates;
+                        """
+                    )
+                    await asyncpg_conn.copy_records_to_table(
+                        "temp_container_updates",
+                        records=update_tuples,
+                        columns=["id", "level", "reading_date", "is_pickup"],
+                    )
+                    await asyncpg_conn.execute(
+                        """
+                        UPDATE containers AS c
+                        SET current_level = a.level,
+                            last_reading = a.reading_date,
+                            last_pickup = COALESCE(a.pickup_date, c.last_pickup),
+                            available = true,
+                            change_version = nextval('container_change_version_seq')
+                        FROM (
+                            SELECT
+                                id,
+                                (array_agg(level ORDER BY reading_date DESC, ctid DESC))[1] AS level,
+                                max(reading_date) AS reading_date,
+                                max(reading_date) FILTER (WHERE is_pickup) AS pickup_date
+                            FROM temp_container_updates
+                            GROUP BY id
+                        ) AS a
+                        WHERE c.id = a.id
+                          AND (c.last_reading IS NULL OR c.last_reading < a.reading_date);
+                        """
+                    )
+            await _apply_whatif(db, whatif_readings, site_by_container)
             await db.commit()
-
-            # Actualizar niveles virtuales de what-if si hay un plan activo
-            await _update_whatif_levels(db, update_tuples)
 
             return TelemetryIngestResult(
                 accepted=len(measurements), updated=updated, not_found=not_found
@@ -429,49 +490,48 @@ async def ingest_telemetry_batch(
         )
     t_change_version_end = time.perf_counter()
 
+    await _apply_whatif(db, whatif_readings, site_by_container)
+
     t_commit_start = time.perf_counter()
     await db.commit()
     t_commit_end = time.perf_counter()
 
     total_time = t_commit_end - t_start
-    print(
-        f"[PERF DB INGEST] Total: {total_time:.3f}s | "
-        f"Cache: {t_cache - t_start:.3f}s | "
-        f"Prep dicts ({len(data_level_inserts)}): {t_dict_prep - t_cache:.3f}s | "
-        f"Insert DataLevel: {t_insert_end - t_insert_start:.3f}s | "
-        f"Update Container: {t_update_end - t_update_start:.3f}s | "
-        f"Update ChangeVersion IN: {t_change_version_end - t_change_version_start:.3f}s | "
-        f"Commit: {t_commit_end - t_commit_start:.3f}s",
-        flush=True,
+    logger.info(
+        "Ingesta (respaldo SQLAlchemy): total=%.3fs cache=%.3fs "
+        "preparacion(%d)=%.3fs insert_data_level=%.3fs update_containers=%.3fs "
+        "update_change_version=%.3fs commit=%.3fs",
+        total_time,
+        t_cache - t_start,
+        len(data_level_inserts),
+        t_dict_prep - t_cache,
+        t_insert_end - t_insert_start,
+        t_update_end - t_update_start,
+        t_change_version_end - t_change_version_start,
+        t_commit_end - t_commit_start,
     )
-
-    # Actualizar niveles virtuales de what-if si hay un plan activo
-    await _update_whatif_levels(db, update_tuples)
 
     return TelemetryIngestResult(
         accepted=len(measurements), updated=updated, not_found=not_found
     )
 
 
-async def _update_whatif_levels(
+async def _apply_whatif(
     db: AsyncSession,
-    update_tuples: list[tuple],
+    readings: list[Reading],
+    site_by_container: dict[int, int | None],
 ) -> None:
-    """
-    Si hay un plan what-if activo, actualiza los niveles virtuales de los
-    contenedores usando el mapping optimizado.
-    """
-    from app.services.map.optimization_whatif_service import (
-        is_whatif_active,
-        update_virtual_levels_batch,
-    )
+    """Aplica el lote al what-if dentro de la transacción de la ingesta.
 
-    if not is_whatif_active() or not update_tuples:
+    Corre en un savepoint: si el what-if falla, se deshace solo lo suyo y las
+    lecturas reales se guardan igual. Nunca queda un what-if a medio aplicar.
+    """
+    if not readings:
         return
+    from app.services.map.optimization_whatif_service import apply_readings_to_whatif
 
     try:
-        # update_tuples: (container_id, level, reading_date, is_pickup)
-        virtual_updates = [(t[0], t[1]) for t in update_tuples]
-        await update_virtual_levels_batch(db, virtual_updates)
+        async with db.begin_nested():
+            await apply_readings_to_whatif(db, readings, site_by_container)
     except Exception:
-        logger.warning("Error actualizando niveles virtuales what-if.", exc_info=True)
+        logger.warning("No se pudo aplicar el lote al what-if.", exc_info=True)

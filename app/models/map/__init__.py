@@ -7,6 +7,7 @@ from app.models.map.caba_geo_extension import (
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
+from app.models.map.neighborhood import Neighborhood
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
 from app.models.map.saved_configuration import SavedConfiguration
@@ -16,10 +17,9 @@ from app.models.map.site_projection import (
     SiteFeature,
     SiteModelEvaluation,
     SiteModelEvaluationMetric,
-    SiteProjectionPoint,
-    SiteProjectionRun,
 )
 from app.models.map.waste_type import WasteType
+from app.models.map.zone_profile_layer import ZoneProfileLayer
 
 __all__ = [
     "Barrio",
@@ -29,6 +29,7 @@ __all__ = [
     "ContainerType",
     "DataLevel",
     "Manzana",
+    "Neighborhood",
     "NeighborhoodDemographic",
     "OptimizationWhatIfLevel",
     "RedistributionPlan",
@@ -39,7 +40,6 @@ __all__ = [
     "SiteFeature",
     "SiteModelEvaluation",
     "SiteModelEvaluationMetric",
-    "SiteProjectionPoint",
-    "SiteProjectionRun",
     "WasteType",
+    "ZoneProfileLayer",
 ]

@@ -41,7 +41,7 @@ class CabaContainerSpatialMetadata(MapBase):
         nullable=False,
     )
 
-    container = relationship("Container", back_populates="spatial_metadata")
+    container = relationship("Container")
     comuna = relationship("Comuna", back_populates="containers_metadata")
     barrio = relationship("Barrio", back_populates="containers_metadata")
     manzana = relationship("Manzana", back_populates="containers_metadata")

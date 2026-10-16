@@ -1,41 +1,40 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.core.database import init_db
-from app.core.map_database import init_map_db
+from app.core.logging_config import configure_logging
 from app.routers.auth import router as auth_router
 from app.routers.digital_twin import router as digital_twin_router
 from app.routers.map import router as map_router
 from app.routers.users import router as users_router
 
+configure_logging(get_settings().log_level)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = get_settings()
-    if settings.auto_create_db and settings.app_env.lower() != "production":
-        await init_db()
-        if settings.auto_create_map_db and settings.enable_map_db:
-            await init_map_db()
-
-    yield
+# El esquema de la base lo crean las migraciones de Alembic (alembic upgrade
+# head), no la app al arrancar.
+app = FastAPI()
 
 
-app = FastAPI(lifespan=lifespan)
+def cors_options(raw_origins: str) -> tuple[list[str], bool]:
+    """Orígenes permitidos y si se aceptan credenciales.
+
+    Sin orígenes configurados se permite cualquiera ("*"). En ese caso nunca se
+    habilitan credenciales: Starlette reflejaría cualquier origen con cookies.
+    """
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    origins = origins or ["*"]
+    return origins, "*" not in origins
+
 
 settings = get_settings()
-cors_allowed_origins = [
-    origin.strip()
-    for origin in settings.cors_allowed_origins.split(",")
-    if origin.strip()
-]
+cors_allowed_origins, cors_allow_credentials = cors_options(
+    settings.cors_allowed_origins
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_allowed_origins or ["*"],
-    allow_credentials="*" not in cors_allowed_origins,
+    allow_origins=cors_allowed_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

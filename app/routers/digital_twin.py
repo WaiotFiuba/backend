@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
@@ -21,9 +21,14 @@ from app.schemas.digital_twin import (
     TelemetryIngestPayload,
     TelemetryIngestResult,
     ZoneDemandRead,
+    ZoneProfileLayerPayload,
 )
+from app.schemas.map.container import ContainersMapOutputSchema
+from app.services.data_level_retention import purge_in_background
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
-from app.services.simulation_control_service import (
+from app.services.map.container_service import get_all_containers
+from app.services.map.zone_profile_service import save_zone_profiles_geojson
+from app.services.simulation_session_service import (
     create_saved_configuration,
     create_simulation,
     delete_saved_configuration,
@@ -50,8 +55,10 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 async def ingest_telemetry(
     payload: TelemetryIngestPayload,
     db: MapDbDep,
+    background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     result = await ingest_telemetry_batch(db, [payload])
+    background_tasks.add_task(purge_in_background)
     _log_telemetry_ingest("individual", result)
     return result
 
@@ -60,6 +67,7 @@ async def ingest_telemetry(
 async def ingest_telemetry_batch_endpoint(
     request: Request,
     db: MapDbDep,
+    background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     import time
 
@@ -67,9 +75,11 @@ async def ingest_telemetry_batch_endpoint(
     body = await request.json()
     raw_measurements = body.get("measurements", []) if isinstance(body, dict) else []
     result = await ingest_telemetry_batch(db, raw_measurements)
-    print(
-        f"[PERF API ENDPOINT] /telemetry/batch completado en {time.perf_counter() - t0:.3f}s para {len(raw_measurements)} mediciones",
-        flush=True,
+    background_tasks.add_task(purge_in_background)
+    logger.info(
+        "/telemetry/batch completado en %.3fs para %d mediciones.",
+        time.perf_counter() - t0,
+        len(raw_measurements),
     )
     _log_telemetry_ingest("batch", result)
     return result
@@ -178,95 +188,6 @@ async def delete_configuration_endpoint(
     await delete_saved_configuration(db, current_user.id, config_id)
 
 
-@router.get("/depots")
-async def get_depots_endpoint() -> dict:
-    """Retorna las 7 bases operativas y plantas de transferencia de CABA."""
-    from app.digital_twin.synthetic_data.simulation.truck_depots import (
-        DEPOTS_BY_ZONE,
-        TRANSFER_STATIONS,
-    )
-
-    return {
-        "bases": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in DEPOTS_BY_ZONE.values()
-        ],
-        "transfer_stations": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "zone": d.zone,
-                "latitude": d.latitude,
-                "longitude": d.longitude,
-                "type": d.type,
-            }
-            for d in TRANSFER_STATIONS
-        ],
-    }
-
-
-@router.get("/trucks/active")
-async def get_active_trucks_endpoint() -> list[dict]:
-    """Retorna el estado de la flota de camiones recolectores en tiempo real."""
-    from app.digital_twin.synthetic_data.simulation.truck_engine import (
-        get_latest_truck_snapshot,
-    )
-
-    return get_latest_truck_snapshot()
-
-
-@router.get("/routes/{route_id}")
-async def get_route_details_endpoint(route_id: str) -> dict:
-    """Retorna los tramos y waypoints de un circuito de recolección."""
-    from fastapi import HTTPException
-    from app.services.simulation.truck_route_service import load_all_collection_routes
-
-    routes = load_all_collection_routes()
-    clean_id = route_id.split(".")[0].strip()
-    route = routes.get(clean_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Circuito no encontrado")
-
-    is_green_route = "Contenedores Verdes" in route.service_name
-    if (
-        not is_green_route
-        and not route.total_distance_m
-        and clean_id != "RODRIGO_BUENO"
-    ):
-        try:
-            from app.services.simulation.drpp_atsp_solver import optimize_circuit_route
-
-            sol = optimize_circuit_route(clean_id)
-            route.total_distance_m = sol.total_distance_m
-            route.collection_distance_m = sol.collection_distance_m
-            route.deadheading_distance_m = sol.deadheading_distance_m
-            route.repeated_segments_count = sol.repeated_segments_count
-            route.street_sequence = sol.street_sequence
-        except Exception:
-            pass
-
-    return {
-        "route_id": route.route_id,
-        "zone": route.zone,
-        "service_name": route.service_name,
-        "site_ids": route.site_ids,
-        "waypoints": route.waypoints,
-        "segments_count": len(route.segments),
-        "total_distance_m": route.total_distance_m,
-        "collection_distance_m": route.collection_distance_m,
-        "deadheading_distance_m": route.deadheading_distance_m,
-        "repeated_segments_count": route.repeated_segments_count,
-        "street_sequence": route.street_sequence,
-    }
-
-
 # Endpoints utilizados por el Simulator Worker (sin acceso directo a BD)
 @router.get("/worker/active-session", response_model=SimulationRead | None)
 async def read_worker_active_session(
@@ -276,6 +197,16 @@ async def read_worker_active_session(
         return await get_active_simulation(db)
     except Exception:
         return None
+
+
+@router.get("/worker/containers", response_model=list[ContainersMapOutputSchema])
+async def read_worker_containers(
+    db: MapDbDep,
+    limit: Annotated[int | None, Query(ge=1)] = None,
+    offset: Annotated[int | None, Query(ge=0)] = None,
+) -> list[ContainersMapOutputSchema]:
+    """Topología de contenedores para el simulador, que no se autentica."""
+    return await get_all_containers(db, limit=limit, offset=offset)
 
 
 @router.post("/worker/fail-interrupted")
@@ -294,16 +225,10 @@ async def worker_update_progress(
     payload: SimulationProgressUpdate,
     db: MapDbDep,
 ) -> SimulationRead:
-    if payload.trucks is not None:
-        from app.digital_twin.synthetic_data.simulation.truck_engine import (
-            set_latest_truck_snapshot,
-        )
-
-        set_latest_truck_snapshot(payload.trucks)
-
     return await update_simulation_progress(
         db=db,
         simulation_id=simulation_id,
+        claimed=payload.claimed,
         simulated_time=payload.simulated_time,
         current_period=payload.current_period,
         global_demand_current=payload.global_demand_current,
@@ -311,6 +236,8 @@ async def worker_update_progress(
         collections_generated=payload.collections_generated,
         alarms_generated=payload.alarms_generated,
         status=payload.status,
+        scenario=payload.scenario,
+        total_periods=payload.total_periods,
     )
 
 
@@ -328,6 +255,18 @@ async def worker_finish_simulation(
         status=payload.status,
         error_message=payload.error_message,
     )
+
+
+@router.put("/worker/simulations/{simulation_id}/zone-profiles")
+async def worker_publish_zone_profiles(
+    simulation_id: int,
+    payload: ZoneProfileLayerPayload,
+    db: MapDbDep,
+) -> dict[str, int]:
+    """El simulador publica la capa de perfiles de zona con la que corre la
+    sesion (segun su zone_profiles.yaml). Reemplaza la capa anterior."""
+    features = await save_zone_profiles_geojson(db, simulation_id, payload.model_dump())
+    return {"features": features}
 
 
 def _log_telemetry_ingest(mode: str, result: TelemetryIngestResult) -> None:

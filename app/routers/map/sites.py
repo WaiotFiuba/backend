@@ -2,27 +2,26 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
+from app.core.thresholds import get_level_thresholds
 from app.schemas.map.site import (
     SiteChanges,
     SiteCluster,
     SiteLevelHistory,
     SiteMapOutputSchema,
-    SiteMapSnapshot,
 )
 from app.schemas.map.site_projection import SiteProjectionResponse
-from app.services.map.site_projection_models import DEFAULT_MODEL_KEY
-from app.services.map.site_projection_service import project_site_level
 from app.services.map.site_service import (
     get_site_by_id,
     get_site_changes,
     get_site_level_history,
-    get_site_map_snapshot,
     get_sites_clustered,
 )
+from app.services.site_projection.models import DEFAULT_MODEL_KEY
+from app.services.site_projection.service import project_site_level
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 
@@ -63,18 +62,6 @@ async def get_sites_by_bbox(
 
 
 @router.get(
-    "/bbox/snapshot",
-    response_model=SiteMapSnapshot,
-    summary="Obtener snapshot inicial completo de sitios y cursor",
-)
-async def get_all_sites_snapshot(
-    db: MapDbDep,
-    level_aggregation: Literal["avg", "max"] = Query("avg"),
-) -> SiteMapSnapshot:
-    return await get_site_map_snapshot(db=db, level_aggregation=level_aggregation)
-
-
-@router.get(
     "/changes",
     response_model=SiteChanges,
     summary="Obtener cambios incrementales en sitios a partir de un cursor",
@@ -104,8 +91,13 @@ async def get_single_site_history(
     db: MapDbDep,
     limit: int = Query(168, ge=1, le=1000),
 ) -> SiteLevelHistory:
-    numeric_id = int(site_id.split("|")[-1]) if site_id.split("|")[-1].isdigit() else 1
-    return await get_site_level_history(db=db, site_id=numeric_id, limit=limit)
+    raw_id = site_id.split("|")[-1].strip()
+    if not raw_id.isdigit():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="El site_id debe ser numerico.",
+        )
+    return await get_site_level_history(db=db, site_id=int(raw_id), limit=limit)
 
 
 @router.get(
@@ -127,7 +119,9 @@ async def get_single_site_projection(
     ),
     horizon_hours: Annotated[int, Query(ge=1, le=168)] = 24,
     interval_minutes: Annotated[int, Query(ge=15, le=1440)] = 60,
-    critical_level: Annotated[int, Query(ge=1, le=100)] = 80,
+    critical_level: Annotated[int, Query(ge=1, le=100)] = (
+        get_level_thresholds().critical
+    ),
     level_aggregation: Annotated[Literal["avg", "max"], Query()] = "avg",
     lookback_days: Annotated[int, Query(ge=1, le=365)] = 14,
     stop_at_full: Annotated[bool, Query()] = True,

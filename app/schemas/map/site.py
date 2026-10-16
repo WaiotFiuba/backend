@@ -32,6 +32,8 @@ class SiteMapOutputSchema(BaseModel):
     waste_type_name: str | None = None
     waste_type_color: str | None = None
     container_count: int = 0
+    max_containers: int | None = None
+    puede_ingresar: bool | None = None
     last_reading: datetime | None = None
     last_pickup: datetime | None = None
     updated_at: datetime
@@ -50,12 +52,6 @@ class SiteCluster(BaseModel):
     available_count: int
 
 
-class SiteMapSnapshot(BaseModel):
-    sites: list[SiteMapOutputSchema]
-    latest_cursor: int
-    total: int
-
-
 class SiteChanges(BaseModel):
     sites: list[SiteMapOutputSchema]
     latest_cursor: int
@@ -72,7 +68,6 @@ class SiteLevelHistoryPoint(BaseModel):
 
 class SiteLevelHistory(BaseModel):
     site_id: int
-    simulation_id: int | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
     points: list[SiteLevelHistoryPoint] = Field(default_factory=list)

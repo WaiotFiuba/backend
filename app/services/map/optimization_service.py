@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,8 @@ from app.models.map.data_level import DataLevel
 from app.models.map.optimization import RedistributionPlan as RedistributionPlanModel
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
+from app.services.map.reference_time_service import get_reference_time
+from app.services.map.site_capacity_service import get_site_capacity_service
 from app.schemas.map.optimization import (
     OptimizationConfig,
     OptimizationMetricsResponse,
@@ -85,7 +87,7 @@ async def compute_site_utilization_metrics(
     de data_level.
     """
     # Determinar ventana temporal
-    window_end = datetime.now(UTC)
+    window_end = await get_reference_time(db)
     window_start: datetime | None = None
     if config.window_days is not None:
         window_start = window_end - timedelta(days=config.window_days)
@@ -159,7 +161,12 @@ async def compute_site_utilization_metrics(
                 func.round(cast(func.avg(Container.current_level), Numeric)), 0
             ).label("current_avg_level"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        # El filtro va en el ON para que los sitios sin contenedores activos
+        # sigan apareciendo (con 0 contenedores).
+        .outerjoin(
+            Container,
+            (Container.site_id == Site.id) & Container.deleted_at.is_(None),
+        )
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name)
@@ -181,11 +188,37 @@ async def compute_site_utilization_metrics(
     # Construir métricas por sitio
     site_metrics: list[SiteUtilizationMetric] = []
     category_counts: dict[str, int] = defaultdict(int)
+    capacity_service = get_site_capacity_service()
 
     for row in site_rows:
         sid = row.id
         container_count = int(row.container_count or 0)
         if container_count == 0:
+            max_cap, puede_ingresar = capacity_service.evaluate_site(
+                row.latitude, row.longitude, container_count
+            )
+            site_metrics.append(
+                SiteUtilizationMetric(
+                    site_id=sid,
+                    site_name=row.name,
+                    latitude=row.latitude,
+                    longitude=row.longitude,
+                    container_count=0,
+                    max_containers=max_cap,
+                    puede_ingresar=puede_ingresar,
+                    waste_type_id=row.waste_type_id,
+                    waste_type_name=row.waste_type_name,
+                    container_type_id=row.container_type_id,
+                    container_type_name=ct_names.get(row.container_type_id),
+                    avg_fill_level=0.0,
+                    peak_fill_rate=0.0,
+                    overflow_frequency=0,
+                    time_to_full_hours=None,
+                    utilization_score=0.0,
+                    category="idle",
+                )
+            )
+            category_counts["idle"] += 1
             continue
 
         dl_metrics = metrics_by_site.get(sid, {})
@@ -206,6 +239,10 @@ async def compute_site_utilization_metrics(
         category = _classify(utilization_score)
         category_counts[category] += 1
 
+        max_cap, puede_ingresar = capacity_service.evaluate_site(
+            row.latitude, row.longitude, container_count
+        )
+
         site_metrics.append(
             SiteUtilizationMetric(
                 site_id=sid,
@@ -213,6 +250,8 @@ async def compute_site_utilization_metrics(
                 latitude=row.latitude,
                 longitude=row.longitude,
                 container_count=container_count,
+                max_containers=max_cap,
+                puede_ingresar=puede_ingresar,
                 waste_type_id=row.waste_type_id,
                 waste_type_name=row.waste_type_name,
                 container_type_id=row.container_type_id,
@@ -270,10 +309,35 @@ async def generate_redistribution_plan(
     config: OptimizationConfig,
     user_id: int | None = None,
 ) -> RedistributionPlanRead:
+    """Genera y guarda un plan, sin activarlo."""
+    plan_model = await build_redistribution_plan(db, config, user_id)
+    db.add(plan_model)
+    await db.commit()
+    await db.refresh(plan_model)
+    return _plan_model_to_read(plan_model)
+
+
+async def build_redistribution_plan(
+    db: AsyncSession,
+    config: OptimizationConfig,
+    user_id: int | None = None,
+) -> RedistributionPlanModel:
     """
-    Genera un plan de redistribución de contenedores basado en las métricas
+    Calcula un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
+    Con algorithm="overload" usa el modelo de sobrecarga.
+
+    Devuelve el plan sin guardar: quien lo llama decide si lo guarda solo o lo
+    guarda y lo activa en la misma transacción.
     """
+    if config.algorithm == "overload":
+        # Import local: el servicio del modelo nuevo usa helpers de este módulo.
+        from app.services.map.redistribution_overload_service import (
+            build_overload_plan,
+        )
+
+        return await build_overload_plan(db, config, user_id)
+
     # 1. Calcular métricas
     metrics_response = await compute_site_utilization_metrics(db, config)
     metrics = metrics_response.sites
@@ -308,11 +372,7 @@ async def generate_redistribution_plan(
             },
             created_by=user_id,
         )
-        db.add(plan_model)
-        await db.commit()
-        await db.refresh(plan_model)
-
-        return _plan_model_to_read(plan_model)
+        return plan_model
 
     # 3. Cargar contenedores de los sitios donantes para asignar movimientos concretos
     donor_site_ids = [d.site_id for d in donors]
@@ -361,15 +421,29 @@ async def generate_redistribution_plan(
     demand: dict[int, int] = {}
     for r in receivers:
         if r.container_count <= 0:
-            continue
-        d = max(
-            1,
-            math.ceil(
-                r.container_count
-                * (r.utilization_score / config.target_utilization - 1)
-            ),
-        )
-        demand[r.site_id] = d
+            needed = 1
+        else:
+            needed = max(
+                1,
+                math.ceil(
+                    r.container_count
+                    * (r.utilization_score / config.target_utilization - 1)
+                ),
+            )
+        if (
+            getattr(config, "apply_capacity_constraints", True)
+            and getattr(r, "max_containers", None) is not None
+        ):
+            max_cap = r.max_containers
+            cupo_libre = max(0, max_cap - r.container_count)
+            if cupo_libre <= 0:
+                continue
+            d = min(needed, cupo_libre)
+        else:
+            d = needed
+
+        if d > 0:
+            demand[r.site_id] = d
 
     # 5. Resolver con el algoritmo elegido
     if config.algorithm == "lp":
@@ -483,7 +557,7 @@ async def generate_redistribution_plan(
         "optimized_std_fill": round(opt_std, 2),
     }
 
-    # 7. Persistir el plan
+    # 7. Armar el plan (lo guarda quien llama)
     plan_model = RedistributionPlanModel(
         status="draft",
         config=config.model_dump(),
@@ -499,11 +573,7 @@ async def generate_redistribution_plan(
         },
         created_by=user_id,
     )
-    db.add(plan_model)
-    await db.commit()
-    await db.refresh(plan_model)
-
-    return _plan_model_to_read(plan_model)
+    return plan_model
 
 
 async def get_plan_by_id(
@@ -519,6 +589,45 @@ async def get_plan_by_id(
 # ---------------------------------------------------------------------------
 # Algoritmo Greedy
 # ---------------------------------------------------------------------------
+
+
+def _build_redistribution_move(
+    container_id: int,
+    donor: SiteUtilizationMetric,
+    receiver: SiteUtilizationMetric,
+    dist: float,
+) -> RedistributionMove:
+    d_count = max(1, donor.container_count)
+    d_before = round(donor.avg_fill_level, 1)
+    d_after = round(
+        min(100.0, (donor.avg_fill_level * d_count) / max(1, d_count - 1)), 1
+    )
+
+    r_count = max(1, receiver.container_count)
+    r_before = round(receiver.avg_fill_level, 1)
+    r_after = round(min(100.0, (receiver.avg_fill_level * r_count) / (r_count + 1)), 1)
+
+    donor_delta = round(d_after - d_before, 1)
+    receiver_relief = round(r_after - r_before, 1)
+    net_decongestion = round(receiver_relief + donor_delta, 1)
+
+    return RedistributionMove(
+        container_id=container_id,
+        from_site_id=donor.site_id,
+        from_site_name=donor.site_name,
+        to_site_id=receiver.site_id,
+        to_site_name=receiver.site_name,
+        from_lat=round(donor.latitude, 6),
+        from_lng=round(donor.longitude, 6),
+        to_lat=round(receiver.latitude, 6),
+        to_lng=round(receiver.longitude, 6),
+        distance_km=round(dist, 4),
+        donor_fill_before=d_before,
+        donor_fill_after=d_after,
+        receiver_fill_before=r_before,
+        receiver_fill_after=r_after,
+        net_decongestion_pct=net_decongestion,
+    )
 
 
 def _solve_greedy(
@@ -593,18 +702,7 @@ def _solve_greedy(
                     break
                 container_id = available.pop(0)
                 moves.append(
-                    RedistributionMove(
-                        container_id=container_id,
-                        from_site_id=donor.site_id,
-                        from_site_name=donor.site_name,
-                        to_site_id=receiver.site_id,
-                        to_site_name=receiver.site_name,
-                        from_lat=round(donor.latitude, 6),
-                        from_lng=round(donor.longitude, 6),
-                        to_lat=round(receiver.latitude, 6),
-                        to_lng=round(receiver.longitude, 6),
-                        distance_km=round(dist, 4),
-                    )
+                    _build_redistribution_move(container_id, donor, receiver, dist)
                 )
                 remaining_supply[donor.site_id] -= 1
                 r_demand -= 1
@@ -771,18 +869,7 @@ def _solve_lp(
         for _ in range(min(n_move, len(available))):
             container_id = available.pop(0)
             moves.append(
-                RedistributionMove(
-                    container_id=container_id,
-                    from_site_id=donor.site_id,
-                    from_site_name=donor.site_name,
-                    to_site_id=receiver.site_id,
-                    to_site_name=receiver.site_name,
-                    from_lat=round(donor.latitude, 6),
-                    from_lng=round(donor.longitude, 6),
-                    to_lat=round(receiver.latitude, 6),
-                    to_lng=round(receiver.longitude, 6),
-                    distance_km=round(dist, 4),
-                )
+                _build_redistribution_move(container_id, donor, receiver, dist)
             )
 
     return moves
@@ -800,7 +887,9 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
     return RedistributionPlanRead(
         id=plan.id,
         status=plan.status,
-        config=OptimizationConfig(**plan.config),
+        # model_construct: un plan guardado con otra versión del esquema se sigue
+        # pudiendo leer aunque su config ya no pase la validación actual.
+        config=OptimizationConfig.model_construct(**plan.config),
         moves=[RedistributionMove(**m) for m in moves_data],
         total_containers_moved=summary.get("total_containers_moved", 0),
         sites_emptied=summary.get("sites_emptied", 0),
@@ -812,6 +901,11 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
         original_std_fill=summary.get("original_std_fill", 0.0),
         optimized_mean_fill=summary.get("optimized_mean_fill", 0.0),
         optimized_std_fill=summary.get("optimized_std_fill", 0.0),
+        critical_hours_before=summary.get("critical_hours_before"),
+        critical_hours_after=summary.get("critical_hours_after"),
+        overflow_hours_before=summary.get("overflow_hours_before"),
+        overflow_hours_after=summary.get("overflow_hours_after"),
         created_at=plan.created_at,
         simulation_id=plan.simulation_id,
+        created_by=plan.created_by,
     )

@@ -1,0 +1,744 @@
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime, timedelta
+
+from fastapi import HTTPException, status
+from pydantic import ValidationError
+from sqlalchemy import inspect, or_, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
+from app.core.config import get_settings
+from app.core.simulation_status import ACTIVE_STATUSES, SimulationStatus
+from app.models.map.caba_geo_extension import Barrio
+from app.models.map.neighborhood_demographic import NeighborhoodDemographic
+from app.models.map.saved_configuration import SavedConfiguration
+from app.models.map.simulation import SimulationSession, SimulationZoneOverride
+from app.schemas.digital_twin import (
+    SavedConfigurationCreate,
+    SavedConfigurationRead,
+    SavedConfigurationUpdate,
+    ScenarioInput,
+    SimulationControlsUpdate,
+    SimulationCreate,
+    SimulationRead,
+    SimulationZoneState,
+    ZoneDemandRead,
+)
+from app.services.digital_twin_ingest_service import (
+    clear_level_readings,
+    reset_database_container_levels,
+)
+from app.services.map.optimization_whatif_service import reset_virtual_levels
+
+logger = logging.getLogger(__name__)
+
+# Clave del lock de Postgres que pone en fila las creaciones de simulaciones.
+_CREATE_SIMULATION_LOCK = 7_032_001
+
+
+async def create_simulation(
+    db: AsyncSession,
+    payload: SimulationCreate,
+    user_id: int,
+) -> SimulationRead:
+    # Dos creaciones a la vez (un doble clic) corren una detras de la otra: si
+    # no, las dos resetean los niveles de todos los contenedores a la vez
+    # (deadlock) y chocan con el indice de sesion activa unica. El lock se
+    # libera solo con el commit o el rollback.
+    connection = await db.connection()
+    if connection.dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _CREATE_SIMULATION_LOCK},
+        )
+
+    # Si habia una simulacion activa, se detiene
+    active_sessions = (
+        (
+            await db.execute(
+                select(SimulationSession).where(
+                    SimulationSession.status.in_(ACTIVE_STATUSES)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for s in active_sessions:
+        s.status = SimulationStatus.COMPLETED
+        s.finished_at = datetime.now(UTC)
+        s.error_message = "Detenida por inicio de nueva simulacion."
+    if active_sessions:
+        await db.flush()
+
+    await reset_database_container_levels(db)
+    await clear_level_readings(db)
+    await reset_virtual_levels(db)
+
+    scenario_data = dict(payload.scenario)
+    if payload.start_time is not None:
+        scenario_data["start"] = payload.start_time
+    try:
+        scenario = ScenarioInput.model_validate(scenario_data).model_dump(
+            mode="json", exclude_unset=True
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_url=False, include_context=False),
+        ) from exc
+    await _validate_neighborhoods(
+        db,
+        [item.neighborhood for item in payload.zone_overrides],
+    )
+    session = SimulationSession(
+        status=SimulationStatus.PENDING,
+        scenario=scenario,
+        speedup=payload.speedup,
+        global_demand_current=payload.global_demand_multiplier,
+        global_demand_start=payload.global_demand_multiplier,
+        global_demand_target=payload.global_demand_multiplier,
+        transition_minutes=payload.transition_minutes,
+        simulated_time=None,
+        # El simulador reporta los periodos reales al arrancar la sesion.
+        total_periods=0,
+        created_by=user_id,
+    )
+    db.add(session)
+    try:
+        # El flush tambien va adentro: es donde salta el indice de sesion
+        # activa unica si otra sesion se activo en el medio.
+        await db.flush()
+        for override in payload.zone_overrides:
+            db.add(
+                SimulationZoneOverride(
+                    simulation_id=session.id,
+                    neighborhood=override.neighborhood,
+                    multiplier_current=override.multiplier,
+                    multiplier_start=override.multiplier,
+                    multiplier_target=override.multiplier,
+                )
+            )
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe una simulacion activa.",
+        ) from exc
+    return await get_simulation(db, session.id)
+
+
+async def get_active_simulation(db: AsyncSession) -> SimulationRead:
+    session = await _active_session(db)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No hay una simulacion activa.")
+    return await _simulation_read(db, session)
+
+
+async def get_active_simulation_session(
+    db: AsyncSession,
+) -> SimulationSession | None:
+    return await _active_session(db)
+
+
+async def set_active_simulation_status(
+    db: AsyncSession,
+    action: str,
+) -> SimulationRead:
+    session = await _active_session(db)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No hay una simulacion activa.")
+    return await set_simulation_status(db, session.id, action)
+
+
+async def update_active_simulation_controls(
+    db: AsyncSession,
+    payload: SimulationControlsUpdate,
+) -> SimulationRead:
+    session = await _active_session(db)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No hay una simulacion activa.")
+    return await update_simulation_controls(db, session.id, payload)
+
+
+async def get_simulation(db: AsyncSession, simulation_id: int) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    return await _simulation_read(db, session)
+
+
+async def set_simulation_status(
+    db: AsyncSession,
+    simulation_id: int,
+    action: str,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    allowed = {
+        "pause": ({SimulationStatus.RUNNING}, SimulationStatus.PAUSED),
+        "resume": ({SimulationStatus.PAUSED}, SimulationStatus.RUNNING),
+        "stop": (
+            {
+                SimulationStatus.PENDING,
+                SimulationStatus.RUNNING,
+                SimulationStatus.PAUSED,
+            },
+            SimulationStatus.STOPPING,
+        ),
+    }
+    valid_from, target = allowed[action]
+    if session.status not in valid_from:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede ejecutar {action} desde estado {session.status}.",
+        )
+    if action == "stop" and session.status == SimulationStatus.PENDING:
+        session.status = SimulationStatus.COMPLETED
+        session.finished_at = datetime.now(UTC)
+    else:
+        session.status = target
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def update_simulation_controls(
+    db: AsyncSession,
+    simulation_id: int,
+    payload: SimulationControlsUpdate,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    if session.status not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="La simulacion ya finalizo.")
+
+    transition_minutes = (
+        payload.transition_minutes
+        if payload.transition_minutes is not None
+        else session.transition_minutes
+    )
+    if payload.speedup is not None:
+        session.speedup = payload.speedup
+    if payload.transition_minutes is not None:
+        session.transition_minutes = payload.transition_minutes
+    if payload.global_demand_multiplier is not None:
+        _set_session_transition(
+            session,
+            payload.global_demand_multiplier,
+            transition_minutes,
+        )
+    if payload.zone_overrides is not None:
+        await _validate_neighborhoods(
+            db,
+            [item.neighborhood for item in payload.zone_overrides],
+        )
+        await _set_zone_transitions(
+            db,
+            session,
+            payload.zone_overrides,
+            transition_minutes,
+        )
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def update_simulation_progress(
+    db: AsyncSession,
+    simulation_id: int,
+    claimed: bool = False,
+    simulated_time: datetime | None = None,
+    current_period: int | None = None,
+    global_demand_current: float | None = None,
+    measurements_sent: int = 0,
+    collections_generated: int = 0,
+    alarms_generated: int = 0,
+    status: SimulationStatus | None = None,
+    scenario: dict[str, object] | None = None,
+    total_periods: int | None = None,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    # Una sesion terminada (por ejemplo, vencida en pending) no se revive.
+    if session.status not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="La simulacion ya finalizo.")
+    if claimed and session.claimed_at is None:
+        session.claimed_at = datetime.now(UTC)
+    if status is not None:
+        session.status = status
+        if status == SimulationStatus.RUNNING and session.started_at is None:
+            session.started_at = datetime.now(UTC)
+    if simulated_time is not None:
+        session.simulated_time = simulated_time
+    if current_period is not None:
+        session.current_period = current_period
+    if global_demand_current is not None:
+        session.global_demand_current = global_demand_current
+    if scenario is not None:
+        session.scenario = scenario
+    if total_periods is not None:
+        session.total_periods = total_periods
+    session.measurements_sent += measurements_sent
+    session.collections_generated += collections_generated
+    session.alarms_generated += alarms_generated
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def finish_simulation_session(
+    db: AsyncSession,
+    simulation_id: int,
+    status: SimulationStatus,
+    error_message: str | None = None,
+) -> SimulationRead:
+    session = await db.get(SimulationSession, simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulacion no encontrada.")
+    # Si ya termino, se conserva su estado y su mensaje.
+    if session.status not in ACTIVE_STATUSES:
+        return await get_simulation(db, simulation_id)
+    session.status = status
+    session.error_message = error_message
+    session.finished_at = datetime.now(UTC)
+    await db.commit()
+    return await get_simulation(db, simulation_id)
+
+
+async def fail_interrupted_sessions(db: AsyncSession) -> int:
+    """Al arrancar, el worker cierra las sesiones que quedaron a medias por su
+    reinicio. Una sesion en pending que ningun simulador tomo no se cierra:
+    sigue esperando, y si nadie la toma vence sola (pending_expiry_reason)."""
+    from sqlalchemy import update
+
+    result = await db.execute(
+        update(SimulationSession)
+        .where(
+            SimulationSession.status.in_(ACTIVE_STATUSES),
+            or_(
+                SimulationSession.status != SimulationStatus.PENDING,
+                SimulationSession.claimed_at.is_not(None),
+            ),
+        )
+        .values(
+            status=SimulationStatus.FAILED,
+            error_message="El worker se reinicio durante la simulacion.",
+            finished_at=datetime.now(UTC),
+        )
+    )
+    if result.rowcount > 0:
+        await reset_database_container_levels(db)
+    await db.commit()
+    return result.rowcount
+
+
+async def list_zone_demand(db: AsyncSession) -> list[ZoneDemandRead]:
+    try:
+        if not await _has_barrios_table(db):
+            return []
+
+        active = await _active_session(db)
+        overrides = {}
+        if active:
+            overrides = {
+                item.neighborhood: effective_multiplier(
+                    item.multiplier_start,
+                    item.multiplier_target,
+                    active.simulated_time,
+                    item.transition_started_at,
+                    item.transition_ends_at,
+                )
+                for item in await _zone_overrides(db, active.id)
+            }
+        rows = (
+            await db.execute(
+                select(NeighborhoodDemographic)
+                .join(Barrio, NeighborhoodDemographic.neighborhood_id == Barrio.id)
+                .options(joinedload(NeighborhoodDemographic.neighborhood))
+                .order_by(Barrio.nombre)
+            )
+        ).scalars()
+        return [
+            ZoneDemandRead(
+                neighborhood=row.neighborhood.nombre,
+                # barrios.comuna trae el número de comuna; la tabla comunas ya
+                # no se importa.
+                commune=str(row.neighborhood.comuna_id)
+                if row.neighborhood.comuna_id is not None
+                else None,
+                population=row.population,
+                year=row.year,
+                source=row.source,
+                area_km2=row.area_km2,
+                density_per_km2=row.density_per_km2,
+                density_factor=row.density_factor,
+                multiplier_effective=overrides.get(row.neighborhood.nombre, 1.0),
+            )
+            for row in rows
+        ]
+    except Exception:
+        logger.exception("No se pudo listar la demanda por barrio.")
+        return []
+
+
+def effective_multiplier(
+    start: float,
+    target: float,
+    simulated_time: datetime | None,
+    transition_started_at: datetime | None,
+    transition_ends_at: datetime | None,
+) -> float:
+    if not simulated_time or not transition_started_at or not transition_ends_at:
+        return target
+
+    def _to_utc(dt: datetime) -> datetime:
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+    st = _to_utc(simulated_time)
+    t_start = _to_utc(transition_started_at)
+    t_end = _to_utc(transition_ends_at)
+
+    duration = (t_end - t_start).total_seconds()
+    if duration <= 0 or st >= t_end:
+        return target
+    if st <= t_start:
+        return start
+    elapsed = (st - t_start).total_seconds()
+    return start + (target - start) * elapsed / duration
+
+
+def _set_session_transition(
+    session: SimulationSession,
+    target: float,
+    transition_minutes: int,
+) -> None:
+    now = session.simulated_time
+    current = effective_multiplier(
+        session.global_demand_start,
+        session.global_demand_target,
+        now,
+        session.transition_started_at,
+        session.transition_ends_at,
+    )
+    session.global_demand_current = current
+    session.global_demand_start = current
+    session.global_demand_target = target
+    session.transition_started_at = now
+    session.transition_ends_at = (
+        now + timedelta(minutes=transition_minutes) if now else None
+    )
+
+
+async def _set_zone_transitions(db, session, requested, transition_minutes) -> None:
+    existing = {
+        item.neighborhood: item for item in await _zone_overrides(db, session.id)
+    }
+    for override in requested:
+        item = existing.get(override.neighborhood)
+        if item is None:
+            item = SimulationZoneOverride(
+                simulation_id=session.id,
+                neighborhood=override.neighborhood,
+            )
+            db.add(item)
+        current = effective_multiplier(
+            item.multiplier_start,
+            item.multiplier_target,
+            session.simulated_time,
+            item.transition_started_at,
+            item.transition_ends_at,
+        )
+        item.multiplier_current = current
+        item.multiplier_start = current
+        item.multiplier_target = override.multiplier
+        item.transition_started_at = session.simulated_time
+        item.transition_ends_at = (
+            session.simulated_time + timedelta(minutes=transition_minutes)
+            if session.simulated_time
+            else None
+        )
+
+
+async def _active_session(db: AsyncSession) -> SimulationSession | None:
+    result = await db.execute(
+        select(SimulationSession)
+        .where(SimulationSession.status.in_(ACTIVE_STATUSES))
+        .order_by(SimulationSession.id.desc())
+        .limit(1)
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        return None
+    settings = get_settings()
+    reason = pending_expiry_reason(
+        session.status,
+        session.created_at,
+        session.claimed_at,
+        datetime.now(UTC),
+        timedelta(seconds=settings.simulation_claim_timeout_seconds),
+        timedelta(minutes=settings.simulation_startup_timeout_minutes),
+    )
+    if reason is not None:
+        # Se vence aca, al leerla, sin una tarea aparte.
+        session.status = SimulationStatus.FAILED
+        session.finished_at = datetime.now(UTC)
+        session.error_message = reason
+        await db.commit()
+        return None
+    return session
+
+
+def pending_expiry_reason(
+    status: str,
+    created_at: datetime | None,
+    claimed_at: datetime | None,
+    now: datetime,
+    claim_timeout: timedelta,
+    startup_timeout: timedelta,
+) -> str | None:
+    """Por que vencio una sesion en pending, o None si sigue vigente."""
+    if status != SimulationStatus.PENDING or created_at is None:
+        return None
+    if claimed_at is None:
+        if now - _as_utc(created_at) > claim_timeout:
+            return "Ningun simulador tomo la simulacion."
+        return None
+    if now - _as_utc(claimed_at) > startup_timeout:
+        return "El simulador no termino de preparar la simulacion."
+    return None
+
+
+async def _zone_overrides(
+    db: AsyncSession, simulation_id: int
+) -> list[SimulationZoneOverride]:
+    return list(
+        (
+            await db.execute(
+                select(SimulationZoneOverride).where(
+                    SimulationZoneOverride.simulation_id == simulation_id
+                )
+            )
+        ).scalars()
+    )
+
+
+async def _has_barrios_table(db: AsyncSession) -> bool:
+    """La tabla barrios es opcional (datos de CABA). AsyncSession.run_sync le
+    pasa a la función una Session, no una conexión: inspect() necesita la
+    conexión de esa sesión."""
+    return await db.run_sync(
+        lambda session: inspect(session.connection()).has_table("barrios")
+    )
+
+
+async def _validate_neighborhoods(db: AsyncSession, names: list[str]) -> None:
+    if not names:
+        return
+
+    if not await _has_barrios_table(db):
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown_neighborhoods": names},
+        )
+    existing = set(
+        (
+            await db.execute(select(Barrio.nombre).where(Barrio.nombre.in_(names)))
+        ).scalars()
+    )
+    missing = sorted(set(names) - existing)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown_neighborhoods": missing},
+        )
+
+
+async def _simulation_read(
+    db: AsyncSession, session: SimulationSession
+) -> SimulationRead:
+    overrides = await _zone_overrides(db, session.id)
+    return SimulationRead(
+        id=session.id,
+        status=session.status,
+        scenario=session.scenario,
+        speedup=session.speedup,
+        global_demand_current=effective_multiplier(
+            session.global_demand_start,
+            session.global_demand_target,
+            session.simulated_time,
+            session.transition_started_at,
+            session.transition_ends_at,
+        ),
+        global_demand_target=session.global_demand_target,
+        transition_minutes=session.transition_minutes,
+        simulated_time=session.simulated_time,
+        current_period=session.current_period,
+        total_periods=session.total_periods,
+        measurements_sent=session.measurements_sent,
+        collections_generated=session.collections_generated,
+        alarms_generated=session.alarms_generated,
+        error_message=session.error_message,
+        created_by=session.created_by,
+        created_at=session.created_at,
+        started_at=session.started_at,
+        finished_at=session.finished_at,
+        zone_overrides=[
+            SimulationZoneState(
+                neighborhood=item.neighborhood,
+                multiplier_current=effective_multiplier(
+                    item.multiplier_start,
+                    item.multiplier_target,
+                    session.simulated_time,
+                    item.transition_started_at,
+                    item.transition_ends_at,
+                ),
+                multiplier_target=item.multiplier_target,
+            )
+            for item in overrides
+        ],
+    )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+async def create_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    payload: SavedConfigurationCreate,
+) -> SavedConfigurationRead:
+    saved = SavedConfiguration(
+        user_id=user_id,
+        name=payload.name.strip(),
+        description=payload.description.strip() if payload.description else None,
+        config=payload.config,
+    )
+    db.add(saved)
+    await db.commit()
+    await db.refresh(saved)
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def list_saved_configurations(
+    db: AsyncSession,
+    user_id: int,
+) -> list[SavedConfigurationRead]:
+    stmt = (
+        select(SavedConfiguration)
+        .where(SavedConfiguration.user_id == user_id)
+        .order_by(SavedConfiguration.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    return [
+        SavedConfigurationRead(
+            id=item.id,
+            user_id=item.user_id,
+            name=item.name,
+            description=item.description,
+            config=item.config,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in records
+    ]
+
+
+async def get_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+) -> SavedConfigurationRead:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def update_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+    payload: SavedConfigurationUpdate,
+) -> SavedConfigurationRead:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    if payload.name is not None:
+        saved.name = payload.name.strip()
+    if payload.description is not None:
+        saved.description = payload.description.strip() if payload.description else None
+    if payload.config is not None:
+        saved.config = payload.config
+
+    await db.commit()
+    await db.refresh(saved)
+    return SavedConfigurationRead(
+        id=saved.id,
+        user_id=saved.user_id,
+        name=saved.name,
+        description=saved.description,
+        config=saved.config,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
+
+
+async def delete_saved_configuration(
+    db: AsyncSession,
+    user_id: int,
+    config_id: int,
+) -> None:
+    stmt = select(SavedConfiguration).where(
+        SavedConfiguration.id == config_id,
+        SavedConfiguration.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    saved = result.scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuración no encontrada.",
+        )
+    await db.delete(saved)
+    await db.commit()

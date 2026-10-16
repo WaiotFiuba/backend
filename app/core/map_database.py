@@ -19,10 +19,3 @@ MapBase = declarative_base()
 async def get_map_db() -> AsyncSession:
     async with MapSessionLocal() as session:
         yield session
-
-
-async def init_map_db() -> None:
-    import app.models.map  # noqa: F401
-
-    async with map_engine.begin() as conn:
-        await conn.run_sync(MapBase.metadata.create_all)

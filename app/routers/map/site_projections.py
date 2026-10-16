@@ -2,32 +2,31 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.map_database import get_map_db
 from app.schemas.map.site_projection import (
+    SiteProjectionBatchRequest,
+    SiteProjectionBatchResponse,
     SiteProjectionEvaluationReportResponse,
     SiteProjectionEvaluationRequest,
     SiteProjectionEvaluationResponse,
     SiteProjectionModel,
     SiteProjectionModelsResponse,
-    SiteProjectionRunRequest,
-    SiteProjectionRunResponse,
 )
-from app.services.map.site_projection_evaluation_service import (
+from app.services.site_projection.evaluation import (
     create_site_projection_evaluation,
     get_site_projection_evaluation,
     get_site_projection_evaluation_report,
+    get_site_projection_evaluation_status,
+    run_site_projection_evaluation,
 )
-from app.services.map.site_projection_models import (
+from app.services.site_projection.models import (
     DEFAULT_MODEL_KEY,
     list_projection_models,
 )
-from app.services.map.site_projection_service import (
-    create_site_projection_run,
-    get_site_projection_run,
-)
+from app.services.site_projection.service import project_sites
 
 router = APIRouter(prefix="/site-projections", tags=["site-projections"])
 
@@ -56,25 +55,22 @@ async def get_site_projection_models() -> SiteProjectionModelsResponse:
 
 @router.post(
     "",
-    response_model=SiteProjectionRunResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear corrida de proyeccion para multiples sitios",
-    description=(
-        "Proyecta una lista de sitios, persiste la corrida y guarda todos los "
-        "puntos proyectados para auditoria y consulta posterior."
-    ),
+    response_model=SiteProjectionBatchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Proyectar multiples sitios",
+    description="Devuelve las proyecciones sin guardar una corrida.",
 )
-async def create_site_projection(
+async def project_multiple_sites(
     db: MapDbDep,
-    request: SiteProjectionRunRequest,
-) -> SiteProjectionRunResponse:
-    return await create_site_projection_run(db=db, request=request)
+    request: SiteProjectionBatchRequest,
+) -> SiteProjectionBatchResponse:
+    return await project_sites(db=db, request=request)
 
 
 @router.post(
     "/evaluations",
     response_model=SiteProjectionEvaluationResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Ejecutar backtesting de un modelo de proyeccion",
     description=(
         "Calcula automaticamente un punto de corte usando las mediciones "
@@ -88,8 +84,23 @@ async def create_site_projection(
 async def create_site_projection_evaluation_endpoint(
     db: MapDbDep,
     request: SiteProjectionEvaluationRequest,
+    background_tasks: BackgroundTasks,
 ) -> SiteProjectionEvaluationResponse:
-    return await create_site_projection_evaluation(db=db, request=request)
+    evaluation = await create_site_projection_evaluation(db=db, request=request)
+    background_tasks.add_task(run_site_projection_evaluation, evaluation.id, request)
+    return evaluation
+
+
+@router.get(
+    "/evaluations/{evaluation_id}/status",
+    response_model=SiteProjectionEvaluationResponse,
+    summary="Consultar estado de una evaluacion sin cargar metricas",
+)
+async def get_site_projection_evaluation_status_endpoint(
+    db: MapDbDep,
+    evaluation_id: Annotated[int, Path(ge=1)],
+) -> SiteProjectionEvaluationResponse:
+    return await get_site_projection_evaluation_status(db, evaluation_id)
 
 
 @router.get(
@@ -126,16 +137,3 @@ async def get_site_projection_evaluation_report_endpoint(
         db=db,
         evaluation_id=evaluation_id,
     )
-
-
-@router.get(
-    "/{run_id}",
-    response_model=SiteProjectionRunResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Recuperar una corrida de proyeccion persistida",
-)
-async def get_site_projection(
-    db: MapDbDep,
-    run_id: Annotated[int, Path(ge=1)],
-) -> SiteProjectionRunResponse:
-    return await get_site_projection_run(db=db, run_id=run_id)

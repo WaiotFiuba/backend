@@ -188,7 +188,7 @@ El simulador se ejecuta localmente para evitar pagar un worker continuo.
 En el backend local, configurar:
 
 ```env
-SIMULATOR_BACKEND_URL=https://your-backend.onrender.com
+BACKEND_URL=https://your-backend.onrender.com
 SIMULATOR_POLL_SECONDS=2
 SIMULATOR_BATCH_SIZE=500
 SIMULATOR_CONTAINER_LIMIT=2000
@@ -198,7 +198,7 @@ SIMULATOR_CONTROL_MISS_TOLERANCE=5
 Ejecutar:
 
 ```bash
-uv run python -m app.digital_twin.synthetic_data.worker
+uv run python -m simulator.worker
 ```
 
 El worker queda esperando simulaciones activas en la API hosteada. Cuando el

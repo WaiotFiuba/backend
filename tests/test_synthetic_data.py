@@ -7,35 +7,33 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
-from app.digital_twin.synthetic_data.exporters.files import export_simulation
-from app.digital_twin.synthetic_data.loaders.backend_http import (
-    BackendConnectionError,
-    load_topology_from_backend_api,
-)
-from app.digital_twin.synthetic_data.simulation.engine import SyntheticDataSimulator
-from app.digital_twin.synthetic_data.simulation.scenario import (
+from simulator.exporters.files import export_simulation
+from simulator.simulation.engine import SyntheticDataSimulator
+from simulator.simulation.scenario import (
     ScenarioConfig,
     scenario_from_mapping,
 )
-from app.digital_twin.synthetic_data.topology import (
+from simulator.topology import (
     BackendContainerRecord,
     topology_from_backend_api,
     topology_from_backend_records,
 )
-from app.digital_twin.synthetic_data.transport.backend_http import (
+from simulator.transport.telemetry_sender import (
     DeliveryReport,
     StreamingInterrupted,
+    deliver_tick_measurements,
     send_measurements_batch,
     send_result_batch,
     stream_result,
 )
-from app.digital_twin.synthetic_data.transport.delivery_pipeline import (
-    deliver_tick_measurements,
+from simulator.transport.topology_client import (
+    BackendConnectionError,
+    load_topology_from_backend_api,
 )
-from app.digital_twin.synthetic_data.worker import (
+from simulator.worker import (
     _remaining_tick_delay,
 )
-from app.digital_twin.synthetic_data.validation.checks import validate_result
+from simulator.validation.checks import validate_result
 from app.models.map.container import Container as MapContainer
 from app.models.map.container_type import ContainerType
 from app.schemas.digital_twin import (
@@ -187,6 +185,19 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(topology.devices[0].id, "imei-456")
         self.assertEqual(topology.initial_levels["456"], 28)
 
+    def test_containers_without_site_get_their_own_site(self) -> None:
+        # Regresion: str(None) los agrupaba a todos en un sitio "None".
+        topology = topology_from_backend_api(
+            [
+                {"id": cid, "site_id": None, "latitude": -34.61, "longitude": -58.42}
+                for cid in (1, 2)
+            ]
+        )
+
+        self.assertEqual(
+            sorted(site.id for site in topology.sites), ["SITE-1", "SITE-2"]
+        )
+
     def test_measurement_export_uses_backend_metadata(self) -> None:
         topology = topology_from_backend_api(
             [
@@ -293,7 +304,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self,
     ) -> None:
         with patch(
-            "app.digital_twin.synthetic_data.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=URLError("[Errno 111] Connection refused"),
         ):
             with self.assertRaises(BackendConnectionError) as context:
@@ -320,7 +331,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         ]
 
         with patch(
-            "app.digital_twin.synthetic_data.loaders.backend_http.urlopen",
+            "simulator.transport.topology_client.urlopen",
             side_effect=responses,
         ) as urlopen_mock:
             topology = load_topology_from_backend_api("http://backend", page_size=1)
@@ -493,11 +504,11 @@ class SimulatorWorkerTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.digital_twin.synthetic_data.worker._wait_until_runnable",
+                "simulator.worker._wait_until_runnable",
                 runnable,
             ),
             patch(
-                "app.digital_twin.synthetic_data.transport.delivery_pipeline.send_measurements_batch",
+                "simulator.transport.telemetry_sender.send_measurements_batch",
                 return_value=DeliveryReport(
                     sent=2,
                     updated=2,
@@ -573,6 +584,70 @@ class DigitalTwinIngestTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.updated, 1)
         self.assertEqual(db.execute.await_count, 4)
         db.commit.assert_awaited_once()
+
+    def _reset_cache(self):
+        import app.services.digital_twin_ingest_service as ingest_svc
+
+        ingest_svc._cache_loaded = False
+        ingest_svc._cache_by_id.clear()
+        ingest_svc._cache_by_imei.clear()
+        return ingest_svc
+
+    async def test_container_cache_is_loaded_once_until_invalidated(self) -> None:
+        ingest_svc = self._reset_cache()
+        db = MagicMock()
+        db.execute = AsyncMock()
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = empty_result
+
+        await ingest_svc.ensure_cache(db)
+        await ingest_svc.ensure_cache(db)
+        self.assertEqual(db.execute.await_count, 1)
+        # Solo se cachean contenedores activos.
+        self.assertIn("deleted_at IS NULL", str(db.execute.await_args.args[0]))
+
+        ingest_svc.invalidate_container_cache()
+        await ingest_svc.ensure_cache(db)
+        self.assertEqual(db.execute.await_count, 2)
+
+    async def _ingest_unknown_container(self, cache_age_seconds: float):
+        import time
+
+        ingest_svc = self._reset_cache()
+        ingest_svc._cache_loaded = True
+        ingest_svc._cache_loaded_at = time.monotonic() - cache_age_seconds
+        db = MagicMock()
+        db.execute = AsyncMock()
+        db.commit = AsyncMock()
+        payload = TelemetryIngestPayload(
+            device_id="imei-desconocido",
+            container_id="999",
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            telemetry=TelemetryValues(
+                fill_level_pct=50,
+                ultrasonic_distance_cm=75,
+                battery_pct=90,
+                signal_rssi_dbm=-80,
+                temperature_c=24,
+                acceleration_g=1,
+            ),
+        )
+
+        result = await ingest_telemetry_batch(db, [payload])
+
+        self.assertEqual(result.not_found, 1)
+        return ingest_svc._cache_loaded
+
+    async def test_unknown_container_reloads_an_old_cache(self) -> None:
+        cache_loaded = await self._ingest_unknown_container(cache_age_seconds=120)
+
+        self.assertFalse(cache_loaded)
+
+    async def test_unknown_container_keeps_a_recent_cache(self) -> None:
+        cache_loaded = await self._ingest_unknown_container(cache_age_seconds=5)
+
+        self.assertTrue(cache_loaded)
 
 
 class _FakeResponse:

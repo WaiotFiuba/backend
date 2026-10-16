@@ -4,10 +4,9 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import Numeric, case, cast, func, or_, select
+from sqlalchemy import Integer, Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.digital_twin.synthetic_data.simulation.scenario import scenario_from_mapping
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
@@ -20,10 +19,10 @@ from app.schemas.map.site import (
     SiteLevelHistory,
     SiteLevelHistoryPoint,
     SiteMapOutputSchema,
-    SiteMapSnapshot,
 )
 from app.services.map.container_service import _zoom_to_grid_size
-from app.services.simulation_control_service import get_active_simulation_session
+from app.services.map.reference_time_service import get_reference_time
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -80,6 +79,14 @@ def _build_site_map_output(
     )
 
 
+def _active_containers_join(target_c, c_site_id):
+    """Condición de join sitio-contenedor; excluye contenedores dados de baja."""
+    condition = c_site_id == Site.id
+    if target_c is Container:
+        condition = condition & Container.deleted_at.is_(None)
+    return condition
+
+
 def _containers_query(target_c=Container, site_ids: list[int] | None = None):
     cols = target_c.c if hasattr(target_c, "c") else Container
     stmt = (
@@ -98,6 +105,8 @@ def _containers_query(target_c=Container, site_ids: list[int] | None = None):
         .select_from(target_c)
         .outerjoin(ContainerType, cols.container_type_id == ContainerType.id)
     )
+    if target_c is Container:
+        stmt = stmt.where(Container.deleted_at.is_(None))
     if site_ids is not None:
         stmt = stmt.where(cols.site_id.in_(site_ids))
     return stmt
@@ -108,16 +117,10 @@ def _waste_filter_conditions(
 ):
     if waste_filter == "reciclable":
         waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [or_(waste_name.like("%seca%"), waste_name.like("%recicl%"))]
+        return [waste_name.like("%seca%")]
     if waste_filter == "humedo":
-        waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [
-            or_(
-                waste_name.like("%humeda%"),
-                waste_name.like("%húmeda%"),
-                waste_name.like("%hÃºmeda%"),
-            )
-        ]
+        waste_name = func.lower(func.coalesce(WasteType.name, "húmeda"))
+        return [waste_name.like("%húmed%")]
     return []
 
 
@@ -160,37 +163,29 @@ async def get_sites_clustered(
 
     # Definir origen de datos de contenedores según la distribución
     target_c = Container
+    whatif_plan_id = None
     if distribution == "whatif":
-        from app.models.map.optimization import OptimizationWhatIfLevel
-        from app.services.map.optimization_whatif_service import (
-            get_or_create_default_whatif_plan,
-        )
+        from app.services.map.optimization_whatif_service import get_active_plan_id
 
-        plan = await get_or_create_default_whatif_plan(db)
-        target_c = (
-            select(
-                Container.id.label("id"),
-                Container.serie_id.label("serie_id"),
-                Container.device_imei.label("device_imei"),
-                Container.available.label("available"),
-                Container.container_type_id.label("container_type_id"),
-                Container.last_reading.label("last_reading"),
-                Container.last_pickup.label("last_pickup"),
-                func.coalesce(
-                    OptimizationWhatIfLevel.optimized_site_id, Container.site_id
-                ).label("site_id"),
-                func.coalesce(
-                    OptimizationWhatIfLevel.virtual_level, Container.current_level
-                ).label("current_level"),
-            )
-            .outerjoin(
-                OptimizationWhatIfLevel,
-                (OptimizationWhatIfLevel.container_id == Container.id)
-                & (OptimizationWhatIfLevel.plan_id == plan.id),
-            )
-            .where(Container.deleted_at.is_(None))
-            .subquery()
-        )
+        # Sin plan activo, el what-if es la red real.
+        whatif_plan_id = await get_active_plan_id(db)
+    if whatif_plan_id is not None:
+        from app.services.map.optimization_whatif_service import whatif_containers
+
+        containers = whatif_containers(
+            whatif_plan_id,
+            Container.serie_id.label("serie_id"),
+            Container.device_imei.label("device_imei"),
+            Container.available.label("available"),
+            Container.container_type_id.label("container_type_id"),
+            Container.last_reading.label("last_reading"),
+            Container.last_pickup.label("last_pickup"),
+        ).subquery()
+        target_c = select(
+            *(column for column in containers.c if column.name != "level"),
+            # El nivel virtual tiene decimales; el mapa muestra enteros.
+            cast(func.round(containers.c.level), Integer).label("current_level"),
+        ).subquery()
 
     cols = target_c.c if hasattr(target_c, "c") else Container
     c_id = cols.id
@@ -223,7 +218,7 @@ async def get_sites_clustered(
                 func.max(c_last_pickup).label("last_pickup"),
                 func.coalesce(func.bool_or(c_available), True).label("available"),
             )
-            .outerjoin(target_c, c_site_id == Site.id)
+            .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(
                 Site.latitude >= lat_min,
@@ -251,25 +246,30 @@ async def get_sites_clustered(
             _build_site_map_output(r, containers_by_site.get(r.id, [])) for r in rows
         ]
 
-    # Nivel de zoom bajo (< 16): Clusters espaciales agregados
+    # Nivel de zoom bajo (< 17): Clusters espaciales agregados
     # Agrupamos por grilla espacial pero calculamos el CENTROIDE REAL de los sitios
     grid_lat = func.round(cast(Site.latitude / grid_size, Numeric), 0) * grid_size
     grid_lng = func.round(cast(Site.longitude / grid_size, Numeric), 0) * grid_size
+
+    calc_cluster_level = (
+        func.coalesce(func.max(c_level), 0)
+        if level_aggregation == "max"
+        else func.coalesce(func.round(cast(func.avg(c_level), Numeric), 0), 0)
+    )
 
     stmt_cluster = (
         select(
             func.avg(Site.latitude).label("cluster_lat"),
             func.avg(Site.longitude).label("cluster_lng"),
-            func.count(func.distinct(Site.id)).label("site_count"),
-            func.coalesce(func.round(cast(func.avg(c_level), Numeric), 0), 0).label(
-                "avg_level"
-            ),
+            func.count(c_id).label("container_count"),
+            calc_cluster_level.label("avg_level"),
             func.coalesce(func.max(c_level), 0).label("max_level"),
             func.coalesce(func.sum(case((c_available.is_(True), 1), else_=0)), 0).label(
                 "available_count"
             ),
         )
-        .outerjoin(target_c, c_site_id == Site.id)
+        .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
+        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(
             Site.latitude >= lat_min,
             Site.latitude <= lat_max,
@@ -293,51 +293,13 @@ async def get_sites_clustered(
             cluster_id=f"site_cluster_{float(r.cluster_lat):.5f}_{float(r.cluster_lng):.5f}",
             latitude=float(r.cluster_lat),
             longitude=float(r.cluster_lng),
-            count=int(r.site_count),
+            count=int(r.container_count),
             avg_level=float(r.avg_level),
             max_level=float(r.max_level),
             available_count=int(r.available_count),
         )
         for r in cluster_rows
     ]
-
-
-async def get_site_map_snapshot(
-    db: AsyncSession,
-    level_aggregation: Literal["avg", "max"] = "avg",
-) -> SiteMapSnapshot:
-    latest_cursor = await get_latest_cursor(db)
-
-    stmt = (
-        select(
-            Site.id,
-            Site.name,
-            Site.address,
-            Site.latitude,
-            Site.longitude,
-            Site.load_side_category,
-            Site.waste_type_id,
-            Site.updated_at,
-            WasteType.name.label("waste_type_name"),
-            WasteType.color.label("waste_type_color"),
-            _level_expr(level_aggregation).label("current_level"),
-            func.count(Container.id).label("container_count"),
-            func.max(Container.last_reading).label("last_reading"),
-            func.max(Container.last_pickup).label("last_pickup"),
-            func.coalesce(func.bool_or(Container.available), True).label("available"),
-        )
-        .outerjoin(Container, Container.site_id == Site.id)
-        .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
-        .where(Site.deleted_at.is_(None))
-        .group_by(Site.id, WasteType.name, WasteType.color)
-        .order_by(Site.id)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    sites = [_build_site_map_output(r) for r in rows]
-
-    return SiteMapSnapshot(sites=sites, latest_cursor=latest_cursor, total=len(sites))
 
 
 async def get_site_changes(
@@ -385,7 +347,7 @@ async def get_site_changes(
             func.max(Container.last_pickup).label("last_pickup"),
             func.coalesce(func.bool_or(Container.available), True).label("available"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        .outerjoin(Container, _active_containers_join(Container, Container.site_id))
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.id.in_(site_ids), Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name, WasteType.color)
@@ -438,7 +400,7 @@ async def get_site_by_id(
                     "available"
                 ),
             )
-            .outerjoin(Container, Container.site_id == Site.id)
+            .outerjoin(Container, _active_containers_join(Container, Container.site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(Site.id == numeric_site_id, Site.deleted_at.is_(None))
             .group_by(Site.id, WasteType.name, WasteType.color)
@@ -523,19 +485,11 @@ async def get_site_level_history(
         )
 
     active_session = await get_active_simulation_session(db)
-    if active_session is None or active_session.simulated_time is None:
-        return SiteLevelHistory(site_id=site_id)
-
-    config = scenario_from_mapping(active_session.scenario)
-    window_start = _as_utc(config.start)
-    window_end = _as_utc(active_session.simulated_time)
-    if window_end < window_start:
-        return SiteLevelHistory(
-            site_id=site_id,
-            simulation_id=active_session.id,
-            window_start=window_start,
-            window_end=window_end,
-        )
+    window_end = (
+        _as_utc(active_session.simulated_time)
+        if active_session and active_session.simulated_time
+        else await get_reference_time(db)
+    )
 
     stmt = (
         select(
@@ -558,7 +512,6 @@ async def get_site_level_history(
         .where(
             Container.site_id == site_id,
             DataLevel.container_current_level.is_not(None),
-            DataLevel.reading_date >= window_start,
             DataLevel.reading_date <= window_end,
         )
         .group_by(DataLevel.reading_date)
@@ -570,8 +523,7 @@ async def get_site_level_history(
 
     return SiteLevelHistory(
         site_id=site_id,
-        simulation_id=active_session.id,
-        window_start=window_start,
+        window_start=rows[0].timestamp if rows else None,
         window_end=window_end,
         points=[
             SiteLevelHistoryPoint(

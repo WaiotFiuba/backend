@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+
+from app.core.thresholds import get_level_thresholds
 
 
 class SiteProjectionModel(BaseModel):
@@ -26,23 +28,26 @@ class SiteProjectionModelsResponse(BaseModel):
     models: list[SiteProjectionModel]
 
 
-class SiteProjectionRunRequest(BaseModel):
-    site_ids: list[int] | None = Field(
-        default=None,
-        description="Sitios a proyectar. En v1 es requerido para evitar corridas masivas accidentales.",
-    )
+class SiteProjectionBatchRequest(BaseModel):
+    site_ids: list[int] = Field(min_length=1, max_length=100)
     model_key: str = "baseline_operational"
     horizon_hours: int = Field(default=24, ge=1, le=168)
     interval_minutes: int = Field(default=60, ge=15, le=1440)
-    critical_level: int = Field(default=80, ge=1, le=100)
+    critical_level: int = Field(default=get_level_thresholds().critical, ge=1, le=100)
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)
     stop_at_full: bool = True
+    as_of: AwareDatetime | None = None
+    target_at: AwareDatetime | None = None
 
 
 class SiteProjectionPoint(BaseModel):
     timestamp: datetime
     predicted_level: float
+    predicted_volume_m3: float | None = Field(
+        default=None,
+        description="Estimacion basada en el cambio de nivel del sitio y su capacidad.",
+    )
     lower_bound: float | None = None
     upper_bound: float | None = None
     reaches_critical: bool = False
@@ -56,6 +61,8 @@ class SiteProjectionResponse(BaseModel):
     model_key: str
     generated_at: datetime
     current_level: float
+    current_volume_m3: float | None = None
+    capacity_m3: float | None = None
     horizon_hours: int
     interval_minutes: int
     critical_level: int
@@ -69,14 +76,12 @@ class SiteProjectionResponse(BaseModel):
     full_at: datetime | None = None
     time_to_full_hours: float | None = None
     points: list[SiteProjectionPoint] = Field(default_factory=list)
+    target_point: SiteProjectionPoint | None = None
 
 
-class SiteProjectionRunResponse(BaseModel):
-    id: int
+class SiteProjectionBatchResponse(BaseModel):
     model_key: str
-    status: str
     generated_at: datetime
-    completed_at: datetime | None = None
     horizon_hours: int
     interval_minutes: int
     critical_level: int
@@ -86,16 +91,23 @@ class SiteProjectionRunResponse(BaseModel):
     site_count: int
     summary: dict | None = None
     sites: list[SiteProjectionResponse] = Field(default_factory=list)
+    skipped_site_ids: list[int] = Field(
+        default_factory=list,
+        description="Sitios omitidos por no tener lecturas completas hasta as_of.",
+    )
+    target_at: datetime | None = None
 
 
 class SiteProjectionEvaluationRequest(BaseModel):
     site_ids: list[int] | None = Field(
-        default=None, description="Sitios a evaluar contra historico observado."
+        default=None,
+        max_length=5000,
+        description="Sitios a evaluar contra historico observado.",
     )
     site_sample_size: int | None = Field(
         default=None,
         ge=1,
-        le=1000,
+        le=5000,
         description=(
             "Cantidad de sitios random a evaluar cuando no se envian site_ids. "
             "La muestra se toma entre sitios con mediciones en la ventana evaluable."
@@ -103,7 +115,7 @@ class SiteProjectionEvaluationRequest(BaseModel):
     )
     model_key: str = "baseline_operational"
     horizon_hours: int = Field(default=24, ge=1, le=168)
-    critical_level: int = Field(default=80, ge=1, le=100)
+    critical_level: int = Field(default=get_level_thresholds().critical, ge=1, le=100)
     level_aggregation: Literal["avg", "max"] = "avg"
     lookback_days: int = Field(default=14, ge=1, le=365)
     stop_at_full: bool = False
@@ -127,7 +139,7 @@ class SiteProjectionEvaluationResponse(BaseModel):
     id: int
     model_key: str
     status: str
-    cutoff: datetime
+    cutoff: datetime | None = None
     completed_at: datetime | None = None
     horizon_hours: int
     interval_minutes: int
