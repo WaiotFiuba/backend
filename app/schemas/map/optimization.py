@@ -143,6 +143,8 @@ class RedistributionPlanRead(BaseModel):
     )
     created_at: datetime
     simulation_id: int | None = None
+    # Usuario que generó el plan (None en planes anteriores a registrarlo).
+    created_by: int | None = None
     original_mean_fill: float = 0.0
     original_std_fill: float = 0.0
     optimized_mean_fill: float = 0.0
@@ -157,34 +159,43 @@ class RedistributionPlanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class WhatIfSiteComparison(BaseModel):
-    """Comparación del nivel real vs optimizado para un sitio."""
+class WhatIfMeasure(BaseModel):
+    """Un valor de la red real (sin el plan) y de la red what-if (con el plan)."""
 
-    site_id: int
-    site_name: str
-    latitude: float
-    longitude: float
-    real_avg_level: float
-    optimized_avg_level: float
-    real_container_count: int
-    optimized_container_count: int
-    improvement_pct: float = Field(
-        description="Diferencia porcentual (negativo = mejoró en optimizado)"
-    )
-
-    model_config = ConfigDict(from_attributes=True)
+    real: float
+    with_plan: float
 
 
 class WhatIfComparisonResponse(BaseModel):
-    """Respuesta completa de comparación what-if."""
+    """Cómo le va a la red con el plan, comparada con la red real."""
 
     plan_id: int
     plan_status: str
-    real_global_avg: float
-    optimized_global_avg: float
-    sites: list[WhatIfSiteComparison]
-    total_sites_improved: int
-    total_sites_worsened: int
+    dispersion: WhatIfMeasure | None = Field(
+        None,
+        description="Desvío del nivel entre sitios, antes y después, estimado al generar el plan.",
+    )
+    observed_hours: float = Field(
+        description="Horas medidas desde que se activó el plan (0: todavía sin datos)."
+    )
+    avg_critical_sites: WhatIfMeasure | None = Field(
+        None, description="Sitios críticos en promedio desde que se activó el plan."
+    )
+    avg_full_containers: WhatIfMeasure | None = Field(
+        None,
+        description="Contenedores al 100 % en promedio desde que se activó el plan.",
+    )
+    full_container_hours: WhatIfMeasure | None = Field(
+        None,
+        description="Horas de contenedores al 100 % desde la activación. Solo con el plan activo.",
+    )
+    critical_sites_now: WhatIfMeasure | None = Field(
+        None, description="Sitios críticos en este momento. Solo con el plan activo."
+    )
+    full_containers_now: WhatIfMeasure | None = Field(
+        None,
+        description="Contenedores al 100 % en este momento. Solo con el plan activo.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

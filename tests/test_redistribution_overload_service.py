@@ -11,7 +11,11 @@ from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.data_level import DataLevel
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.optimization import OptimizationConfig
@@ -32,6 +36,7 @@ TABLES = [
     DataLevel.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 NO_CAPACITY = OptimizationConfig(algorithm="overload", apply_capacity_constraints=False)
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -239,13 +244,6 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
                 )
         finally:
             app.dependency_overrides.pop(get_map_db, None)
-            # El what-if guarda el plan activo en variables globales del proceso:
-            # se limpian para no afectar a otros tests.
-            import app.services.map.optimization_whatif_service as whatif_svc
-
-            whatif_svc._active_plan_id = None
-            whatif_svc._optimized_mapping.clear()
-            whatif_svc._virtual_levels.clear()
 
         self.assertEqual(res.status_code, 201)
         data = res.json()

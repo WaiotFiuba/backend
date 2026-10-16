@@ -193,13 +193,26 @@ async def generate_overload_plan(
     config: OptimizationConfig,
     user_id: int | None = None,
 ) -> RedistributionPlanRead:
-    """Genera y guarda un plan con el modelo de sobrecarga.
+    """Genera y guarda un plan con el modelo de sobrecarga, sin activarlo."""
+    from app.services.map.optimization_service import _plan_model_to_read
+
+    plan_model = await build_overload_plan(db, config, user_id)
+    db.add(plan_model)
+    await db.commit()
+    await db.refresh(plan_model)
+    return _plan_model_to_read(plan_model)
+
+
+async def build_overload_plan(
+    db: AsyncSession,
+    config: OptimizationConfig,
+    user_id: int | None = None,
+) -> RedistributionPlanModel:
+    """Calcula un plan con el modelo de sobrecarga, sin guardarlo.
 
     El plan tiene el mismo formato que los del modelo por score, así que el
     what-if y el frontend lo usan igual.
     """
-    from app.services.map.optimization_service import _plan_model_to_read
-
     candidates = await load_overload_candidates(
         db,
         window_days=config.window_days,
@@ -216,7 +229,7 @@ async def generate_overload_plan(
         final_counts[move.from_site_id] -= 1
         final_counts[move.to_site_id] += 1
 
-    plan_model = RedistributionPlanModel(
+    return RedistributionPlanModel(
         status="draft",
         config=config.model_dump(),
         moves=[move.model_dump() for move in moves],
@@ -224,10 +237,6 @@ async def generate_overload_plan(
         metrics_snapshot={"candidate_sites": len(candidates)},
         created_by=user_id,
     )
-    db.add(plan_model)
-    await db.commit()
-    await db.refresh(plan_model)
-    return _plan_model_to_read(plan_model)
 
 
 def _plan_by_group(

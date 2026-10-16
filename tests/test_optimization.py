@@ -6,14 +6,18 @@ import unittest
 from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import event, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.map_database import MapBase
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
 from app.models.map.data_level import DataLevel
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.optimization import OptimizationConfig
@@ -26,6 +30,18 @@ from app.services.map.optimization_service import (
 # ---------------------------------------------------------------------------
 # Tests unitarios puros (sin DB)
 # ---------------------------------------------------------------------------
+
+
+def _move(container_id: int, from_site_id: int, to_site_id: int) -> dict:
+    """Movimiento mínimo con los campos que exige el esquema de respuesta."""
+    return {
+        "container_id": container_id,
+        "from_site_id": from_site_id,
+        "from_site_name": f"Sitio {from_site_id}",
+        "to_site_id": to_site_id,
+        "to_site_name": f"Sitio {to_site_id}",
+        "distance_km": 0.5,
+    }
 
 
 class TestHaversineDistance(unittest.TestCase):
@@ -150,6 +166,7 @@ TABLES = [
     DataLevel.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 
 
@@ -600,7 +617,7 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
         from app.services.map.optimization_whatif_service import (
             activate_whatif,
             deactivate_whatif,
-            is_whatif_active,
+            get_active_plan_id,
         )
 
         async with self.session_maker() as session:
@@ -612,7 +629,7 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             # Activar what-if
             activated = await activate_whatif(session, plan.id)
             self.assertEqual(activated.status, "active_whatif")
-            self.assertTrue(is_whatif_active())
+            self.assertEqual(await get_active_plan_id(session), plan.id)
 
             # Verificar que se crearon niveles virtuales
             count = await session.scalar(
@@ -629,31 +646,267 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             # Desactivar what-if
             deactivated = await deactivate_whatif(session, plan.id)
             self.assertEqual(deactivated.status, "completed")
-            self.assertFalse(is_whatif_active())
+            self.assertIsNone(await get_active_plan_id(session))
 
-    async def test_whatif_comparison_metrics(self):
-        """Verifica que se pueden obtener métricas de comparación real vs optimizado."""
-        from app.services.map.optimization_service import generate_redistribution_plan
+    async def test_whatif_keeps_updating_after_a_restart(self):
+        """El plan activo se lee de la base: no depende de memoria del proceso."""
+        from datetime import UTC, datetime
+
+        from app.models.map.optimization import RedistributionPlan
+        from app.services.map.optimization_whatif_service import (
+            apply_readings_to_whatif,
+        )
+        from app.services.map.whatif_allocation import Reading
+
+        # Estado que encuentra un backend recién reiniciado: el plan activo y sus
+        # niveles virtuales están en la base, y nada en memoria.
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            plan = RedistributionPlan(
+                status="active_whatif", config={}, moves=[], summary={}
+            )
+            session.add(plan)
+            await session.flush()
+            session.add(
+                OptimizationWhatIfLevel(
+                    plan_id=plan.id,
+                    container_id=1,
+                    original_site_id=1,
+                    optimized_site_id=1,
+                    virtual_level=10,
+                )
+            )
+            await session.commit()
+
+        async with self.session_maker() as session:
+            reading = Reading(
+                container_id=1,
+                level_before=10,
+                level_after=25,
+                reading_date=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                collected=False,
+            )
+            await apply_readings_to_whatif(session, [reading], {1: 1})
+            await session.commit()
+            level = await session.scalar(
+                select(OptimizationWhatIfLevel.virtual_level).where(
+                    OptimizationWhatIfLevel.container_id == 1
+                )
+            )
+        # El sitio 1 no participa del plan: el virtual sigue al real.
+        self.assertEqual(level, 25)
+
+    async def test_activation_snapshot_moves_containers_empty(self):
+        from datetime import UTC, datetime
+
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            (await session.get(Container, 6)).deleted_at = datetime(
+                2026, 1, 1, tzinfo=UTC
+            )
+            reading = datetime(2026, 1, 2, 10, tzinfo=UTC)
+            (await session.get(Container, 3)).last_reading = reading
+            plan = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+            )
+            session.add(plan)
+            await session.commit()
+
+            await activate_whatif(session, plan.id)
+
+            rows = {
+                r.container_id: r
+                for r in (await session.scalars(select(OptimizationWhatIfLevel))).all()
+            }
+        # El dado de baja no entra; el movido va al receptor y llega vacío.
+        self.assertEqual(set(rows), {1, 2, 3, 4, 5})
+        self.assertEqual(
+            (
+                rows[1].original_site_id,
+                rows[1].optimized_site_id,
+                rows[1].virtual_level,
+            ),
+            (1, 2, 0),
+        )
+        self.assertEqual((rows[3].optimized_site_id, rows[3].virtual_level), (2, 90))
+        self.assertEqual(rows[3].last_reading.replace(tzinfo=UTC), reading)
+        self.assertEqual(rows[3].overflow_hours, 0)
+
+    async def test_activating_a_plan_replaces_the_previous_one(self):
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            first = RedistributionPlan(status="draft", config={}, moves=[])
+            second = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+            )
+            session.add_all([first, second])
+            await session.commit()
+
+            await activate_whatif(session, first.id)
+            await activate_whatif(session, second.id)
+
+            await session.refresh(first)
+            self.assertEqual(first.status, "completed")
+            self.assertEqual(second.status, "active_whatif")
+            totals = await session.get(OptimizationWhatIfTotals, second.id)
+            self.assertEqual(
+                (totals.observed_hours, totals.critical_site_hours), (0, 0)
+            )
+            plan_ids = set(
+                await session.scalars(select(OptimizationWhatIfLevel.plan_id))
+            )
+            self.assertEqual(plan_ids, {second.id})
+
+    async def test_failed_activation_keeps_the_previous_plan(self):
+        """Generar y activar es todo o nada: si falla, no queda un plan a medias."""
+        from unittest.mock import patch
+
+        import app.services.map.optimization_whatif_service as whatif_svc
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            previous = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add(previous)
+            await session.commit()
+            await whatif_svc.activate_whatif(session, previous.id)
+
+        async def broken_activate(db, plan):
+            raise RuntimeError("falla a mitad de la activación")
+
+        async with self.session_maker() as session:
+            with (
+                patch.object(whatif_svc, "_activate", broken_activate),
+                self.assertRaises(RuntimeError),
+            ):
+                await whatif_svc.create_and_activate_plan(
+                    session, OptimizationConfig(max_distance_km=5.0)
+                )
+
+        async with self.session_maker() as session:
+            plans = (await session.scalars(select(RedistributionPlan))).all()
+        self.assertEqual(
+            [(p.id, p.status) for p in plans], [(previous.id, "active_whatif")]
+        )
+
+    async def test_database_allows_a_single_active_plan(self):
+        from sqlalchemy.exc import IntegrityError
+
+        async with self.session_maker() as session:
+            session.add_all(
+                [
+                    RedistributionPlan(status="active_whatif", config={}, moves=[]),
+                    RedistributionPlan(status="completed", config={}, moves=[]),
+                    RedistributionPlan(status="completed", config={}, moves=[]),
+                ]
+            )
+            await session.commit()
+
+            session.add(RedistributionPlan(status="active_whatif", config={}, moves=[]))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
+    async def test_comparison_of_an_active_plan(self):
         from app.services.map.optimization_whatif_service import (
             activate_whatif,
-            deactivate_whatif,
             get_comparison_metrics,
         )
 
         async with self.session_maker() as session:
             await self._seed_scenario(session)
-
-            config = OptimizationConfig(max_distance_km=5.0)
-            plan = await generate_redistribution_plan(session, config)
-
+            # El plan lleva el contenedor 1 (5 %) del sitio 1 al sitio 2 (90 y 95 %).
+            plan = RedistributionPlan(
+                status="draft",
+                config={},
+                moves=[_move(container_id=1, from_site_id=1, to_site_id=2)],
+                summary={"original_std_fill": 30.0, "optimized_std_fill": 22.5},
+            )
+            session.add(plan)
+            await session.commit()
             await activate_whatif(session, plan.id)
 
-            comparison = await get_comparison_metrics(session, plan.id)
-            self.assertEqual(comparison.plan_id, plan.id)
-            self.assertGreater(len(comparison.sites), 0)
+            # Recién activado: estimación y valores de ahora, sin promedios todavía.
+            fresh = await get_comparison_metrics(session, plan.id)
+            self.assertEqual(
+                (fresh.dispersion.real, fresh.dispersion.with_plan), (30, 22.5)
+            )
+            self.assertEqual(fresh.observed_hours, 0)
+            self.assertIsNone(fresh.avg_critical_sites)
+            # Sitio 2: real 92,5 % (crítico); con el plan (90 + 95 + 0) / 3 = 61,7 %.
+            self.assertEqual(
+                (fresh.critical_sites_now.real, fresh.critical_sites_now.with_plan),
+                (1, 0),
+            )
+            self.assertEqual(fresh.full_container_hours.real, 0)
 
-            # Limpiar
-            await deactivate_whatif(session, plan.id)
+            # Con mediciones acumuladas por la ingesta.
+            totals = await session.get(OptimizationWhatIfTotals, plan.id)
+            totals.observed_hours = 10.0
+            totals.real_critical_site_hours = 40.0
+            totals.critical_site_hours = 25.0
+            totals.real_full_container_hours = 12.0
+            totals.full_container_hours = 8.0
+            level = await session.get(OptimizationWhatIfLevel, (plan.id, 3))
+            level.real_overflow_hours = 6.0
+            level.overflow_hours = 2.5
+            await session.commit()
+
+            measured = await get_comparison_metrics(session, plan.id)
+        self.assertEqual(
+            (measured.avg_critical_sites.real, measured.avg_critical_sites.with_plan),
+            (4.0, 2.5),
+        )
+        self.assertEqual(
+            (measured.avg_full_containers.real, measured.avg_full_containers.with_plan),
+            (1.2, 0.8),
+        )
+        self.assertEqual(
+            (
+                measured.full_container_hours.real,
+                measured.full_container_hours.with_plan,
+            ),
+            (6.0, 2.5),
+        )
+
+    async def test_comparison_of_a_replaced_plan_keeps_its_averages(self):
+        from app.services.map.optimization_whatif_service import (
+            activate_whatif,
+            get_comparison_metrics,
+        )
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            first = RedistributionPlan(status="draft", config={}, moves=[])
+            second = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add_all([first, second])
+            await session.commit()
+            await activate_whatif(session, first.id)
+            totals = await session.get(OptimizationWhatIfTotals, first.id)
+            totals.observed_hours = 5.0
+            totals.real_critical_site_hours = 10.0
+            totals.critical_site_hours = 5.0
+            await session.commit()
+            await activate_whatif(session, second.id)
+
+            comparison = await get_comparison_metrics(session, first.id)
+        self.assertEqual(comparison.plan_status, "completed")
+        self.assertEqual(
+            (
+                comparison.avg_critical_sites.real,
+                comparison.avg_critical_sites.with_plan,
+            ),
+            (2.0, 1.0),
+        )
+        # Sin niveles virtuales (se borraron al activar el otro plan): nada de ahora.
+        self.assertIsNone(comparison.critical_sites_now)
+        self.assertIsNone(comparison.full_container_hours)
 
 
 class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
@@ -740,6 +993,34 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
         finally:
             app.dependency_overrides.pop(get_map_db, None)
 
+    async def test_active_plan_endpoint_without_plan_returns_null(self):
+        """Sin plan activo, GET /plan/active responde null y no crea ningún plan."""
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.map_database import get_map_db
+        from app.main import app
+
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                res = await client.get("/map/optimization/plan/active")
+        finally:
+            app.dependency_overrides.pop(get_map_db, None)
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json())
+        async with self.session_maker() as session:
+            plans = await session.scalar(
+                select(func.count()).select_from(RedistributionPlan)
+            )
+        self.assertEqual(plans, 0)
+
     async def test_plan_endpoint(self):
         """Verifica que POST /map/optimization/plan genera un plan correctamente."""
         from httpx import ASGITransport, AsyncClient
@@ -814,6 +1095,8 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("original_std_fill", data)
                 self.assertIn("optimized_mean_fill", data)
                 self.assertIn("optimized_std_fill", data)
+                # El plan queda registrado a nombre del usuario autenticado.
+                self.assertEqual(data["created_by"], 1)
 
                 # Verificar /map/optimization/plan/active
                 res_active = await client.get("/map/optimization/plan/active")
@@ -831,16 +1114,21 @@ class TestOptimizationEndpoints(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("original_mean_fill", plan_data)
                 self.assertIn("optimized_mean_fill", plan_data)
 
+                # Comparación del plan recién activado: sin promedios todavía.
+                res_cmp = await client.get(
+                    f"/map/optimization/plan/{plan_id}/comparison"
+                )
+                self.assertEqual(res_cmp.status_code, 200)
+                comparison = res_cmp.json()
+                self.assertEqual(comparison["observed_hours"], 0)
+                self.assertIsNone(comparison["avg_critical_sites"])
+                self.assertIn("real", comparison["critical_sites_now"])
+
                 # Plan no encontrado
                 res_404 = await client.get("/map/optimization/plan/99999")
                 self.assertEqual(res_404.status_code, 404)
         finally:
             app.dependency_overrides.pop(get_map_db, None)
-            import app.services.map.optimization_whatif_service as whatif_svc
-
-            whatif_svc._active_plan_id = None
-            whatif_svc._optimized_mapping.clear()
-            whatif_svc._virtual_levels.clear()
 
     def test_build_redistribution_move_metrics(self):
         """Verifica que cada movimiento calcule la descongestión neta y los niveles antes/después."""
