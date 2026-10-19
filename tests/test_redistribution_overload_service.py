@@ -38,7 +38,10 @@ TABLES = [
     OptimizationWhatIfLevel.__table__,
     OptimizationWhatIfTotals.__table__,
 ]
-NO_CAPACITY = OptimizationConfig(algorithm="overload", apply_capacity_constraints=False)
+# Sin costo por movimiento: el único movimiento de los datos ahorra 1 hora.
+NO_CAPACITY = OptimizationConfig(
+    algorithm="overload", apply_capacity_constraints=False, move_cost_hours_per_week=0
+)
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -208,6 +211,44 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.expected_improvement, 1)
         self.assertEqual(plan.config.algorithm, "overload")
 
+    async def test_the_mip_generates_the_same_plan(self):
+        config = NO_CAPACITY.model_copy(update={"algorithm": "overload_mip"})
+        async with self.session_maker() as session:
+            plan = await generate_overload_plan(session, config)
+
+        self.assertEqual([(m.from_site_id, m.to_site_id) for m in plan.moves], [(2, 1)])
+        self.assertEqual(plan.moves[0].overload_reduction, 1)
+        self.assertEqual(plan.config.algorithm, "overload_mip")
+
+    async def test_the_mip_falls_back_to_the_greedy_without_a_solution(self):
+        from unittest.mock import patch
+
+        import app.services.map.redistribution_overload_service as service
+        from app.services.map.redistribution_overload_mip import OverloadMipError
+
+        config = NO_CAPACITY.model_copy(update={"algorithm": "overload_mip"})
+        with patch.object(
+            service,
+            "plan_overload_moves_mip",
+            side_effect=OverloadMipError("Time limit reached"),
+        ):
+            async with self.session_maker() as session:
+                plan = await generate_overload_plan(session, config)
+
+        self.assertEqual([(m.from_site_id, m.to_site_id) for m in plan.moves], [(2, 1)])
+
+    async def test_the_move_cost_is_converted_to_the_window(self):
+        # El movimiento ahorra 1 hora en la ventana de 28 días; con 0,5 h/semana
+        # tendría que ahorrar 2.
+        for algorithm in ("overload", "overload_mip"):
+            config = NO_CAPACITY.model_copy(
+                update={"algorithm": algorithm, "move_cost_hours_per_week": 0.5}
+            )
+            async with self.session_maker() as session:
+                plan = await generate_overload_plan(session, config)
+            with self.subTest(algorithm=algorithm):
+                self.assertEqual(plan.moves, [])
+
     async def test_move_impact_is_cumulative_for_the_same_donor(self):
         async with self.session_maker() as session:
             candidates = await load_overload_candidates(
@@ -240,7 +281,11 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
             ) as client:
                 res = await client.post(
                     "/map/optimization/plan",
-                    json={"algorithm": "overload", "apply_capacity_constraints": False},
+                    json={
+                        "algorithm": "overload",
+                        "apply_capacity_constraints": False,
+                        "move_cost_hours_per_week": 0,
+                    },
                 )
         finally:
             app.dependency_overrides.pop(get_map_db, None)

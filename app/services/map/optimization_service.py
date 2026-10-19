@@ -325,12 +325,12 @@ async def build_redistribution_plan(
     """
     Calcula un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
-    Con algorithm="overload" usa el modelo de sobrecarga.
+    Con algorithm="overload" u "overload_mip" usa el modelo de sobrecarga.
 
     Devuelve el plan sin guardar: quien lo llama decide si lo guarda solo o lo
     guarda y lo activa en la misma transacción.
     """
-    if config.algorithm == "overload":
+    if config.algorithm in ("overload", "overload_mip"):
         # Import local: el servicio del modelo nuevo usa helpers de este módulo.
         from app.services.map.redistribution_overload_service import (
             build_overload_plan,

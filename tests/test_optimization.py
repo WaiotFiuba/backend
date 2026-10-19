@@ -102,6 +102,7 @@ class TestOptimizationConfig(unittest.TestCase):
         self.assertEqual(config.min_utilization_receiver, 0.65)
         self.assertEqual(config.target_utilization, 0.50)
         self.assertEqual(config.algorithm, "greedy")
+        self.assertEqual(config.move_cost_hours_per_week, 20.0)
 
     def test_custom_config(self):
         config = OptimizationConfig(window_days=30, max_distance_km=5.0, algorithm="lp")
@@ -118,6 +119,7 @@ class TestOptimizationConfig(unittest.TestCase):
             {"max_distance_km": 0},
             {"max_distance_km": 50},
             {"algorithm": "simulated_annealing"},
+            {"move_cost_hours_per_week": -1},
         ]
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValidationError):

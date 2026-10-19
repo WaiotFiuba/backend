@@ -91,6 +91,14 @@ def test_a_receiver_can_get_several_containers_until_it_stops_improving():
     assert sites[0].profile.cost(3) == 0
 
 
+def test_the_move_cost_discards_moves_that_improve_little():
+    # Mover el contenedor le ahorra al receptor 1 hora en zona crítica.
+    sites = [_site(1, 0, 1, [40, 60, 80]), _site(2, 0.5, 3, IDLE)]
+
+    assert len(plan_overload_moves(sites, max_distance_km=2, move_cost=0)) == 1
+    assert plan_overload_moves(sites, max_distance_km=2, move_cost=2) == []
+
+
 def test_no_moves_without_overloaded_sites_or_donors():
     assert plan_overload_moves([], max_distance_km=2) == []
     assert plan_overload_moves([_site(1, 0, 3, IDLE)], max_distance_km=2) == []

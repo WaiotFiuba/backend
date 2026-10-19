@@ -33,12 +33,23 @@ class OptimizationConfig(BaseModel):
         0.50,
         description="Nivel de utilización objetivo para todos los sitios.",
     )
-    algorithm: Literal["lp", "greedy", "overload"] = Field(
+    algorithm: Literal["lp", "greedy", "overload", "overload_mip"] = Field(
         "greedy",
         description=(
             "Algoritmo de optimización: 'lp' (programación lineal) o 'greedy' del "
-            "modelo por score, u 'overload' (modelo de sobrecarga: minimiza las "
-            "horas en zona crítica y desbordado)."
+            "modelo por score; 'overload' (greedy) u 'overload_mip' (óptimo, sin "
+            "relevos) del modelo de sobrecarga, que minimiza las horas en zona "
+            "crítica y desbordado."
+        ),
+    )
+    move_cost_hours_per_week: float = Field(
+        20.0,
+        ge=0,
+        le=1000,
+        description=(
+            "Solo modelo de sobrecarga: horas de sobrecarga por semana que tiene "
+            "que ahorrar un movimiento para que se haga. Con 0 se hacen todos los "
+            "que mejoran algo."
         ),
     )
     apply_capacity_constraints: bool = Field(

@@ -1,20 +1,24 @@
-"""Redistribución de contenedores con el modelo de sobrecarga (algorithm="overload").
+"""Redistribución de contenedores con el modelo de sobrecarga.
 
 Lee de la base los sitios que pueden participar de un plan, arma su perfil de
 sobrecarga a partir de la historia y los agrupa por tipo de residuo y de
 contenedor: solo se mueven contenedores entre sitios compatibles.
 
-Ver redistribution_overload.py (modelo) y redistribution_overload_planner.py
-(elección de movimientos).
+La elección de movimientos es una estrategia: el greedy
+(redistribution_overload_planner.py, algorithm="overload") o el MIP
+(redistribution_overload_mip.py, algorithm="overload_mip"). Ver
+redistribution_overload.py para el modelo.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Protocol
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +37,10 @@ from app.services.map.redistribution_overload import (
     DEFAULT_OVERFLOW_WEIGHT,
     build_overload_profile_from_levels,
 )
+from app.services.map.redistribution_overload_mip import (
+    OverloadMipError,
+    plan_overload_moves_mip,
+)
 from app.services.map.redistribution_overload_planner import (
     PlannedMove,
     SiteState,
@@ -44,6 +52,8 @@ from app.services.site_projection.history import (
     HourlySiteLevels,
     fetch_hourly_site_levels,
 )
+
+logger = logging.getLogger(__name__)
 
 # Días de historia que se usan si la configuración no indica otra ventana.
 DEFAULT_WINDOW_DAYS = 28
@@ -188,6 +198,38 @@ def group_by_compatibility(
     return dict(groups)
 
 
+class OverloadPlanner(Protocol):
+    """Elige los movimientos dentro de un grupo de sitios compatibles.
+
+    `move_cost` va en las unidades de OverloadProfile.cost (horas de la ventana).
+    """
+
+    def __call__(
+        self, sites: list[SiteState], *, max_distance_km: float, move_cost: float
+    ) -> list[PlannedMove]: ...
+
+
+def _plan_mip_or_greedy(
+    sites: list[SiteState], *, max_distance_km: float, move_cost: float
+) -> list[PlannedMove]:
+    """El MIP; si no encuentra ninguna solución (por ejemplo, por tiempo), el greedy."""
+    try:
+        return plan_overload_moves_mip(
+            sites, max_distance_km=max_distance_km, move_cost=move_cost
+        )
+    except OverloadMipError as error:
+        logger.warning("MIP de sobrecarga sin solución (%s): se usa el greedy.", error)
+        return plan_overload_moves(
+            sites, max_distance_km=max_distance_km, move_cost=move_cost
+        )
+
+
+PLANNERS: dict[str, OverloadPlanner] = {
+    "overload": plan_overload_moves,
+    "overload_mip": _plan_mip_or_greedy,
+}
+
+
 async def generate_overload_plan(
     db: AsyncSession,
     config: OptimizationConfig,
@@ -218,8 +260,15 @@ async def build_overload_plan(
         window_days=config.window_days,
         apply_capacity_constraints=config.apply_capacity_constraints,
     )
+    # El costo por movimiento llega en h/semana; los perfiles cuentan horas de la ventana.
+    window_days = config.window_days or DEFAULT_WINDOW_DAYS
+    move_cost = config.move_cost_hours_per_week * window_days / 7
     planned = await asyncio.to_thread(
-        _plan_by_group, candidates, config.max_distance_km
+        _plan_by_group,
+        candidates,
+        PLANNERS[config.algorithm],
+        config.max_distance_km,
+        move_cost,
     )
 
     by_site = {candidate.state.site_id: candidate for candidate in candidates}
@@ -241,15 +290,18 @@ async def build_overload_plan(
 
 def _plan_by_group(
     candidates: list[OverloadCandidate],
+    planner: OverloadPlanner,
     max_distance_km: float,
+    move_cost: float,
 ) -> list[PlannedMove]:
     """Corre el planificador dentro de cada grupo de sitios compatibles."""
     planned: list[PlannedMove] = []
     for group in group_by_compatibility(candidates).values():
         planned.extend(
-            plan_overload_moves(
+            planner(
                 [candidate.state for candidate in group],
                 max_distance_km=max_distance_km,
+                move_cost=move_cost,
             )
         )
     return planned
