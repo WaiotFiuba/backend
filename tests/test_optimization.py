@@ -367,6 +367,43 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
             )
         await session.commit()
 
+    async def test_metrics_do_not_block_the_event_loop(self):
+        """El cálculo en Python de las métricas corre en un thread: mientras dura,
+        el resto del backend sigue atendiendo."""
+        import asyncio
+        import time
+        from unittest import mock
+
+        from app.services.map import optimization_service
+
+        original = optimization_service._build_site_metrics
+
+        def slow_build(*args):
+            time.sleep(0.3)
+            return original(*args)
+
+        ticks = 0
+
+        async def other_work():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            with mock.patch.object(
+                optimization_service, "_build_site_metrics", slow_build
+            ):
+                task = asyncio.create_task(other_work())
+                await optimization_service.compute_site_utilization_metrics(
+                    session, OptimizationConfig()
+                )
+                task.cancel()
+
+        # Bloqueando, la otra tarea no avanzaría durante los 0,3 s.
+        self.assertGreater(ticks, 10)
+
     async def test_compute_metrics_classifies_correctly(self):
         """Verifica que las métricas clasifican sitios saturados, normales e infrautilizados."""
         from app.services.map.optimization_service import (
