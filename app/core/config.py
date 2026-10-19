@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,8 @@ class Settings(BaseSettings):
     # Periodos de data_level que se conservan (~17 MB cada uno); 0 = sin limite.
     data_level_retention_periods: int = 1920
     data_level_size_warning_gb: float = 70.0
+    # Cuantil de Chronos que se usa como nivel previsto (0.5 = mediana).
+    chronos_forecast_quantile: float = Field(default=0.6, ge=0.1, le=0.9)
     log_level: str = "INFO"
     enable_map_db: bool = False
     map_database_url: str = (
