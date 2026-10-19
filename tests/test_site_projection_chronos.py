@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services.map.site_projection_history_service import SiteLevelBucket
-from app.services.map.site_projection_models import (
+from app.services.site_projection.history import SiteLevelBucket
+from app.services.site_projection.models import (
     ForecastContext,
     ForecastRequest,
     get_forecaster,

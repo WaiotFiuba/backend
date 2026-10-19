@@ -54,7 +54,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--containers-path",
-        default="/map/containers/",
+        default="/digital-twin/worker/containers",
         help="Path del endpoint de contenedores cuando se usa --from-backend.",
     )
     parser.add_argument(

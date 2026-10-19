@@ -18,6 +18,34 @@ def test_site_capacity_service_evaluation():
     assert puede is False
 
 
+def test_segment_capacity_is_computed_once_per_location():
+    service = get_site_capacity_service()
+    index = service._indice_espacial_tramos
+    calls = []
+    original_query = index.query
+
+    class CountingIndex:
+        def query(self, *args, **kwargs):
+            calls.append(args)
+            return original_query(*args, **kwargs)
+
+    service._indice_espacial_tramos = CountingIndex()
+    service._capacidad_por_ubicacion.clear()
+    try:
+        first = service.evaluate_site(-34.545914, -58.483065, current_containers=1)
+        second = service.evaluate_site(-34.545914, -58.483065, current_containers=1)
+        # Con otra cantidad de contenedores cambia el cupo, no la búsqueda.
+        full = service.evaluate_site(
+            -34.545914, -58.483065, current_containers=first[0]
+        )
+    finally:
+        service._indice_espacial_tramos = index
+
+    assert first == second
+    assert full == (first[0], False)
+    assert len(calls) == 1
+
+
 def test_redistribution_comparison_with_and_without_capacity_constraints():
     # Donante con 5 contenedores
     donor = SiteUtilizationMetric(

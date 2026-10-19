@@ -4,12 +4,14 @@ import pytest
 from fastapi import HTTPException
 
 from app.schemas.map.site_projection import SiteProjectionEvaluationRequest
-from app.services.map.site_projection_evaluation_service import (
+from app.services.site_projection.baseline import BaselineOperationalForecaster
+from app.services.site_projection.evaluation import (
     SiteBacktestRequest,
+    _evaluate_backtest_batch,
     _resolve_automatic_cutoff,
     evaluate_site_forecast_backtest,
 )
-from app.services.map.site_projection_history_service import SiteLevelBucket
+from app.services.site_projection.history import SiteLevelBucket
 
 
 def bucket_at(timestamp: datetime, level: float) -> SiteLevelBucket:
@@ -158,3 +160,57 @@ async def test_backtest_returns_empty_metrics_when_there_are_no_future_observati
     assert result.mae is None
     assert result.rmse is None
     assert result.points == []
+
+
+@pytest.mark.asyncio
+async def test_batch_backtest_matches_individual_metrics():
+    start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    cutoff = start + timedelta(hours=2)
+    history = [
+        bucket_at(start + timedelta(hours=hour), level)
+        for hour, level in enumerate([10, 20, 30, 40, 50])
+    ]
+
+    class CountingForecaster:
+        def __init__(self):
+            self.calls = 0
+            self.baseline = BaselineOperationalForecaster()
+
+        async def forecast(self, *_args):
+            raise AssertionError("La evaluacion batch no debe usar forecast individual")
+
+        async def forecast_many(self, inputs):
+            self.calls += 1
+            return await self.baseline.forecast_many(inputs)
+
+    forecaster = CountingForecaster()
+    request = SiteProjectionEvaluationRequest(
+        site_ids=[1, 2], horizon_hours=2, lookback_days=1
+    )
+    results = await _evaluate_backtest_batch(
+        site_ids=[1, 2],
+        history_by_site={1: history, 2: history},
+        features_by_site={},
+        cutoff=cutoff,
+        request=request,
+        forecaster=forecaster,
+    )
+    individual = await evaluate_site_forecast_backtest(
+        history,
+        SiteBacktestRequest(site_id=1, cutoff=cutoff, horizon_hours=2),
+    )
+
+    assert forecaster.calls == 1
+    assert [result.site_id for result in results] == [1, 2]
+    assert all(result.mae == individual.mae for result in results)
+    assert all(result.rmse == individual.rmse for result in results)
+    assert all(
+        result.compared_points == individual.compared_points for result in results
+    )
+    assert all(result.points == [] for result in results)
+
+
+def test_evaluation_sample_size_accepts_5000_sites():
+    assert (
+        SiteProjectionEvaluationRequest(site_sample_size=5000).site_sample_size == 5000
+    )

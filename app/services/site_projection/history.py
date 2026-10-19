@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -124,8 +124,27 @@ async def get_site_level_series(
     lookback_days: int = 14,
     end_time: datetime | None = None,
 ) -> dict[int, list[SiteLevelBucket]]:
+    samples = await fetch_site_measurements(db, site_ids, lookback_days, end_time)
+    return aggregate_site_measurements(
+        samples,
+        interval_minutes=interval_minutes,
+        level_aggregation=level_aggregation,
+    )
+
+
+async def fetch_site_measurements(
+    db: AsyncSession,
+    site_ids: list[int],
+    lookback_days: int = 14,
+    end_time: datetime | None = None,
+) -> list[SiteMeasurementSample]:
+    """Lecturas crudas de los contenedores activos de los sitios, sin agregar.
+
+    Separado de la agregación para poder hacer el cálculo (CPU) fuera del event
+    loop cuando son muchos sitios.
+    """
     if not site_ids:
-        return {}
+        return []
 
     end_time = _as_utc(end_time or datetime.now(UTC))
     start_time = end_time - timedelta(days=lookback_days)
@@ -150,7 +169,7 @@ async def get_site_level_series(
         .order_by(Container.site_id, DataLevel.reading_date)
     )
     result = await db.execute(stmt)
-    samples = [
+    return [
         SiteMeasurementSample(
             site_id=int(row.site_id),
             container_id=int(row.container_id),
@@ -161,11 +180,84 @@ async def get_site_level_series(
         for row in result.all()
         if row.site_id is not None and row.container_id is not None
     ]
-    return aggregate_site_measurements(
-        samples,
-        interval_minutes=interval_minutes,
-        level_aggregation=level_aggregation,
+
+
+@dataclass(frozen=True)
+class HourlySiteLevels:
+    """Serie horaria de un sitio, ordenada: nivel promedio y señal de recolección."""
+
+    levels: list[float]
+    collected: list[bool]
+
+
+# En Postgres la agregación por sitio y hora la hace la base: devuelve una fila
+# por sitio con sus arrays, en lugar de millones de lecturas crudas.
+_HOURLY_SITE_LEVELS_SQL = text(
+    """
+    SELECT site_id,
+           array_agg(level ORDER BY bucket) AS levels,
+           array_agg(collected ORDER BY bucket) AS collected
+    FROM (
+        SELECT c.site_id,
+               date_trunc('hour', d.reading_date AT TIME ZONE 'UTC') AS bucket,
+               avg(d.container_current_level)::float8 AS level,
+               bool_or(d.garbage_collection_alarm) AS collected
+        FROM data_level AS d
+        JOIN containers AS c ON c.id = d.container_id
+        WHERE c.site_id = ANY(:site_ids)
+          AND c.deleted_at IS NULL
+          AND d.container_current_level IS NOT NULL
+          AND d.reading_date >= :start_time
+          AND d.reading_date <= :end_time
+        GROUP BY c.site_id, bucket
+    ) AS hourly
+    GROUP BY site_id
+    """
+)
+
+
+async def fetch_hourly_site_levels(
+    db: AsyncSession,
+    site_ids: list[int],
+    lookback_days: int = 14,
+    end_time: datetime | None = None,
+) -> dict[int, HourlySiteLevels]:
+    """Serie horaria (nivel promedio de los contenedores que reportaron) por sitio.
+
+    En Postgres se agrega en la base. A diferencia de get_site_level_series, no
+    arrastra el último nivel de los contenedores que no reportaron en una hora:
+    con lecturas horarias todos reportan, así que da lo mismo y es mucho más
+    rápido con miles de sitios. En otras bases (tests con SQLite) se usa la
+    agregación en Python.
+    """
+    if not site_ids:
+        return {}
+    end_time = _as_utc(end_time or datetime.now(UTC))
+    start_time = end_time - timedelta(days=lookback_days)
+
+    connection = await db.connection()
+    if connection.dialect.name != "postgresql":
+        samples = await fetch_site_measurements(db, site_ids, lookback_days, end_time)
+        return {
+            site_id: HourlySiteLevels(
+                levels=[bucket.level for bucket in buckets],
+                collected=[bucket.has_collection_signal for bucket in buckets],
+            )
+            for site_id, buckets in aggregate_site_measurements(
+                samples, interval_minutes=60
+            ).items()
+        }
+
+    result = await db.execute(
+        _HOURLY_SITE_LEVELS_SQL,
+        {"site_ids": site_ids, "start_time": start_time, "end_time": end_time},
     )
+    return {
+        int(row.site_id): HourlySiteLevels(
+            levels=list(row.levels), collected=list(row.collected)
+        )
+        for row in result.all()
+    }
 
 
 def _as_utc(value: datetime) -> datetime:

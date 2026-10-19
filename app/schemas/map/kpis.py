@@ -22,17 +22,20 @@ class NetworkKpiSummaryResponse(BaseModel):
         description="Desvío estándar del nivel de llenado entre sitios (dispersión σ)",
     )
     critical_count: int = Field(
-        ..., description="Cantidad de sitios en estado crítico (saturación >= 85%)"
+        ...,
+        description="Cantidad de sitios en estado crítico (saturación >= umbral crítico)",
     )
     high_count: int = Field(
-        ..., description="Cantidad de sitios en estado alto (70% <= saturación < 85%)"
+        ...,
+        description="Cantidad de sitios en estado alto (umbral alto <= saturación < crítico)",
     )
     normal_count: int = Field(
         ...,
-        description="Cantidad de sitios en estado normal / óptimo (40% <= saturación < 70%)",
+        description="Cantidad de sitios en estado normal (umbral normal <= saturación < alto)",
     )
     low_count: int = Field(
-        ..., description="Cantidad de sitios en estado bajo (0% < saturación < 40%)"
+        ...,
+        description="Cantidad de sitios en estado bajo (0% < saturación < umbral normal)",
     )
     idle_count: int = Field(
         ..., description="Cantidad de sitios ociosos o vacíos (saturación == 0%)"

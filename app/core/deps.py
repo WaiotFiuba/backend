@@ -36,6 +36,10 @@ async def get_current_user(
         raise credentials_exception from exc
 
     user = await user_service.get_user_by_id(db, int(user_id))
+    # Termina la transacción de la consulta para devolver la conexión al pool:
+    # si no, queda tomada todo el pedido mientras el endpoint pide otra, y con
+    # varios pedidos simultáneos el pool se bloquea.
+    await db.commit()
     if user is None or not user.available:
         raise credentials_exception
     return user

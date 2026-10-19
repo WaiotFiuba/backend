@@ -161,7 +161,12 @@ async def compute_site_utilization_metrics(
                 func.round(cast(func.avg(Container.current_level), Numeric)), 0
             ).label("current_avg_level"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        # El filtro va en el ON para que los sitios sin contenedores activos
+        # sigan apareciendo (con 0 contenedores).
+        .outerjoin(
+            Container,
+            (Container.site_id == Site.id) & Container.deleted_at.is_(None),
+        )
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name)
@@ -304,10 +309,35 @@ async def generate_redistribution_plan(
     config: OptimizationConfig,
     user_id: int | None = None,
 ) -> RedistributionPlanRead:
+    """Genera y guarda un plan, sin activarlo."""
+    plan_model = await build_redistribution_plan(db, config, user_id)
+    db.add(plan_model)
+    await db.commit()
+    await db.refresh(plan_model)
+    return _plan_model_to_read(plan_model)
+
+
+async def build_redistribution_plan(
+    db: AsyncSession,
+    config: OptimizationConfig,
+    user_id: int | None = None,
+) -> RedistributionPlanModel:
     """
-    Genera un plan de redistribución de contenedores basado en las métricas
+    Calcula un plan de redistribución de contenedores basado en las métricas
     de utilización. Usa el algoritmo especificado en config (LP o greedy).
+    Con algorithm="overload" usa el modelo de sobrecarga.
+
+    Devuelve el plan sin guardar: quien lo llama decide si lo guarda solo o lo
+    guarda y lo activa en la misma transacción.
     """
+    if config.algorithm == "overload":
+        # Import local: el servicio del modelo nuevo usa helpers de este módulo.
+        from app.services.map.redistribution_overload_service import (
+            build_overload_plan,
+        )
+
+        return await build_overload_plan(db, config, user_id)
+
     # 1. Calcular métricas
     metrics_response = await compute_site_utilization_metrics(db, config)
     metrics = metrics_response.sites
@@ -342,11 +372,7 @@ async def generate_redistribution_plan(
             },
             created_by=user_id,
         )
-        db.add(plan_model)
-        await db.commit()
-        await db.refresh(plan_model)
-
-        return _plan_model_to_read(plan_model)
+        return plan_model
 
     # 3. Cargar contenedores de los sitios donantes para asignar movimientos concretos
     donor_site_ids = [d.site_id for d in donors]
@@ -531,7 +557,7 @@ async def generate_redistribution_plan(
         "optimized_std_fill": round(opt_std, 2),
     }
 
-    # 7. Persistir el plan
+    # 7. Armar el plan (lo guarda quien llama)
     plan_model = RedistributionPlanModel(
         status="draft",
         config=config.model_dump(),
@@ -547,11 +573,7 @@ async def generate_redistribution_plan(
         },
         created_by=user_id,
     )
-    db.add(plan_model)
-    await db.commit()
-    await db.refresh(plan_model)
-
-    return _plan_model_to_read(plan_model)
+    return plan_model
 
 
 async def get_plan_by_id(
@@ -865,7 +887,9 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
     return RedistributionPlanRead(
         id=plan.id,
         status=plan.status,
-        config=OptimizationConfig(**plan.config),
+        # model_construct: un plan guardado con otra versión del esquema se sigue
+        # pudiendo leer aunque su config ya no pase la validación actual.
+        config=OptimizationConfig.model_construct(**plan.config),
         moves=[RedistributionMove(**m) for m in moves_data],
         total_containers_moved=summary.get("total_containers_moved", 0),
         sites_emptied=summary.get("sites_emptied", 0),
@@ -877,6 +901,11 @@ def _plan_model_to_read(plan: RedistributionPlanModel) -> RedistributionPlanRead
         original_std_fill=summary.get("original_std_fill", 0.0),
         optimized_mean_fill=summary.get("optimized_mean_fill", 0.0),
         optimized_std_fill=summary.get("optimized_std_fill", 0.0),
+        critical_hours_before=summary.get("critical_hours_before"),
+        critical_hours_after=summary.get("critical_hours_after"),
+        overflow_hours_before=summary.get("overflow_hours_before"),
+        overflow_hours_after=summary.get("overflow_hours_after"),
         created_at=plan.created_at,
         simulation_id=plan.simulation_id,
+        created_by=plan.created_by,
     )

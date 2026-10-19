@@ -5,7 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import get_current_user
 from app.core.map_database import get_map_db
+from app.models.user import User
 from app.schemas.map.optimization import (
     OptimizationConfig,
     OptimizationMetricsResponse,
@@ -14,19 +16,22 @@ from app.schemas.map.optimization import (
 )
 from app.services.map.optimization_service import (
     compute_site_utilization_metrics,
-    generate_redistribution_plan,
     get_plan_by_id,
 )
 from app.services.map.optimization_whatif_service import (
     activate_whatif,
+    create_and_activate_plan,
     deactivate_whatif,
     get_comparison_metrics,
-    get_or_create_default_whatif_plan,
+    get_active_plan,
 )
 
 router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+# El router de /map ya exige el usuario; acá se lo recibe para registrar quién
+# genera cada plan (FastAPI reutiliza el mismo usuario, sin otra consulta).
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 @router.get(
@@ -37,7 +42,10 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
 async def get_optimization_metrics(
     db: MapDbDep,
     window_days: int | None = Query(
-        None, description="Días de historial a analizar. None = todo disponible."
+        None,
+        ge=1,
+        le=365,
+        description="Días de historial a analizar. None = todo disponible.",
     ),
 ) -> OptimizationMetricsResponse:
     config = OptimizationConfig(window_days=window_days)
@@ -53,20 +61,20 @@ async def get_optimization_metrics(
 async def create_redistribution_plan(
     config: OptimizationConfig,
     db: MapDbDep,
+    current_user: CurrentUserDep,
 ) -> RedistributionPlanRead:
-    plan = await generate_redistribution_plan(db, config)
-    return await activate_whatif(db, plan.id)
+    return await create_and_activate_plan(db, config, user_id=current_user.id)
 
 
 @router.get(
     "/plan/active",
-    response_model=RedistributionPlanRead,
-    summary="Obtener el plan de redistribución What-If activo actualmente",
+    response_model=RedistributionPlanRead | None,
+    summary="Obtener el plan de redistribución What-If activo (null si no hay)",
 )
 async def get_active_whatif_plan(
     db: MapDbDep,
-) -> RedistributionPlanRead:
-    return await get_or_create_default_whatif_plan(db)
+) -> RedistributionPlanRead | None:
+    return await get_active_plan(db)
 
 
 @router.get(

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from app.services.map.site_projection_history_service import (
+from app.services.site_projection.history import (
     SiteMeasurementSample,
     aggregate_site_measurements,
     floor_to_interval,

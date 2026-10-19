@@ -13,7 +13,11 @@ from simulator.domain.entities import (
 from simulator.exporters.zone_profiles import build_zone_profiles_geojson
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
-from simulator.simulation.scenario import scenario_from_mapping, scenario_to_record
+from simulator.simulation.scenario import (
+    scenario_from_mapping,
+    scenario_to_record,
+    with_defaults,
+)
 from simulator.transport.session_client import (
     SimulationSessionClient,
 )
@@ -28,10 +32,8 @@ from simulator.zone_classifier import reload_zone_classifier
 logger = logging.getLogger(__name__)
 
 
-# Todos los contenedores: el bbox cubre el mundo entero.
-_ALL_CONTAINERS_PATH = (
-    "/map/containers/bbox?lat_min=-90&lat_max=90&lng_min=-180&lng_max=180&zoom=18"
-)
+# Endpoint del worker: no requiere autenticación (a diferencia de /map/*).
+_ALL_CONTAINERS_PATH = "/digital-twin/worker/containers"
 
 
 async def run_worker() -> None:
@@ -89,8 +91,13 @@ async def _run_session(
     settings = get_settings()
     simulation_id = session.id
     logger.info("Iniciando simulacion %s.", simulation_id)
+    # Avisar que la tomamos antes de prepararla: el backend vence las sesiones
+    # que nadie toma en poco tiempo.
+    await client.update_progress(simulation_id, {"claimed": True})
     try:
-        config = scenario_from_mapping(session.scenario)
+        # Lo que manda el front pisa scenario_defaults.yaml, que se relee en
+        # cada sesion.
+        config = scenario_from_mapping(with_defaults(session.scenario))
         # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla.
         classifier = await asyncio.to_thread(reload_zone_classifier)
         topology = await asyncio.to_thread(
@@ -163,18 +170,21 @@ async def _run_session(
                 neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
             )
 
-            # 1. Enviar y persistir mediciones en la BD ANTES de avanzar el reloj
+            await client.update_progress(
+                simulation_id,
+                {"simulated_time": simulated_time.isoformat()},
+            )
+
             await deliver_tick_measurements(
                 tick.measurements,
                 settings.backend_url,
                 settings.simulator_batch_size,
             )
 
-            # 2. Con los datos 100% guardados en Postgres, publicar el progreso y la hora simulada
+            # El periodo avanza solo cuando todas las mediciones fueron entregadas.
             await client.update_progress(
                 simulation_id,
                 {
-                    "simulated_time": simulated_time.isoformat(),
                     "current_period": period + 1,
                     "global_demand_current": controls.global_current,
                     "measurements_sent": len(tick.measurements),

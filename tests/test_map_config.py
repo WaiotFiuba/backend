@@ -81,6 +81,10 @@ class TestMapConfigEndpoint(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("default_zoom", data)
                 self.assertIsNone(data["bounds"])
                 self.assertIn("city_name", data)
+                self.assertEqual(
+                    data["thresholds"],
+                    {"normal": 40, "high": 70, "critical": 80, "full": 100},
+                )
         finally:
             app.dependency_overrides.pop(get_map_db, None)
 

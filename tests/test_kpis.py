@@ -10,7 +10,11 @@ from app.core.map_database import MapBase, get_map_db
 from app.main import app
 from app.models.map.container import Container
 from app.models.map.container_type import ContainerType, container_type_waste_types
-from app.models.map.optimization import OptimizationWhatIfLevel, RedistributionPlan
+from app.models.map.optimization import (
+    OptimizationWhatIfLevel,
+    OptimizationWhatIfTotals,
+    RedistributionPlan,
+)
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.services.map.kpi_service import (
@@ -55,6 +59,7 @@ TABLES = [
     Container.__table__,
     RedistributionPlan.__table__,
     OptimizationWhatIfLevel.__table__,
+    OptimizationWhatIfTotals.__table__,
 ]
 
 
@@ -198,8 +203,85 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
 
             # Promedio de sitios: (90 + 75 + 50 + 0) / 4 = 53.75
             self.assertAlmostEqual(kpis.mean_fill_level, 53.75, places=2)
+
+    async def test_critical_category_uses_centralized_threshold(self):
+        """Un sitio al 82% es crítico con el umbral crítico centralizado (80%)."""
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+            container = await session.get(Container, 4)  # Sitio 3 (50% -> 82%)
+            container.current_level = 82
+            await session.commit()
+
+            kpis = await get_real_network_kpis(session)
+
+            self.assertEqual(kpis.critical_count, 2)  # Sitios 1 (90%) y 3 (82%)
+            self.assertEqual(kpis.high_count, 1)  # Sitio 2 (75%)
+            self.assertEqual(kpis.normal_count, 0)
             self.assertGreater(kpis.std_fill_level, 0.0)
             self.assertFalse(kpis.is_whatif)
+
+    async def test_whatif_kpis_without_plan_are_the_real_ones(self):
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+
+            real = await get_real_network_kpis(session)
+            whatif = await get_whatif_network_kpis(session)
+
+            self.assertTrue(whatif.is_whatif)
+            self.assertIsNone(whatif.plan_id)
+            self.assertEqual(whatif.total_sites, real.total_sites)
+            self.assertEqual(whatif.mean_fill_level, real.mean_fill_level)
+            self.assertEqual(whatif.critical_count, real.critical_count)
+
+    async def test_whatif_kpis_see_the_same_containers_as_the_map(self):
+        """Con un plan sin movimientos, el what-if da lo mismo que la red real,
+        aunque después de activarlo se den de baja o se agreguen contenedores."""
+        from datetime import UTC, datetime
+
+        from app.services.map.optimization_whatif_service import activate_whatif
+
+        def figures(kpis):
+            return (
+                kpis.total_containers,
+                kpis.mean_fill_level,
+                kpis.std_fill_level,
+                kpis.critical_count,
+                kpis.high_count,
+                kpis.normal_count,
+                kpis.low_count,
+                kpis.idle_count,
+            )
+
+        async with self.session_maker() as session:
+            await self._seed_data(session)
+            plan = RedistributionPlan(status="draft", config={}, moves=[])
+            session.add(plan)
+            await session.commit()
+            await activate_whatif(session, plan.id)
+
+            # Después de activar: se da de baja el 1 y se agrega uno en el sitio 3.
+            (await session.get(Container, 1)).deleted_at = datetime(
+                2026, 1, 1, tzinfo=UTC
+            )
+            session.add(
+                Container(
+                    id=5,
+                    site_id=3,
+                    latitude=-34.62,
+                    longitude=-58.42,
+                    current_level=90,
+                    available=True,
+                    container_type_id=1,
+                    geom=WKTElement("POINT(-58.42 -34.62)", srid=4326),
+                )
+            )
+            await session.commit()
+
+            real = await get_real_network_kpis(session)
+            whatif = await get_whatif_network_kpis(session)
+
+        self.assertEqual(real.total_containers, 4)
+        self.assertEqual(figures(whatif), figures(real))
 
     async def test_whatif_kpis_and_comparison(self):
         """Verifica el cálculo de KPIs What-If y la comparación."""
@@ -292,7 +374,11 @@ class TestKpiServices(unittest.IsolatedAsyncioTestCase):
             )
             await session.commit()
 
-        app.dependency_overrides[get_map_db] = lambda: self.session_maker()
+        async def override_get_map_db():
+            async with self.session_maker() as s:
+                yield s
+
+        app.dependency_overrides[get_map_db] = override_get_map_db
         try:
             transport = ASGITransport(app=app)
             async with AsyncClient(

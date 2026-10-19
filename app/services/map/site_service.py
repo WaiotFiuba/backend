@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import Numeric, case, cast, func, select
+from sqlalchemy import Integer, Numeric, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.container import Container
@@ -22,6 +22,7 @@ from app.schemas.map.site import (
 )
 from app.services.map.container_service import _zoom_to_grid_size
 from app.services.map.reference_time_service import get_reference_time
+from app.services.simulation_session_service import get_active_simulation_session
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -78,6 +79,14 @@ def _build_site_map_output(
     )
 
 
+def _active_containers_join(target_c, c_site_id):
+    """Condición de join sitio-contenedor; excluye contenedores dados de baja."""
+    condition = c_site_id == Site.id
+    if target_c is Container:
+        condition = condition & Container.deleted_at.is_(None)
+    return condition
+
+
 def _containers_query(target_c=Container, site_ids: list[int] | None = None):
     cols = target_c.c if hasattr(target_c, "c") else Container
     stmt = (
@@ -96,6 +105,8 @@ def _containers_query(target_c=Container, site_ids: list[int] | None = None):
         .select_from(target_c)
         .outerjoin(ContainerType, cols.container_type_id == ContainerType.id)
     )
+    if target_c is Container:
+        stmt = stmt.where(Container.deleted_at.is_(None))
     if site_ids is not None:
         stmt = stmt.where(cols.site_id.in_(site_ids))
     return stmt
@@ -152,37 +163,29 @@ async def get_sites_clustered(
 
     # Definir origen de datos de contenedores según la distribución
     target_c = Container
+    whatif_plan_id = None
     if distribution == "whatif":
-        from app.models.map.optimization import OptimizationWhatIfLevel
-        from app.services.map.optimization_whatif_service import (
-            get_or_create_default_whatif_plan,
-        )
+        from app.services.map.optimization_whatif_service import get_active_plan_id
 
-        plan = await get_or_create_default_whatif_plan(db)
-        target_c = (
-            select(
-                Container.id.label("id"),
-                Container.serie_id.label("serie_id"),
-                Container.device_imei.label("device_imei"),
-                Container.available.label("available"),
-                Container.container_type_id.label("container_type_id"),
-                Container.last_reading.label("last_reading"),
-                Container.last_pickup.label("last_pickup"),
-                func.coalesce(
-                    OptimizationWhatIfLevel.optimized_site_id, Container.site_id
-                ).label("site_id"),
-                func.coalesce(
-                    OptimizationWhatIfLevel.virtual_level, Container.current_level
-                ).label("current_level"),
-            )
-            .outerjoin(
-                OptimizationWhatIfLevel,
-                (OptimizationWhatIfLevel.container_id == Container.id)
-                & (OptimizationWhatIfLevel.plan_id == plan.id),
-            )
-            .where(Container.deleted_at.is_(None))
-            .subquery()
-        )
+        # Sin plan activo, el what-if es la red real.
+        whatif_plan_id = await get_active_plan_id(db)
+    if whatif_plan_id is not None:
+        from app.services.map.optimization_whatif_service import whatif_containers
+
+        containers = whatif_containers(
+            whatif_plan_id,
+            Container.serie_id.label("serie_id"),
+            Container.device_imei.label("device_imei"),
+            Container.available.label("available"),
+            Container.container_type_id.label("container_type_id"),
+            Container.last_reading.label("last_reading"),
+            Container.last_pickup.label("last_pickup"),
+        ).subquery()
+        target_c = select(
+            *(column for column in containers.c if column.name != "level"),
+            # El nivel virtual tiene decimales; el mapa muestra enteros.
+            cast(func.round(containers.c.level), Integer).label("current_level"),
+        ).subquery()
 
     cols = target_c.c if hasattr(target_c, "c") else Container
     c_id = cols.id
@@ -215,7 +218,7 @@ async def get_sites_clustered(
                 func.max(c_last_pickup).label("last_pickup"),
                 func.coalesce(func.bool_or(c_available), True).label("available"),
             )
-            .outerjoin(target_c, c_site_id == Site.id)
+            .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(
                 Site.latitude >= lat_min,
@@ -265,7 +268,7 @@ async def get_sites_clustered(
                 "available_count"
             ),
         )
-        .outerjoin(target_c, c_site_id == Site.id)
+        .outerjoin(target_c, _active_containers_join(target_c, c_site_id))
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(
             Site.latitude >= lat_min,
@@ -344,7 +347,7 @@ async def get_site_changes(
             func.max(Container.last_pickup).label("last_pickup"),
             func.coalesce(func.bool_or(Container.available), True).label("available"),
         )
-        .outerjoin(Container, Container.site_id == Site.id)
+        .outerjoin(Container, _active_containers_join(Container, Container.site_id))
         .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
         .where(Site.id.in_(site_ids), Site.deleted_at.is_(None))
         .group_by(Site.id, WasteType.name, WasteType.color)
@@ -397,7 +400,7 @@ async def get_site_by_id(
                     "available"
                 ),
             )
-            .outerjoin(Container, Container.site_id == Site.id)
+            .outerjoin(Container, _active_containers_join(Container, Container.site_id))
             .outerjoin(WasteType, Site.waste_type_id == WasteType.id)
             .where(Site.id == numeric_site_id, Site.deleted_at.is_(None))
             .group_by(Site.id, WasteType.name, WasteType.color)
@@ -481,9 +484,12 @@ async def get_site_level_history(
             status_code=status.HTTP_404_NOT_FOUND, detail="Sitio no encontrado."
         )
 
-    # Las últimas `limit` lecturas hasta la última registrada, haya o no una
-    # simulación activa (con sensores reales no la hay).
-    window_end = await get_reference_time(db)
+    active_session = await get_active_simulation_session(db)
+    window_end = (
+        _as_utc(active_session.simulated_time)
+        if active_session and active_session.simulated_time
+        else await get_reference_time(db)
+    )
 
     stmt = (
         select(

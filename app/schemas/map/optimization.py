@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,10 +11,14 @@ class OptimizationConfig(BaseModel):
 
     window_days: int | None = Field(
         None,
+        ge=1,
+        le=365,
         description="Días de historial a analizar. None = usar todo el disponible.",
     )
     max_distance_km: float = Field(
         2.0,
+        gt=0,
+        le=20,
         description="Distancia máxima en km para mover un contenedor entre sitios.",
     )
     min_utilization_donor: float = Field(
@@ -28,9 +33,13 @@ class OptimizationConfig(BaseModel):
         0.50,
         description="Nivel de utilización objetivo para todos los sitios.",
     )
-    algorithm: str = Field(
+    algorithm: Literal["lp", "greedy", "overload"] = Field(
         "greedy",
-        description="Algoritmo de optimización: 'lp' (programación lineal) o 'greedy'.",
+        description=(
+            "Algoritmo de optimización: 'lp' (programación lineal) o 'greedy' del "
+            "modelo por score, u 'overload' (modelo de sobrecarga: minimiza las "
+            "horas en zona crítica y desbordado)."
+        ),
     )
     apply_capacity_constraints: bool = Field(
         True,
@@ -104,6 +113,13 @@ class RedistributionMove(BaseModel):
         None,
         description="Balance neto de descongestión entre la suma de los 2 sitios (ΔReceptor + ΔDonante)",
     )
+    overload_reduction: float | None = Field(
+        None,
+        description=(
+            "Solo modelo 'overload': cuánto baja la sobrecarga total con este "
+            "movimiento (horas en crítico + peso x horas desbordado, en la ventana)"
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,42 +143,59 @@ class RedistributionPlanRead(BaseModel):
     )
     created_at: datetime
     simulation_id: int | None = None
+    # Usuario que generó el plan (None en planes anteriores a registrarlo).
+    created_by: int | None = None
     original_mean_fill: float = 0.0
     original_std_fill: float = 0.0
     optimized_mean_fill: float = 0.0
     optimized_std_fill: float = 0.0
+    # Solo modelo 'overload': horas en la ventana de historia, sumadas sobre los
+    # sitios candidatos, con la distribución actual y con la del plan.
+    critical_hours_before: float | None = None
+    critical_hours_after: float | None = None
+    overflow_hours_before: float | None = None
+    overflow_hours_after: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class WhatIfSiteComparison(BaseModel):
-    """Comparación del nivel real vs optimizado para un sitio."""
+class WhatIfMeasure(BaseModel):
+    """Un valor de la red real (sin el plan) y de la red what-if (con el plan)."""
 
-    site_id: int
-    site_name: str
-    latitude: float
-    longitude: float
-    real_avg_level: float
-    optimized_avg_level: float
-    real_container_count: int
-    optimized_container_count: int
-    improvement_pct: float = Field(
-        description="Diferencia porcentual (negativo = mejoró en optimizado)"
-    )
-
-    model_config = ConfigDict(from_attributes=True)
+    real: float
+    with_plan: float
 
 
 class WhatIfComparisonResponse(BaseModel):
-    """Respuesta completa de comparación what-if."""
+    """Cómo le va a la red con el plan, comparada con la red real."""
 
     plan_id: int
     plan_status: str
-    real_global_avg: float
-    optimized_global_avg: float
-    sites: list[WhatIfSiteComparison]
-    total_sites_improved: int
-    total_sites_worsened: int
+    dispersion: WhatIfMeasure | None = Field(
+        None,
+        description="Desvío del nivel entre sitios, antes y después, estimado al generar el plan.",
+    )
+    observed_hours: float = Field(
+        description="Horas medidas desde que se activó el plan (0: todavía sin datos)."
+    )
+    avg_critical_sites: WhatIfMeasure | None = Field(
+        None, description="Sitios críticos en promedio desde que se activó el plan."
+    )
+    avg_full_containers: WhatIfMeasure | None = Field(
+        None,
+        description="Contenedores al 100 % en promedio desde que se activó el plan.",
+    )
+    full_container_hours: WhatIfMeasure | None = Field(
+        None,
+        description="Horas de contenedores al 100 % desde la activación. Solo con el plan activo.",
+    )
+    critical_sites_now: WhatIfMeasure | None = Field(
+        None, description="Sitios críticos en este momento. Solo con el plan activo."
+    )
+    full_containers_now: WhatIfMeasure | None = Field(
+        None,
+        description="Contenedores al 100 % en este momento. Solo con el plan activo.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
