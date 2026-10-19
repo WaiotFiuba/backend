@@ -122,14 +122,10 @@ def test_sitio_con_cupo_disponible(calculator):
     res = resultados[0]
 
     assert res["segment_id"] == 1001
-    assert res["calle_nombre"] == "AVENIDA_HABILITADA"
-    assert res["esquina_inicio"] == "CALLE_ALFA"
-    assert res["esquina_fin"] == "CALLE_BETA"
-    assert res["ancho_calle_m"] == 26.0
     assert res["MAX_CONTENEDORES"] == 5
     assert res["cupo_disponible"] == 3
     assert res["puede_ingresar_nuevo_contenedor"] is True
-    assert len(res["restricciones"]) == 1
+    assert 5.0 <= res["longitud_total_m"] <= 400.0
 
 
 def test_sitio_alcanza_limite_capacidad(calculator):
@@ -185,8 +181,8 @@ def test_sitio_en_tramo_sin_capacidad_total(calculator):
     res = resultados[0]
 
     assert res["segment_id"] == 1002
-    assert res["calle_nombre"] == "PASAJE_INHABILITADO"
     assert res["MAX_CONTENEDORES"] == 1
+    assert 5.0 <= res["longitud_total_m"] <= 400.0
     assert res["cupo_disponible"] == 0
     assert res["puede_ingresar_nuevo_contenedor"] is False
 

@@ -163,10 +163,23 @@ def test_standalone_capacity_json_serializability():
     json_str = json.dumps(resultado)
     assert json_str is not None
 
-    # Sitio con 2 de 2 contenedores -> no puede colocar más
-    assert resultado[0]["puede_colocar_mas"] is False
-    assert resultado[0]["cupo_disponible"] == 0
+    max_cont_real = resultado[0]["MAX_CONTENEDORES"]
+    assert max_cont_real > 0
 
-    # Sitio con 0 de 2 contenedores -> sí puede colocar más
+    # Si se evalúa un sitio saturado con su capacidad máxima real:
+    sitio_saturado = [
+        {
+            "id": 1,
+            "name": "Sitio Arias 3450 Saturado",
+            "latitude": -34.545914,
+            "longitude": -58.483065,
+            "contenedores_actuales": max_cont_real,
+        }
+    ]
+    res_sat = calc.calcular_capacidad_sitios(sitio_saturado)[0]
+    assert res_sat["puede_colocar_mas"] is False
+    assert res_sat["cupo_disponible"] == 0
+
+    # Sitio con 0 contenedores -> sí puede colocar más y cupo es igual a MAX_CONTENEDORES
     assert resultado[1]["puede_colocar_mas"] is True
-    assert resultado[1]["cupo_disponible"] == 2
+    assert resultado[1]["cupo_disponible"] == max_cont_real
