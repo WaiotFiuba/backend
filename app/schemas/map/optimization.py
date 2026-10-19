@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class OptimizationConfig(BaseModel):
@@ -47,6 +47,20 @@ class OptimizationConfig(BaseModel):
     )
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _thresholds_in_order(self) -> OptimizationConfig:
+        # Con donante < objetivo < receptor ningún sitio es donante y receptor a
+        # la vez, así que el plan no arma relevos (A -> B -> C).
+        if not (
+            self.min_utilization_donor
+            < self.target_utilization
+            < self.min_utilization_receiver
+        ):
+            raise ValueError(
+                "Los umbrales tienen que cumplir donante < objetivo < receptor."
+            )
+        return self
 
 
 class SiteUtilizationMetric(BaseModel):

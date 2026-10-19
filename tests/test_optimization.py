@@ -118,10 +118,25 @@ class TestOptimizationConfig(unittest.TestCase):
             {"max_distance_km": 0},
             {"max_distance_km": 50},
             {"algorithm": "simulated_annealing"},
+            # Umbrales fuera de orden (por defecto: donante 0.35, objetivo 0.50,
+            # receptor 0.65).
+            {"min_utilization_donor": 0.6},
+            {"min_utilization_donor": 0.5},
+            {"target_utilization": 0.7},
+            {"min_utilization_receiver": 0.5},
+            {"min_utilization_donor": 0.8, "min_utilization_receiver": 0.2},
         ]
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValidationError):
                 OptimizationConfig(**values)
+
+    def test_thresholds_in_order_are_accepted(self):
+        config = OptimizationConfig(
+            min_utilization_donor=0.2,
+            target_utilization=0.4,
+            min_utilization_receiver=0.8,
+        )
+        self.assertEqual(config.target_utilization, 0.4)
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +170,65 @@ def _register_sqlite_stubs(engine):
         dbapi_connection.create_function(
             "AsBinary", 1, lambda x: str(x).encode() if x else None
         )
+
+
+class TestSolveLp(unittest.TestCase):
+    @staticmethod
+    def _site(site_id, latitude, longitude, containers, score):
+        from app.schemas.map.optimization import SiteUtilizationMetric
+
+        return SiteUtilizationMetric(
+            site_id=site_id,
+            site_name=f"Sitio {site_id}",
+            latitude=latitude,
+            longitude=longitude,
+            container_count=containers,
+            waste_type_id=1,
+            container_type_id=1,
+            avg_fill_level=score * 100,
+            peak_fill_rate=0.0,
+            overflow_frequency=0,
+            utilization_score=score,
+            category="idle" if score < 0.5 else "critical",
+        )
+
+    def test_moves_whole_containers_and_uses_all_the_supply(self):
+        """Sin pedir solución entera, el LP mueve contenedores enteros y respeta
+        oferta y demanda, aun con muchos óptimos empatados."""
+        from collections import Counter
+
+        from app.services.map.optimization_service import _solve_lp
+
+        # Dos donantes y tres receptores iguales en el mismo lugar: muchos óptimos empatados.
+        donors = [
+            self._site(1, -34.600, -58.400, 4, 0.1),
+            self._site(2, -34.600, -58.410, 3, 0.1),
+        ]
+        receivers = [
+            self._site(site_id, -34.605, -58.405, 2, 0.9) for site_id in (10, 11, 12)
+        ]
+        supply = {1: 3, 2: 2}
+        demand = {10: 2, 11: 2, 12: 2}
+        containers = {1: [101, 102, 103, 104], 2: [201, 202, 203]}
+
+        moves = _solve_lp(
+            donors,
+            receivers,
+            supply,
+            demand,
+            OptimizationConfig(max_distance_km=5.0, algorithm="lp"),
+            containers,
+            {container: 1 for ids in containers.values() for container in ids},
+            {site.site_id: site for site in donors + receivers},
+        )
+
+        # Hay más demanda (6) que oferta (5): se usa toda la oferta.
+        self.assertEqual(len(moves), 5)
+        self.assertEqual(len({move.container_id for move in moves}), 5)
+        donated = Counter(move.from_site_id for move in moves)
+        received = Counter(move.to_site_id for move in moves)
+        self.assertEqual(dict(donated), supply)
+        self.assertTrue(all(received[site] <= demand[site] for site in received))
 
 
 TABLES = [
@@ -307,6 +381,43 @@ class TestOptimizationMetrics(unittest.IsolatedAsyncioTestCase):
                 )
             )
         await session.commit()
+
+    async def test_metrics_do_not_block_the_event_loop(self):
+        """El cálculo en Python de las métricas corre en un thread: mientras dura,
+        el resto del backend sigue atendiendo."""
+        import asyncio
+        import time
+        from unittest import mock
+
+        from app.services.map import optimization_service
+
+        original = optimization_service._build_site_metrics
+
+        def slow_build(*args):
+            time.sleep(0.3)
+            return original(*args)
+
+        ticks = 0
+
+        async def other_work():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        async with self.session_maker() as session:
+            await self._seed_scenario(session)
+            with mock.patch.object(
+                optimization_service, "_build_site_metrics", slow_build
+            ):
+                task = asyncio.create_task(other_work())
+                await optimization_service.compute_site_utilization_metrics(
+                    session, OptimizationConfig()
+                )
+                task.cancel()
+
+        # Bloqueando, la otra tarea no avanzaría durante los 0,3 s.
+        self.assertGreater(ticks, 10)
 
     async def test_compute_metrics_classifies_correctly(self):
         """Verifica que las métricas clasifican sitios saturados, normales e infrautilizados."""

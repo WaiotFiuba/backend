@@ -7,6 +7,8 @@ recalculan los pares afectados y se repite hasta que ningún movimiento mejora.
 
 Restricciones:
 - ningún sitio queda con 0 contenedores;
+- un sitio que recibió no dona y uno que donó no recibe: el primer movimiento
+  de cada sitio fija su rol, así el plan no arma relevos (A -> B -> C);
 - un receptor no supera la capacidad física de su cuadra (si se conoce);
 - donante y receptor están a menos de `max_distance_km`.
 
@@ -76,8 +78,14 @@ def plan_overload_moves(
         limit = sites[index].max_containers
         return limit is None or count[index] < limit
 
+    # Rol de cada sitio en el plan, fijado por su primer movimiento.
+    donated: set[int] = set()
+    received: set[int] = set()
+
     def gain(donor: int, receiver: int) -> float:
         if count[donor] <= 1 or not can_receive(receiver):
+            return 0.0
+        if donor in received or receiver in donated:
             return 0.0
         relief = cost(receiver, count[receiver]) - cost(receiver, count[receiver] + 1)
         damage = cost(donor, count[donor] - 1) - cost(donor, count[donor])
@@ -130,6 +138,8 @@ def plan_overload_moves(
             continue
         count[donor] -= 1
         count[receiver] += 1
+        donated.add(donor)
+        received.add(receiver)
         moves.append(
             PlannedMove(
                 donor_site_id=sites[donor].site_id,
