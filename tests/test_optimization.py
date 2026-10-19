@@ -118,10 +118,25 @@ class TestOptimizationConfig(unittest.TestCase):
             {"max_distance_km": 0},
             {"max_distance_km": 50},
             {"algorithm": "simulated_annealing"},
+            # Umbrales fuera de orden (por defecto: donante 0.35, objetivo 0.50,
+            # receptor 0.65).
+            {"min_utilization_donor": 0.6},
+            {"min_utilization_donor": 0.5},
+            {"target_utilization": 0.7},
+            {"min_utilization_receiver": 0.5},
+            {"min_utilization_donor": 0.8, "min_utilization_receiver": 0.2},
         ]
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValidationError):
                 OptimizationConfig(**values)
+
+    def test_thresholds_in_order_are_accepted(self):
+        config = OptimizationConfig(
+            min_utilization_donor=0.2,
+            target_utilization=0.4,
+            min_utilization_receiver=0.8,
+        )
+        self.assertEqual(config.target_utilization, 0.4)
 
 
 # ---------------------------------------------------------------------------
