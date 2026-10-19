@@ -13,6 +13,7 @@ from app.models.map.container import Container
 from app.models.map.container_type import ContainerType
 from app.models.map.data_level import DataLevel
 from app.schemas.digital_twin import TelemetryIngestPayload, TelemetryIngestResult
+from app.services.data_level_partitions import drop_partitions, ensure_partitions
 from app.services.map.whatif_allocation import Reading, as_utc
 
 logger = logging.getLogger(__name__)
@@ -172,11 +173,14 @@ async def clear_level_readings(db: AsyncSession) -> None:
     se reutilizan, y mezclarlas rompería el reloj de referencia (última lectura)
     y las series históricas por sitio.
     """
-    connection = await db.connection()
-    if connection.dialect.name == "postgresql":
-        await db.execute(text("TRUNCATE TABLE data_level"))
-    else:
-        await db.execute(delete(DataLevel))
+    # Con data_level particionada se borran las particiones enteras: es inmediato y
+    # no deja particiones vacías de días viejos.
+    if await drop_partitions(db) < 0:
+        connection = await db.connection()
+        if connection.dialect.name == "postgresql":
+            await db.execute(text("TRUNCATE TABLE data_level"))
+        else:
+            await db.execute(delete(DataLevel))
     logger.info("Lecturas de nivel borradas para iniciar una simulación nueva.")
 
 
@@ -399,6 +403,10 @@ async def ingest_telemetry_batch(
 
     if not_found and time.monotonic() - _cache_loaded_at > CACHE_MISS_RELOAD_SECONDS:
         invalidate_container_cache()
+
+    # Si data_level está particionada, la partición de cada día tiene que existir
+    # antes de insertar (se crea en una transacción aparte, una vez por día).
+    await ensure_partitions(db, (row["reading_date"] for row in data_level_inserts))
 
     # Try high-performance native asyncpg COPY + Staging Table in PostgreSQL
     try:

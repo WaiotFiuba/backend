@@ -33,13 +33,14 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
     class FakePipeline:
         def predict_df(self, frame, **_kwargs):
             seen.append(frame)
-            return pd.DataFrame({"0.1": [45], "0.5": [50], "0.9": [55]})
+            return pd.DataFrame({"0.1": [1], "0.6": [5], "0.9": [9]})
 
     def load_pipeline():
         initialization_threads.append(threading.get_ident())
         return FakePipeline()
 
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.6)
     result = await chronos.Chronos2SmallForecaster().forecast(
         ForecastRequest(site_id=1, horizon_hours=1),
         ForecastContext(
@@ -51,7 +52,7 @@ async def test_chronos_single_uses_snapshot_as_last_input(monkeypatch):
         ),
     )
 
-    assert seen[0].iloc[-1]["target"] == 45
+    assert list(seen[0]["target"]) == [0, 10, 10, 15]
     assert seen[0].iloc[-1]["timestamp"] == pd.Timestamp("2026-01-01 05:00:00")
     assert result.points[0].predicted_level == 50
     assert len(initialization_threads) == 1
@@ -106,9 +107,9 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
             return pd.DataFrame(
                 {
                     "id": [2, 2, 1, 1],
-                    "0.1": [55, 60, 45, 50],
-                    "0.5": [60, 65, 50, 55],
-                    "0.9": [65, 70, 55, 60],
+                    "0.1": [5, 0, 5, 0],
+                    "0.6": [10, 5, 10, 5],
+                    "0.9": [15, 10, 15, 10],
                 }
             )
 
@@ -121,6 +122,7 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
         return FakePipeline()
 
     monkeypatch.setattr(chronos, "_get_chronos_pipeline", load_pipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.6)
 
     result = await service.project_sites(
         object(),
@@ -136,12 +138,74 @@ async def test_chronos_batch_infers_eligible_sites_once_and_keeps_results_separa
     assert len(initialization_threads) == 1
     assert initialization_threads[0] != threading.get_ident()
     assert set(calls[0][0]["id"]) == {1, 2}
-    for site_id, level in [(1, 40), (2, 50)]:
+    for site_id in (1, 2):
         site_rows = calls[0][0].loc[calls[0][0]["id"] == site_id]
         assert site_rows.iloc[-1]["timestamp"] == pd.Timestamp(
             as_of.replace(tzinfo=None)
         )
-        assert site_rows.iloc[-1]["target"] == level
+        assert list(site_rows["target"]) == [0, 10, 10, 10, 0]
     assert calls[0][1]["prediction_length"] == 2
-    assert [site.points[0].predicted_level for site in result.sites[:2]] == [50, 60]
+    assert calls[0][1]["quantile_levels"] == [0.1, 0.6, 0.9]
+    assert [
+        [point.predicted_level for point in site.points] for site in result.sites[:2]
+    ] == [[50, 55], [60, 65]]
+    assert [
+        (point.lower_bound, point.upper_bound) for point in result.sites[0].points
+    ] == [(45, 55), (45, 65)]
     assert result.sites[2].points[0].reason == "insufficient_history"
+
+
+@pytest.mark.asyncio
+async def test_live_site_projection_starts_from_the_current_level(monkeypatch):
+    clock = datetime(2026, 1, 1, 5, 30, tzinfo=UTC)
+    history = [
+        SiteLevelBucket(
+            site_id=1,
+            timestamp=clock.replace(hour=hour, minute=0),
+            level=level,
+            avg_level=level,
+            max_level=level,
+            min_level=level,
+            measurement_count=1,
+            container_count=1,
+            has_collection_signal=False,
+        )
+        for hour, level in [(2, 10), (3, 20), (4, 30), (5, 40)]
+    ]
+    seen = []
+
+    class FakePipeline:
+        def predict_df(self, frame, **_kwargs):
+            seen.append(list(frame["target"]))
+            return pd.DataFrame({"0.1": [1], "0.6": [2], "0.9": [3]})
+
+    async def current_level(_db, site_id, level_aggregation):
+        return 47.0
+
+    async def volumes(_db, site_ids):
+        return {site_id: service.SiteVolumeSnapshot() for site_id in site_ids}
+
+    async def projection_clock(_db):
+        return clock
+
+    async def site_history(**_kwargs):
+        return {1: history}
+
+    async def site_features(_db, _site_id):
+        return {}
+
+    monkeypatch.setattr(chronos, "_get_chronos_pipeline", FakePipeline)
+    monkeypatch.setattr(chronos, "_forecast_quantile", lambda: 0.6)
+    monkeypatch.setattr(service, "_get_current_site_level", current_level)
+    monkeypatch.setattr(service, "_get_current_site_volumes", volumes)
+    monkeypatch.setattr(service, "_projection_clock", projection_clock)
+    monkeypatch.setattr(service, "get_site_level_series", site_history)
+    monkeypatch.setattr(service, "_get_site_features", site_features)
+
+    result = await service.project_site_level(
+        object(), site_id=1, model_key="chronos_2_small", horizon_hours=1
+    )
+
+    # El bucket de las 5 (40) se reemplaza por el nivel actual (47).
+    assert seen == [[0, 10, 10, 17]]
+    assert result.points[0].predicted_level == 49

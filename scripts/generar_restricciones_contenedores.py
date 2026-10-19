@@ -13,9 +13,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 LARGO_CONTENEDOR_M = 1.87
 ANCHO_CONTENEDOR_M = 1.50
-MARGEN_LATERAL_M = 1.00
+MARGEN_LATERAL_CALZADA_M = 1.00  # Res. Conjunta 1/SSHU/19 Pág. 4, Punto 1.b y 1.d: mín. 1.0 m libre en ambos laterales
+MARGEN_LATERAL_ACERA_M = 6.00  # Res. Conjunta 1/SSHU/19 Pág. 4, Punto 1.a: mín. 6.0 m libres en ambos laterales en acera
 SEPARACION_ENTRE_CONT_M = 0.20
-RESERVA_OCHAVA_EXTREMO_M = 10.0
+RESERVA_OCHAVA_EXTREMO_M = 10.0  # Res. Conjunta 1/SSHU/19 Pág. 2, Impedimento O: Polígono de seguridad de ochava
 
 ANCHOS_CALLE_POR_TIPO = {
     "CALLE": 12.0,
@@ -37,14 +38,14 @@ BLOQUEO_PUESTO_M = 5.0
 BLOQUEO_POSTE_CPM_M = 2.0
 
 
-def calcular_capacidad_intervalos(intervalos_libres):
+def calcular_capacidad_intervalos(intervalos_libres, margen_lateral=1.00):
     total_contenedores = 0
     slot_unitario = LARGO_CONTENEDOR_M + SEPARACION_ENTRE_CONT_M
-    offset = 2 * MARGEN_LATERAL_M - SEPARACION_ENTRE_CONT_M
+    offset = 2 * margen_lateral - SEPARACION_ENTRE_CONT_M
 
     for inicio, fin in intervalos_libres:
         longitud_util = fin - inicio
-        if longitud_util >= (LARGO_CONTENEDOR_M + 2 * MARGEN_LATERAL_M):
+        if longitud_util >= (LARGO_CONTENEDOR_M + 2 * margen_lateral):
             n = int((longitud_util - offset) // slot_unitario)
             if n > 0:
                 total_contenedores += n
@@ -391,39 +392,29 @@ def main():
         if cursor < longitud_total:
             intervalos_libres.append((cursor, longitud_total))
 
-        # CÁLCULO DE CAPACIDAD BAJO RESOLUCIÓN CONJUNTA N° 1/SSHU/19:
-        # 1. Calzada: Límite estricto de 4 metros lineales = MÁXIMO 2 CONTENEDORES DE 3.200L
+        # CÁLCULO DE CAPACIDAD FÍSICA Y REGLAMENTARIA (Res. Conjunta N° 1/SSHU/19):
+        # 1. Calzada: Requiere carril habilitado para estacionar (Limitación C) y margen de 1.0 m a los lados (Pág. 4, Punto 1.b y 1.d).
         if permite_calzada:
-            espacio_slots = calcular_capacidad_intervalos(intervalos_libres)
-            cap_calzada = min(2, espacio_slots)
+            cap_calzada = calcular_capacidad_intervalos(
+                intervalos_libres, margen_lateral=MARGEN_LATERAL_CALZADA_M
+            )
         else:
             cap_calzada = 0
 
-        # 2. Acera (Vereda Excepcional): Límite estricto de 11 metros lineales = MÁXIMO 2 CONTENEDORES GRANDES DE 3.200L
-        # Requiere que exista espacio libre continuo no bloqueado por garajes, paradas, cajones u ochavas.
+        # 2. Acera (Vereda Excepcional): Solo autorizada si no es posible en calzada (Limitación C).
+        #    Requiere margen de 6.0 m a ambos lados para maniobra de izaje del camión (Pág. 4, Punto 1.a).
         if permite_acera:
-            espacio_slots_acera = calcular_capacidad_intervalos(intervalos_libres)
-            cap_acera = min(2, espacio_slots_acera)
+            cap_acera = calcular_capacidad_intervalos(
+                intervalos_libres, margen_lateral=MARGEN_LATERAL_ACERA_M
+            )
         else:
             cap_acera = 0
 
-        # Capacidad física reglamentaria total del tramo (valores factibles: 0, 1 o 2)
+        # Capacidad física reglamentaria total del tramo (basada en el espacio libre real):
         max_contenedores = max(cap_calzada, cap_acera)
 
         registros_unificados.append(
             {
-                "segment_id": idx,
-                "calle_nombre": calle_nombre,
-                "tipo_via": tipo_via,
-                "acera_lado": acera_lado,
-                "ancho_calle_m": ANCHOS_CALLE_POR_TIPO.get(tipo_via, 12.0),
-                "permite_calzada": "SI" if permite_calzada else "NO",
-                "permite_acera": "SI" if permite_acera else "NO",
-                "longitud_total_m": longitud_total,
-                "espacio_bloqueado_m": longitud_bloqueada,
-                "espacio_disponible_m": round(
-                    max(0.0, longitud_total - longitud_bloqueada), 2
-                ),
                 "MAX_CONTENEDORES": max_contenedores,
                 "geometry_wkt": str(row["WKT"]),
             }

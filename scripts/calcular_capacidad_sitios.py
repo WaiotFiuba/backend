@@ -66,6 +66,7 @@ class StandaloneSiteCapacityCalculator:
 
             if len(valid_candidates) == 0:
                 site["MAX_CONTENEDORES"] = max(1, cont_actuales)
+                site["longitud_total_m"] = 0.0
                 site["cupo_disponible"] = 0
                 site["puede_ingresar_nuevo_contenedor"] = False
                 site["puede_colocar_mas"] = False
@@ -83,8 +84,12 @@ class StandaloneSiteCapacityCalculator:
             else:
                 best_idx = min(valid_candidates, key=lambda x: x[1])[0]
 
-            tramo = self.df.iloc[best_idx]
+            geom_tramo = self.geoms_utm[best_idx]
+            distancia_m = round(float(geom_tramo.length), 2)
+            # Límites de longitud física: mínimo 5m y máximo 400m
+            longitud_acotada_m = max(5.0, min(400.0, distancia_m))
 
+            tramo = self.df.iloc[best_idx]
             max_cont_tramo = int(tramo["MAX_CONTENEDORES"])
             if max_cont_tramo <= 0:
                 max_cont = max(1, cont_actuales)
@@ -97,43 +102,7 @@ class StandaloneSiteCapacityCalculator:
             site["segment_id"] = (
                 int(tramo["segment_id"]) if "segment_id" in tramo else int(best_idx)
             )
-            site["municipio"] = str(tramo.get("municipio", "CABA"))
-            site["calle_nombre"] = str(tramo.get("calle_nombre", ""))
-            site["altura_desde"] = (
-                tramo.get("altura_desde", "")
-                if pd.notna(tramo.get("altura_desde"))
-                else ""
-            )
-            site["altura_hasta"] = (
-                tramo.get("altura_hasta", "")
-                if pd.notna(tramo.get("altura_hasta"))
-                else ""
-            )
-            site["esquina_inicio"] = str(tramo.get("esquina_inicio", ""))
-            site["esquina_fin"] = str(tramo.get("esquina_fin", ""))
-            site["acera_lado"] = str(tramo.get("acera_lado", ""))
-            site["tipo_via"] = str(tramo.get("tipo_via", "CALLE"))
-            site["ancho_calle_m"] = float(tramo.get("ancho_calle_m", 12.0))
-            site["permite_calzada"] = (
-                str(tramo.get("permite_calzada", "SI")).upper() == "SI"
-            )
-            site["permite_acera"] = (
-                str(tramo.get("permite_acera", "NO")).upper() == "SI"
-            )
-            site["longitud_total_m"] = float(tramo.get("longitud_total_m", 100.0))
-            site["espacio_bloqueado_m"] = float(tramo.get("espacio_bloqueado_m", 20.0))
-            site["espacio_disponible_m"] = float(
-                tramo.get("espacio_disponible_m", 80.0)
-            )
-
-            if pd.notna(tramo.get("restricciones_json")):
-                try:
-                    site["restricciones"] = json.loads(tramo["restricciones_json"])
-                except Exception:
-                    site["restricciones"] = []
-            else:
-                site["restricciones"] = []
-
+            site["longitud_total_m"] = longitud_acotada_m
             site["cupo_disponible"] = int(cupo)
             site["puede_ingresar_nuevo_contenedor"] = bool(cupo > 0)
             site["puede_colocar_mas"] = bool(cupo > 0)
