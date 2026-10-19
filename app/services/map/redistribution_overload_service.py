@@ -13,6 +13,7 @@ redistribution_overload.py para el modelo.
 from __future__ import annotations
 
 import asyncio
+import heapq
 import logging
 import math
 from collections import defaultdict, deque
@@ -294,17 +295,21 @@ def _plan_by_group(
     max_distance_km: float,
     move_cost: float,
 ) -> list[PlannedMove]:
-    """Corre el planificador dentro de cada grupo de sitios compatibles."""
-    planned: list[PlannedMove] = []
-    for group in group_by_compatibility(candidates).values():
-        planned.extend(
-            planner(
-                [candidate.state for candidate in group],
-                max_distance_km=max_distance_km,
-                move_cost=move_cost,
-            )
+    """Corre el planificador dentro de cada grupo de sitios compatibles.
+
+    Intercala los grupos de mayor a menor mejora. Dentro de cada grupo respeta
+    el orden del planificador: el nivel antes y después de cada movimiento
+    depende de los anteriores del mismo sitio, y los grupos no comparten sitios.
+    """
+    by_group = [
+        planner(
+            [candidate.state for candidate in group],
+            max_distance_km=max_distance_km,
+            move_cost=move_cost,
         )
-    return planned
+        for group in group_by_compatibility(candidates).values()
+    ]
+    return list(heapq.merge(*by_group, key=lambda move: -move.overload_reduction))
 
 
 async def _assign_containers(

@@ -19,7 +19,7 @@ from app.models.map.optimization import (
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.optimization import OptimizationConfig
-from app.services.map.redistribution_overload_planner import PlannedMove
+from app.services.map.redistribution_overload_planner import PlannedMove, SiteState
 from app.services.map.redistribution_overload_service import (
     _assign_containers,
     generate_overload_plan,
@@ -353,3 +353,33 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hourly[1].levels, [30, 50, 70, 90])
         self.assertEqual(hourly[2].levels, [10, 15, 20, 25])
         self.assertEqual(hourly[1].collected, [False] * 4)
+
+
+def test_plan_by_group_interleaves_the_groups_by_overload_reduction():
+    from app.services.map.redistribution_overload_service import (
+        OverloadCandidate,
+        _plan_by_group,
+    )
+
+    def candidate(site_id, group):
+        return OverloadCandidate(
+            state=SiteState(site_id, 0.0, 0.0, 2, None),
+            name="",
+            group=group,
+            average_level=0.0,
+        )
+
+    # Cada grupo devuelve sus movimientos ya ordenados; el del sitio 1 tiene dos.
+    by_site = {
+        1: [PlannedMove(1, 1, 0.1, 5.0), PlannedMove(1, 1, 0.1, 1.0)],
+        2: [PlannedMove(2, 2, 0.1, 3.0)],
+    }
+
+    def planner(sites, *, max_distance_km, move_cost):
+        return by_site[sites[0].site_id]
+
+    planned = _plan_by_group(
+        [candidate(1, (1, 1)), candidate(2, (1, 2))], planner, 2.0, 0.0
+    )
+
+    assert [move.overload_reduction for move in planned] == [5.0, 3.0, 1.0]

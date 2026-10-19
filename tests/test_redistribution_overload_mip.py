@@ -138,6 +138,24 @@ def test_the_move_cost_discards_moves_that_improve_little():
     assert plan_overload_moves_mip(sites, max_distance_km=2, move_cost=2) == []
 
 
+def test_moves_come_from_the_biggest_to_the_smallest_improvement():
+    # El sitio 1 mejora 6 con el primer contenedor y 1 con el segundo; el 2
+    # mejora 4 con uno. El donante (4 contenedores casi vacíos) cede los tres.
+    sites = [
+        _site(1, 0, 1, [50, 90, 130, 170]),
+        _site(2, 0.5, 1, [40, 60, 80, 100]),
+        _site(3, 0.3, 4, [5, 10]),
+    ]
+
+    moves = plan_overload_moves_mip(sites, max_distance_km=2)
+
+    assert [(m.receiver_site_id, m.overload_reduction) for m in moves] == [
+        (1, 6.0),
+        (2, 4.0),
+        (1, 1.0),
+    ]
+
+
 def test_reports_an_optimal_result_and_nothing_to_do_without_receivers():
     result = solve_overload_mip([_site(1, 0, 3, IDLE), _site(2, 0.5, 3, IDLE)], 2)
 

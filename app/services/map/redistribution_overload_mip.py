@@ -22,6 +22,7 @@ la única variable entera.
 
 from __future__ import annotations
 
+import heapq
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -110,7 +111,7 @@ def solve_overload_mip(
 
     model, flow, has_roles = _build_model(pairs, effects, move_cost, time_limit_s)
     flows, optimal, mip_gap = _solve(model, flow, has_roles)
-    moves = _to_moves(sites, pairs, flows, effects, critical_level, overflow_weight)
+    moves = _to_moves(sites, pairs, flows, critical_level, overflow_weight)
     return OverloadMipResult(moves=moves, optimal=optimal, mip_gap=mip_gap)
 
 
@@ -317,39 +318,73 @@ def _to_moves(
     sites: list[SiteState],
     pairs: Pairs,
     flows: dict[tuple[int, int], float],
-    effects: _MarginalEffects,
     critical_level: float,
     overflow_weight: float,
 ) -> list[PlannedMove]:
-    """Un movimiento por contenedor, los más convenientes primero.
+    """Un movimiento por contenedor, de mayor a menor mejora real.
 
-    La mejora de cada uno se calcula con el costo real (no la envolvente),
-    aplicándolos en orden. Como ningún sitio recibe y dona, la suma de las
-    mejoras es la reducción total de la sobrecarga.
+    El MIP decide cuántos contenedores van por cada par; acá se elige el orden.
+    En cada paso se aplica, entre los que faltan, el que más mejora con las
+    cantidades de ese momento (como el greedy). Así la mejora informada es la
+    real en ese orden y, como ningún sitio recibe y dona, su suma es la
+    reducción total de la sobrecarga.
     """
-    chosen = sorted(
-        (pair for pair in pairs for _ in range(round(flows[pair]))),
-        key=lambda pair: (
-            effects.damages[pair[0]][0] - effects.gains[pair[1]][0],
-            pairs[pair],
-        ),
-    )
     count = [site.containers for site in sites]
-    moves: list[PlannedMove] = []
-    for donor, receiver in chosen:
-        donor_site, receiver_site = sites[donor], sites[receiver]
-        relief = _relief(
-            receiver_site, count[receiver], critical_level, overflow_weight
+    pending = {pair: round(flows[pair]) for pair in pairs if round(flows[pair]) > 0}
+    pairs_of_site: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for donor, receiver in pending:
+        pairs_of_site[donor].append((donor, receiver))
+        pairs_of_site[receiver].append((donor, receiver))
+
+    # (-mejora, km, par): primero la mayor mejora y, a igual mejora, el más cercano.
+    heap = [
+        (
+            -_move_gain(sites, count, pair, critical_level, overflow_weight),
+            pairs[pair],
+            pair,
         )
-        damage = _relief(donor_site, count[donor] - 1, critical_level, overflow_weight)
+        for pair in pending
+    ]
+    heapq.heapify(heap)
+    moves: list[PlannedMove] = []
+    while heap:
+        negative_gain, distance, pair = heapq.heappop(heap)
+        if not pending[pair]:
+            continue
+        current = _move_gain(sites, count, pair, critical_level, overflow_weight)
+        if abs(current + negative_gain) > _MIN_GAIN:
+            # La mejora cambió desde que se encoló: vuelve con la actual.
+            heapq.heappush(heap, (-current, distance, pair))
+            continue
+        donor, receiver = pair
         count[donor] -= 1
         count[receiver] += 1
+        pending[pair] -= 1
         moves.append(
             PlannedMove(
-                donor_site_id=donor_site.site_id,
-                receiver_site_id=receiver_site.site_id,
-                distance_km=round(pairs[donor, receiver], 4),
-                overload_reduction=round(relief - damage, 4),
+                donor_site_id=sites[donor].site_id,
+                receiver_site_id=sites[receiver].site_id,
+                distance_km=round(distance, 4),
+                overload_reduction=round(current, 4),
             )
         )
+        # Cambiaron las cantidades de los dos sitios: se reencolan sus pares.
+        for other in {*pairs_of_site[donor], *pairs_of_site[receiver]}:
+            if pending[other]:
+                gain = _move_gain(sites, count, other, critical_level, overflow_weight)
+                heapq.heappush(heap, (-gain, pairs[other], other))
     return moves
+
+
+def _move_gain(
+    sites: list[SiteState],
+    count: list[int],
+    pair: tuple[int, int],
+    critical_level: float,
+    overflow_weight: float,
+) -> float:
+    """Mejora real de mover un contenedor por el par, con las cantidades `count`."""
+    donor, receiver = pair
+    relief = _relief(sites[receiver], count[receiver], critical_level, overflow_weight)
+    damage = _relief(sites[donor], count[donor] - 1, critical_level, overflow_weight)
+    return relief - damage
