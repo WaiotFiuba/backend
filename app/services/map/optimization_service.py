@@ -9,6 +9,7 @@ Implementa el algoritmo Balanced Load Redistribution (BLR):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections import defaultdict
@@ -185,7 +186,27 @@ async def compute_site_utilization_metrics(
         )
         ct_names = {r.id: r.name for r in ct_result.all()}
 
-    # Construir métricas por sitio
+    # Armar las métricas y calcular la capacidad de cada sitio es cálculo en
+    # Python (la primera vez, varios segundos): corre en un thread para no
+    # frenar el resto del backend.
+    return await asyncio.to_thread(
+        _build_site_metrics,
+        site_rows,
+        metrics_by_site,
+        ct_names,
+        window_start,
+        window_end,
+    )
+
+
+def _build_site_metrics(
+    site_rows: list,
+    metrics_by_site: dict[int, dict],
+    ct_names: dict[int, str],
+    window_start: datetime | None,
+    window_end: datetime,
+) -> OptimizationMetricsResponse:
+    """Métricas de utilización de cada sitio y de la red, a partir de lo leído."""
     site_metrics: list[SiteUtilizationMetric] = []
     category_counts: dict[str, int] = defaultdict(int)
     capacity_service = get_site_capacity_service()
@@ -445,29 +466,20 @@ async def build_redistribution_plan(
         if d > 0:
             demand[r.site_id] = d
 
-    # 5. Resolver con el algoritmo elegido
-    if config.algorithm == "lp":
-        moves = _solve_lp(
-            donors,
-            receivers,
-            supply,
-            demand,
-            config,
-            containers_by_site,
-            container_type_map,
-            site_info,
-        )
-    else:
-        moves = _solve_greedy(
-            donors,
-            receivers,
-            supply,
-            demand,
-            config,
-            containers_by_site,
-            container_type_map,
-            site_info,
-        )
+    # 5. Resolver con el algoritmo elegido, en un thread: es cálculo en Python y
+    # no tiene que frenar el resto del backend.
+    solver = _solve_lp if config.algorithm == "lp" else _solve_greedy
+    moves = await asyncio.to_thread(
+        solver,
+        donors,
+        receivers,
+        supply,
+        demand,
+        config,
+        containers_by_site,
+        container_type_map,
+        site_info,
+    )
 
     # 6. Calcular resumen
     total_moved = len(moves)
@@ -826,14 +838,17 @@ def _solve_lp(
         for di, rj, _ in pairs
     ]
 
-    # Resolver con HiGHS (integrality=1 para resolución entera rápida)
+    # Resolver con HiGHS como LP continuo. Es un problema de transporte (cada
+    # variable aparece en una restricción de donante y en una de receptor) con
+    # límites enteros, así que la solución óptima que devuelve el simplex ya es
+    # entera. Pedirla entera (integrality) da la misma solución y es mucho más
+    # lento, porque pasa a resolverse como problema entero.
     result = linprog(
         c,
         A_ub=A_ub,
         b_ub=b_ub,
         bounds=bounds,
         method="highs",
-        integrality=1,
     )
 
     if not result.success:

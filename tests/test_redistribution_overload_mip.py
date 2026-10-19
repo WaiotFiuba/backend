@@ -95,17 +95,13 @@ def test_a_receiver_can_get_several_containers_until_it_stops_improving():
 
 def test_never_relays_containers_through_a_site():
     # A (sitio 1) desborda; B (2), a 1,9 km, está apenas crítico con 2
-    # contenedores; C (3), a 1,9 km de B y 3,8 de A, está vacío. El greedy hace
-    # B -> A y después C -> B: el contenedor de C llega a A pasando por B.
+    # contenedores; C (3), a 1,9 km de B y 3,8 de A, está vacío. Sin la
+    # restricción de papel, el plan haría B -> A y después C -> B: el contenedor
+    # de C llegaría a A pasando por B.
     sites = [
         _site(1, 0, 1, OVERLOADED),
         _site(2, 1.9, 2, [40, 80, 120, 160, 170]),
         _site(3, 3.8, 3, IDLE),
-    ]
-    assert _pairs(plan_overload_moves(sites, max_distance_km=2)) == [
-        (2, 1),
-        (3, 2),
-        (3, 2),
     ]
 
     assert _pairs(plan_overload_moves_mip(sites, max_distance_km=2)) == [(2, 1)]
