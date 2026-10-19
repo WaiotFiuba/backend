@@ -59,10 +59,14 @@ def test_sitios_reales_caba_longitud_acotada(real_calculator):
         assert "longitud_total_m" in res
         longitud = res["longitud_total_m"]
         assert isinstance(longitud, float)
-        assert 5.0 <= longitud <= 400.0, f"Longitud {longitud} fuera del rango [5.0, 400.0] para {res['name']}"
+        assert 5.0 <= longitud <= 400.0, (
+            f"Longitud {longitud} fuera del rango [5.0, 400.0] para {res['name']}"
+        )
 
         # Verificar cálculo coherente de cupo
-        assert res["cupo_disponible"] == max(0, res["MAX_CONTENEDORES"] - res["contenedores_actuales"])
+        assert res["cupo_disponible"] == max(
+            0, res["MAX_CONTENEDORES"] - res["contenedores_actuales"]
+        )
         assert res["puede_colocar_mas"] == (res["cupo_disponible"] > 0)
         assert res["puede_ingresar_nuevo_contenedor"] == (res["cupo_disponible"] > 0)
 

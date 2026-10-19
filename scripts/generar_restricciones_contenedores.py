@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 LARGO_CONTENEDOR_M = 1.87
 ANCHO_CONTENEDOR_M = 1.50
 MARGEN_LATERAL_CALZADA_M = 1.00  # Res. Conjunta 1/SSHU/19 Pág. 4, Punto 1.b y 1.d: mín. 1.0 m libre en ambos laterales
-MARGEN_LATERAL_ACERA_M = 6.00    # Res. Conjunta 1/SSHU/19 Pág. 4, Punto 1.a: mín. 6.0 m libres en ambos laterales en acera
+MARGEN_LATERAL_ACERA_M = 6.00  # Res. Conjunta 1/SSHU/19 Pág. 4, Punto 1.a: mín. 6.0 m libres en ambos laterales en acera
 SEPARACION_ENTRE_CONT_M = 0.20
 RESERVA_OCHAVA_EXTREMO_M = 10.0  # Res. Conjunta 1/SSHU/19 Pág. 2, Impedimento O: Polígono de seguridad de ochava
 
