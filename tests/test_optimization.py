@@ -157,6 +157,65 @@ def _register_sqlite_stubs(engine):
         )
 
 
+class TestSolveLp(unittest.TestCase):
+    @staticmethod
+    def _site(site_id, latitude, longitude, containers, score):
+        from app.schemas.map.optimization import SiteUtilizationMetric
+
+        return SiteUtilizationMetric(
+            site_id=site_id,
+            site_name=f"Sitio {site_id}",
+            latitude=latitude,
+            longitude=longitude,
+            container_count=containers,
+            waste_type_id=1,
+            container_type_id=1,
+            avg_fill_level=score * 100,
+            peak_fill_rate=0.0,
+            overflow_frequency=0,
+            utilization_score=score,
+            category="idle" if score < 0.5 else "critical",
+        )
+
+    def test_moves_whole_containers_and_uses_all_the_supply(self):
+        """Sin pedir solución entera, el LP mueve contenedores enteros y respeta
+        oferta y demanda, aun con muchos óptimos empatados."""
+        from collections import Counter
+
+        from app.services.map.optimization_service import _solve_lp
+
+        # Dos donantes y tres receptores iguales en el mismo lugar: muchos óptimos empatados.
+        donors = [
+            self._site(1, -34.600, -58.400, 4, 0.1),
+            self._site(2, -34.600, -58.410, 3, 0.1),
+        ]
+        receivers = [
+            self._site(site_id, -34.605, -58.405, 2, 0.9) for site_id in (10, 11, 12)
+        ]
+        supply = {1: 3, 2: 2}
+        demand = {10: 2, 11: 2, 12: 2}
+        containers = {1: [101, 102, 103, 104], 2: [201, 202, 203]}
+
+        moves = _solve_lp(
+            donors,
+            receivers,
+            supply,
+            demand,
+            OptimizationConfig(max_distance_km=5.0, algorithm="lp"),
+            containers,
+            {container: 1 for ids in containers.values() for container in ids},
+            {site.site_id: site for site in donors + receivers},
+        )
+
+        # Hay más demanda (6) que oferta (5): se usa toda la oferta.
+        self.assertEqual(len(moves), 5)
+        self.assertEqual(len({move.container_id for move in moves}), 5)
+        donated = Counter(move.from_site_id for move in moves)
+        received = Counter(move.to_site_id for move in moves)
+        self.assertEqual(dict(donated), supply)
+        self.assertTrue(all(received[site] <= demand[site] for site in received))
+
+
 TABLES = [
     WasteType.__table__,
     ContainerType.__table__,

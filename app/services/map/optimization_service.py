@@ -826,14 +826,17 @@ def _solve_lp(
         for di, rj, _ in pairs
     ]
 
-    # Resolver con HiGHS (integrality=1 para resolución entera rápida)
+    # Resolver con HiGHS como LP continuo. Es un problema de transporte (cada
+    # variable aparece en una restricción de donante y en una de receptor) con
+    # límites enteros, así que la solución óptima que devuelve el simplex ya es
+    # entera. Pedirla entera (integrality) da la misma solución y es mucho más
+    # lento, porque pasa a resolverse como problema entero.
     result = linprog(
         c,
         A_ub=A_ub,
         b_ub=b_ub,
         bounds=bounds,
         method="highs",
-        integrality=1,
     )
 
     if not result.success:
