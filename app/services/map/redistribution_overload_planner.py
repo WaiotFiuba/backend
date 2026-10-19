@@ -59,8 +59,13 @@ def plan_overload_moves(
     max_distance_km: float,
     critical_level: float = DEFAULT_CRITICAL_LEVEL,
     overflow_weight: float = DEFAULT_OVERFLOW_WEIGHT,
+    move_cost: float = 0.0,
 ) -> list[PlannedMove]:
-    """Movimientos de a un contenedor, en el orden en que se eligieron."""
+    """Movimientos de a un contenedor, en el orden en que se eligieron.
+
+    Solo hace los que mejoran más que `move_cost` (en las unidades de
+    OverloadProfile.cost).
+    """
     if not sites:
         return []
     count = [site.containers for site in sites]
@@ -119,7 +124,7 @@ def plan_overload_moves(
 
     def push(donor: int, receiver: int) -> None:
         value = gain(donor, receiver)
-        if value > _MIN_GAIN:
+        if value > move_cost + _MIN_GAIN:
             # A igual mejora, primero el donante más cercano.
             heapq.heappush(heap, (-value, distance(donor, receiver), donor, receiver))
 
@@ -131,7 +136,7 @@ def plan_overload_moves(
     while heap:
         negative_gain, dist, donor, receiver = heapq.heappop(heap)
         current = gain(donor, receiver)
-        if current <= _MIN_GAIN:
+        if current <= move_cost + _MIN_GAIN:
             continue
         if -negative_gain - current > _MIN_GAIN:
             push(donor, receiver)  # la ganancia cambió desde que se encoló
