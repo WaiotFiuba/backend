@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.map_database import MapSessionLocal
 from app.models.map.container import Container
 from app.models.map.data_level import DataLevel
+from app.services.data_level_partitions import day_of, drop_partitions, is_partitioned
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,9 @@ async def purge_if_due(
             return None
 
         started = time.perf_counter()
-        deleted = await purge_readings_up_to(db, oldest_id, last_id_to_delete)
+        deleted = await _drop_old_partitions(db, last_id_to_delete)
+        if deleted is None:
+            deleted = await purge_readings_up_to(db, oldest_id, last_id_to_delete)
         logger.debug(
             "Retencion de data_level: %s lecturas borradas en %.2fs.",
             deleted,
@@ -86,6 +89,27 @@ async def purge_if_due(
         )
         await _check_window(db, periods, container_count)
         return deleted
+
+
+async def _drop_old_partitions(db: AsyncSession, last_id_to_delete: int) -> int | None:
+    """Con data_level particionada, borra las particiones de los días enteros que
+    quedan fuera de la ventana. Devuelve cuántas borró, o None si no está particionada.
+
+    Se conserva al menos la ventana: la partición del día en que empieza queda entera.
+    """
+    if not await is_partitioned(await db.connection()):
+        return None
+    first_kept = await db.scalar(
+        select(DataLevel.reading_date)
+        .where(DataLevel.id > last_id_to_delete)
+        .order_by(DataLevel.id)
+        .limit(1)
+    )
+    if first_kept is None:
+        return 0
+    dropped = await drop_partitions(db, before=day_of(first_kept))
+    await db.commit()
+    return dropped
 
 
 async def _check_window(db: AsyncSession, periods: int, container_count: int) -> None:
@@ -121,7 +145,14 @@ async def _check_window(db: AsyncSession, periods: int, container_count: int) ->
     connection = await db.connection()
     if connection.dialect.name != "postgresql":
         return
-    size_bytes = await db.scalar(text("SELECT pg_total_relation_size('data_level')"))
+    # Con data_level particionada, la tabla madre no guarda filas: se suman las particiones.
+    size_bytes = await db.scalar(
+        text(
+            "SELECT pg_total_relation_size('data_level') + coalesce(("
+            "SELECT sum(pg_total_relation_size(inhrelid)) FROM pg_inherits "
+            "WHERE inhparent = 'data_level'::regclass), 0)"
+        )
+    )
     size_gb = (size_bytes or 0) / 1024**3
     warning_gb = get_settings().data_level_size_warning_gb
     if size_gb >= warning_gb:
