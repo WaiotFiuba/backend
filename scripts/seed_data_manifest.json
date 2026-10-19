@@ -52,8 +52,8 @@
     {
       "path": "datos/digital_twin/restricciones_contenedores.csv",
       "asset": "restricciones_contenedores.csv",
-      "sha256": "aa04e26e5096eacf36064d2df830c17afcaed01fb8d64eee0898c0cfc7efbdb3",
-      "size": 5801716
+      "sha256": "eba18567bf8ffc86bf73818cd708750d1d3d744ecb9ec17098ac93757cc19774",
+      "size": 5847737
     },
     {
       "path": "datos/digital_twin/waste_types.json",
