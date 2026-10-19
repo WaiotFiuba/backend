@@ -19,7 +19,7 @@ from app.models.map.optimization import (
 from app.models.map.site import Site
 from app.models.map.waste_type import WasteType
 from app.schemas.map.optimization import OptimizationConfig
-from app.services.map.redistribution_overload_planner import PlannedMove
+from app.services.map.redistribution_overload_planner import PlannedMove, SiteState
 from app.services.map.redistribution_overload_service import (
     _assign_containers,
     generate_overload_plan,
@@ -38,7 +38,10 @@ TABLES = [
     OptimizationWhatIfLevel.__table__,
     OptimizationWhatIfTotals.__table__,
 ]
-NO_CAPACITY = OptimizationConfig(algorithm="overload", apply_capacity_constraints=False)
+# Sin costo por movimiento: el único movimiento de los datos ahorra 1 hora.
+NO_CAPACITY = OptimizationConfig(
+    algorithm="overload", apply_capacity_constraints=False, move_cost_hours_per_week=0
+)
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -208,6 +211,44 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.expected_improvement, 1)
         self.assertEqual(plan.config.algorithm, "overload")
 
+    async def test_the_mip_generates_the_same_plan(self):
+        config = NO_CAPACITY.model_copy(update={"algorithm": "overload_mip"})
+        async with self.session_maker() as session:
+            plan = await generate_overload_plan(session, config)
+
+        self.assertEqual([(m.from_site_id, m.to_site_id) for m in plan.moves], [(2, 1)])
+        self.assertEqual(plan.moves[0].overload_reduction, 1)
+        self.assertEqual(plan.config.algorithm, "overload_mip")
+
+    async def test_the_mip_falls_back_to_the_greedy_without_a_solution(self):
+        from unittest.mock import patch
+
+        import app.services.map.redistribution_overload_service as service
+        from app.services.map.redistribution_overload_mip import OverloadMipError
+
+        config = NO_CAPACITY.model_copy(update={"algorithm": "overload_mip"})
+        with patch.object(
+            service,
+            "plan_overload_moves_mip",
+            side_effect=OverloadMipError("Time limit reached"),
+        ):
+            async with self.session_maker() as session:
+                plan = await generate_overload_plan(session, config)
+
+        self.assertEqual([(m.from_site_id, m.to_site_id) for m in plan.moves], [(2, 1)])
+
+    async def test_the_move_cost_is_converted_to_the_window(self):
+        # El movimiento ahorra 1 hora en la ventana de 28 días; con 0,5 h/semana
+        # tendría que ahorrar 2.
+        for algorithm in ("overload", "overload_mip"):
+            config = NO_CAPACITY.model_copy(
+                update={"algorithm": algorithm, "move_cost_hours_per_week": 0.5}
+            )
+            async with self.session_maker() as session:
+                plan = await generate_overload_plan(session, config)
+            with self.subTest(algorithm=algorithm):
+                self.assertEqual(plan.moves, [])
+
     async def test_move_impact_is_cumulative_for_the_same_donor(self):
         async with self.session_maker() as session:
             candidates = await load_overload_candidates(
@@ -240,7 +281,11 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
             ) as client:
                 res = await client.post(
                     "/map/optimization/plan",
-                    json={"algorithm": "overload", "apply_capacity_constraints": False},
+                    json={
+                        "algorithm": "overload",
+                        "apply_capacity_constraints": False,
+                        "move_cost_hours_per_week": 0,
+                    },
                 )
         finally:
             app.dependency_overrides.pop(get_map_db, None)
@@ -308,3 +353,33 @@ class TestLoadOverloadCandidates(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hourly[1].levels, [30, 50, 70, 90])
         self.assertEqual(hourly[2].levels, [10, 15, 20, 25])
         self.assertEqual(hourly[1].collected, [False] * 4)
+
+
+def test_plan_by_group_interleaves_the_groups_by_overload_reduction():
+    from app.services.map.redistribution_overload_service import (
+        OverloadCandidate,
+        _plan_by_group,
+    )
+
+    def candidate(site_id, group):
+        return OverloadCandidate(
+            state=SiteState(site_id, 0.0, 0.0, 2, None),
+            name="",
+            group=group,
+            average_level=0.0,
+        )
+
+    # Cada grupo devuelve sus movimientos ya ordenados; el del sitio 1 tiene dos.
+    by_site = {
+        1: [PlannedMove(1, 1, 0.1, 5.0), PlannedMove(1, 1, 0.1, 1.0)],
+        2: [PlannedMove(2, 2, 0.1, 3.0)],
+    }
+
+    def planner(sites, *, max_distance_km, move_cost):
+        return by_site[sites[0].site_id]
+
+    planned = _plan_by_group(
+        [candidate(1, (1, 1)), candidate(2, (1, 2))], planner, 2.0, 0.0
+    )
+
+    assert [move.overload_reduction for move in planned] == [5.0, 3.0, 1.0]

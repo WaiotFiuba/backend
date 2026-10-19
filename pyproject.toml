@@ -27,6 +27,7 @@ dependencies = [
     "chronos-forecasting>=2.0",
     "torch",
     "pyproj>=3.8.0",
+    "highspy>=1.15.1",
 ]
 
 [dependency-groups]

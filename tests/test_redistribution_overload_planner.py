@@ -68,6 +68,30 @@ def test_a_site_with_one_container_never_donates():
     assert plan_overload_moves(sites, max_distance_km=2) == []
 
 
+def test_a_site_never_donates_and_receives_in_the_same_plan():
+    # B está sobrecargado pero tiene 2 contenedores, así que también podría donar;
+    # C solo tiene a B a menos de 2 km. Sin la regla, B le da a C y a la vez
+    # recibe de A (relevo A -> B -> C).
+    busy = [100, 200, 300, 400, 500]
+    initial = {1: 10, 2: 2, 3: 1}
+    sites = [
+        _site(1, 0, initial[1], [10, 20, 30]),
+        _site(2, 1.5, initial[2], busy),
+        _site(3, 3.0, initial[3], OVERLOADED),
+    ]
+
+    moves = plan_overload_moves(sites, max_distance_km=2)
+
+    donors = {m.donor_site_id for m in moves}
+    receivers = {m.receiver_site_id for m in moves}
+    assert moves
+    assert donors.isdisjoint(receivers)
+    # Un donante nunca dona contenedores que recibió en el mismo plan.
+    for site_id in donors:
+        donated = sum(m.donor_site_id == site_id for m in moves)
+        assert donated < initial[site_id]
+
+
 def test_prefers_the_closest_donor_when_the_gain_is_the_same():
     sites = [
         _site(1, 0, 1, OVERLOADED),
@@ -89,6 +113,14 @@ def test_a_receiver_can_get_several_containers_until_it_stops_improving():
 
     assert [(m.donor_site_id, m.receiver_site_id) for m in moves] == [(2, 1)] * 2
     assert sites[0].profile.cost(3) == 0
+
+
+def test_the_move_cost_discards_moves_that_improve_little():
+    # Mover el contenedor le ahorra al receptor 1 hora en zona crítica.
+    sites = [_site(1, 0, 1, [40, 60, 80]), _site(2, 0.5, 3, IDLE)]
+
+    assert len(plan_overload_moves(sites, max_distance_km=2, move_cost=0)) == 1
+    assert plan_overload_moves(sites, max_distance_km=2, move_cost=2) == []
 
 
 def test_no_moves_without_overloaded_sites_or_donors():

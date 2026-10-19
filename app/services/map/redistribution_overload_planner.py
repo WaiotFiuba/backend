@@ -7,6 +7,8 @@ recalculan los pares afectados y se repite hasta que ningún movimiento mejora.
 
 Restricciones:
 - ningún sitio queda con 0 contenedores;
+- un sitio que recibió no dona y uno que donó no recibe: el primer movimiento
+  de cada sitio fija su rol, así el plan no arma relevos (A -> B -> C);
 - un receptor no supera la capacidad física de su cuadra (si se conoce);
 - donante y receptor están a menos de `max_distance_km`.
 
@@ -57,8 +59,13 @@ def plan_overload_moves(
     max_distance_km: float,
     critical_level: float = DEFAULT_CRITICAL_LEVEL,
     overflow_weight: float = DEFAULT_OVERFLOW_WEIGHT,
+    move_cost: float = 0.0,
 ) -> list[PlannedMove]:
-    """Movimientos de a un contenedor, en el orden en que se eligieron."""
+    """Movimientos de a un contenedor, en el orden en que se eligieron.
+
+    Solo hace los que mejoran más que `move_cost` (en las unidades de
+    OverloadProfile.cost).
+    """
     if not sites:
         return []
     count = [site.containers for site in sites]
@@ -76,8 +83,14 @@ def plan_overload_moves(
         limit = sites[index].max_containers
         return limit is None or count[index] < limit
 
+    # Rol de cada sitio en el plan, fijado por su primer movimiento.
+    donated: set[int] = set()
+    received: set[int] = set()
+
     def gain(donor: int, receiver: int) -> float:
         if count[donor] <= 1 or not can_receive(receiver):
+            return 0.0
+        if donor in received or receiver in donated:
             return 0.0
         relief = cost(receiver, count[receiver]) - cost(receiver, count[receiver] + 1)
         damage = cost(donor, count[donor] - 1) - cost(donor, count[donor])
@@ -111,7 +124,7 @@ def plan_overload_moves(
 
     def push(donor: int, receiver: int) -> None:
         value = gain(donor, receiver)
-        if value > _MIN_GAIN:
+        if value > move_cost + _MIN_GAIN:
             # A igual mejora, primero el donante más cercano.
             heapq.heappush(heap, (-value, distance(donor, receiver), donor, receiver))
 
@@ -123,13 +136,15 @@ def plan_overload_moves(
     while heap:
         negative_gain, dist, donor, receiver = heapq.heappop(heap)
         current = gain(donor, receiver)
-        if current <= _MIN_GAIN:
+        if current <= move_cost + _MIN_GAIN:
             continue
         if -negative_gain - current > _MIN_GAIN:
             push(donor, receiver)  # la ganancia cambió desde que se encoló
             continue
         count[donor] -= 1
         count[receiver] += 1
+        donated.add(donor)
+        received.add(receiver)
         moves.append(
             PlannedMove(
                 donor_site_id=sites[donor].site_id,
