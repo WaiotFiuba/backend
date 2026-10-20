@@ -47,7 +47,7 @@ class ZoneProfile:
     commercial_pct: float
     office_pct: float
     industrial_pct: float
-    demand_multiplier: float  # multiplicador base de demanda (del CSV de usos)
+    demand_multiplier: float  # volumen relativo, de category_demand_weights
     hour_weights: dict[int, float] = field(default_factory=dict)  # del YAML de perfiles
     weekday_factors: dict[int, float] = field(
         default_factory=dict
@@ -167,6 +167,15 @@ LAND_USE_TYPES: tuple[tuple[str, str], ...] = (
     ("office", "office_pct"),
     ("industrial", "industrial_pct"),
 )
+
+
+def demand_multiplier(pcts: dict[str, float], weights: dict[str, float]) -> float:
+    """Basura relativa de un radio o barrio: lo que genera cada uso del suelo
+    (category_demand_weights), ponderado por su porcentaje de parcelas. El resto
+    de las parcelas cuenta como "other"."""
+    other_pct = max(0.0, 100.0 - sum(pcts.values()))
+    total = sum(pct / 100.0 * weights.get(use, 1.0) for use, pct in pcts.items())
+    return round(total + other_pct / 100.0 * weights.get("other", 1.0), 4)
 
 
 # Perfil por defecto cuando no se puede determinar la zona
@@ -332,7 +341,7 @@ class ZoneClassifier:
     ) -> ZoneProfile:
         """Perfil de un radio o barrio con su mezcla de usos del suelo. La curva
         horaria y semanal es la mezcla de las curvas de sus tipos de uso (ver
-        _mixed_shape); el volumen es su demand_multiplier."""
+        _mixed_shape); el volumen sale de category_demand_weights."""
         zone_type = row["zone_type"].strip()
         shape = self._mixed_shape(row)
         if shape is None:
@@ -362,7 +371,10 @@ class ZoneClassifier:
             commercial_pct=float(row.get("commercial_pct", 0)),
             office_pct=float(row.get("office_pct", 0)),
             industrial_pct=float(row.get("industrial_pct", 0)),
-            demand_multiplier=float(row.get("demand_multiplier") or 1.0),
+            demand_multiplier=demand_multiplier(
+                {use: float(row.get(column) or 0) for use, column in LAND_USE_TYPES},
+                self._category_waste_weights,
+            ),
             hour_weights=hour_weights,
             weekday_factors=weekday_factors,
             shape=shape,

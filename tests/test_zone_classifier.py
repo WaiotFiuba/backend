@@ -271,6 +271,34 @@ def test_the_weekend_factor_comes_from_the_curve(tmp_path):
     assert office.weekend_factor < 0.2
 
 
+def test_the_volume_comes_from_the_category_demand_weights(tmp_path):
+    # Se calcula con los porcentajes de parcelas y category_demand_weights; la
+    # columna demand_multiplier del CSV ya no se lee.
+    classifier = _classifier_with_radios(
+        tmp_path,
+        [
+            {
+                "radio_code": "oficinas",
+                "zone_type": "office",
+                "office_pct": 100,
+                "demand_multiplier": 9.9,
+            },
+            {
+                "radio_code": "mitad",
+                "zone_type": "office",
+                "office_pct": 50,
+                "industrial_pct": 50,
+            },
+            {"radio_code": "sin_uso", "zone_type": "mixed"},
+        ],
+    )
+
+    assert classifier.get_profile("oficinas").demand_multiplier == 0.85
+    assert classifier.get_profile("mitad").demand_multiplier == 0.75
+    # Sin parcelas con uso: todo cuenta como "other".
+    assert classifier.get_profile("sin_uso").demand_multiplier == 0.5
+
+
 def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
     # La curva horaria y semanal de cada radio es la mezcla de las curvas de
     # sus tipos de uso, ponderada por % de parcelas x basura que genera cada

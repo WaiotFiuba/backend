@@ -79,23 +79,13 @@ def _resolve_file(filename: str) -> Path | None:
     return next((p for p in candidates if p.exists()), None)
 
 
-def _load_yaml_config(
-    config_path: Path | None,
-) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+def _load_yaml_config(config_path: Path | None) -> dict[str, float]:
     thresholds = {
         "industrial_min_pct": 25.0,
         "office_min_pct": 15.0,
         "commercial_min_pct": 30.0,
         "residential_dominant_min_pct": 35.0,
         "residential_combined_min_pct": 40.0,
-    }
-    category_weights = {
-        "residential_multifamily": {"demand_multiplier": 1.10},
-        "residential_singlefamily": {"demand_multiplier": 0.95},
-        "commercial": {"demand_multiplier": 1.40},
-        "office": {"demand_multiplier": 0.85},
-        "industrial": {"demand_multiplier": 0.65},
-        "other": {"demand_multiplier": 0.50},
     }
 
     if config_path and config_path.exists():
@@ -104,17 +94,12 @@ def _load_yaml_config(
                 data = yaml.safe_load(fh) or {}
             if "classification_thresholds" in data:
                 thresholds.update(data["classification_thresholds"])
-            if "category_demand_weights" in data:
-                for cat, val in data["category_demand_weights"].items():
-                    category_weights[cat] = {
-                        "demand_multiplier": float(val.get("demand_multiplier", 1.0)),
-                    }
         except Exception as err:
             logger.warning(
                 f"Error al leer {config_path}: {err}. Usando valores por defecto."
             )
 
-    return thresholds, category_weights
+    return thresholds
 
 
 def _barrios_by_radio(
@@ -240,40 +225,6 @@ def _derive_zone_type(
         )
 
     return "mixed"
-
-
-def _compute_demand_multiplier(
-    res_multi_pct: float,
-    res_single_pct: float,
-    commercial_pct: float,
-    office_pct: float,
-    industrial_pct: float,
-    category_weights: dict[str, dict[str, float]],
-) -> float:
-    other_pct = max(
-        0.0,
-        100.0
-        - res_multi_pct
-        - res_single_pct
-        - commercial_pct
-        - office_pct
-        - industrial_pct,
-    )
-    w_multi = (res_multi_pct / 100.0) * category_weights["residential_multifamily"][
-        "demand_multiplier"
-    ]
-    w_single = (res_single_pct / 100.0) * category_weights["residential_singlefamily"][
-        "demand_multiplier"
-    ]
-    w_comm = (commercial_pct / 100.0) * category_weights["commercial"][
-        "demand_multiplier"
-    ]
-    w_off = (office_pct / 100.0) * category_weights["office"]["demand_multiplier"]
-    w_ind = (industrial_pct / 100.0) * category_weights["industrial"][
-        "demand_multiplier"
-    ]
-    w_other = (other_pct / 100.0) * category_weights["other"]["demand_multiplier"]
-    return round(w_multi + w_single + w_comm + w_off + w_ind + w_other, 4)
 
 
 async def _load_streets_from_db_or_geojson(calles_path: Path | None, session=None):
@@ -452,7 +403,7 @@ async def process_land_use_async(
         )
         return {"status": "skipped", "reason": "radios_csv_missing"}
 
-    thresholds, category_weights = _load_yaml_config(config_path)
+    thresholds = _load_yaml_config(config_path)
 
     # 1. Cargar radios censales
     radio_codes, radio_depts, geometries = [], [], []
@@ -581,7 +532,6 @@ async def process_land_use_async(
             rm, rs, cm, of, ind = 40.0, 40.0, 10.0, 5.0, 5.0
 
         zt = _derive_zone_type(rm, rs, cm, of, ind, thresholds)
-        dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
 
         radio_rows.append(
             {
@@ -595,7 +545,6 @@ async def process_land_use_async(
                 "office_pct": of,
                 "industrial_pct": ind,
                 "total_parcelas": total_p,
-                "demand_multiplier": dm,
             }
         )
 
@@ -614,7 +563,6 @@ async def process_land_use_async(
             "office_pct",
             "industrial_pct",
             "total_parcelas",
-            "demand_multiplier",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -637,7 +585,6 @@ async def process_land_use_async(
         of = b_pct("office")
         ind = b_pct("industrial")
         zt = _derive_zone_type(rm, rs, cm, of, ind, thresholds)
-        dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
         barrio_rows.append(
             {
                 "barrio": barrio,
@@ -648,7 +595,6 @@ async def process_land_use_async(
                 "office_pct": of,
                 "industrial_pct": ind,
                 "total_parcelas": total_b,
-                "demand_multiplier": dm,
             }
         )
 
@@ -668,7 +614,6 @@ async def process_land_use_async(
             "office_pct",
             "industrial_pct",
             "total_parcelas",
-            "demand_multiplier",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
