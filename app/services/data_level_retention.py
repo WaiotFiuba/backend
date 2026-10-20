@@ -10,13 +10,19 @@ from collections.abc import Callable
 from datetime import timedelta
 
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.map_database import MapSessionLocal
 from app.models.map.container import Container
 from app.models.map.data_level import DataLevel
-from app.services.data_level_partitions import day_of, drop_partitions, is_partitioned
+from app.services.data_level_partitions import (
+    day_of,
+    drop_partitions,
+    is_partitioned,
+    lock_partitions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +75,9 @@ async def purge_if_due(
         if not container_count:
             return None
 
+        connection = await db.connection()
+        if await is_partitioned(connection):
+            await lock_partitions(connection)
         oldest_id, newest_id = (
             await db.execute(select(func.min(DataLevel.id), func.max(DataLevel.id)))
         ).one()
@@ -169,5 +178,12 @@ async def _check_window(db: AsyncSession, periods: int, container_count: int) ->
 async def purge_in_background() -> None:
     try:
         await purge_if_due()
+    except DBAPIError:
+        # Casi siempre el lock_timeout de lock_partitions: se reintenta con el
+        # próximo lote de la ingesta.
+        logger.warning(
+            "No se pudo aplicar la retencion de data_level; se reintenta.",
+            exc_info=True,
+        )
     except Exception:
         logger.exception("No se pudo aplicar la retencion de data_level.")
