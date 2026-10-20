@@ -118,6 +118,17 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(config.end, datetime(2026, 1, 1, 3, 0, 0))
         self.assertEqual(config.periods, 4)
 
+    def test_periods_until_follows_a_new_end(self) -> None:
+        config = scenario_from_mapping(
+            {"start": "2026-01-01T00:00:00", "end": "2026-01-01T03:00:00"}
+        )
+
+        self.assertEqual(config.periods_until(datetime(2026, 1, 1, 3, 0)), 4)
+        self.assertEqual(config.periods_until(datetime(2026, 1, 2, 3, 0)), 28)
+        # Sin fin: los períodos del escenario (0 es sin fin).
+        self.assertEqual(config.periods_until(None), 4)
+        self.assertEqual(ScenarioConfig(periods=0).periods_until(None), 0)
+
     def test_scenario_end_date_must_be_after_start(self) -> None:
         with self.assertRaises(ValueError):
             scenario_from_mapping(

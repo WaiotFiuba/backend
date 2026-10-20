@@ -4,6 +4,7 @@ import functools
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from simulator.domain.entities import SimulationSession
 
@@ -16,6 +17,7 @@ class ControlSnapshot:
     global_current: float
     global_target: float
     zones: tuple[tuple[str, float, float], ...]  # (barrio, actual, objetivo)
+    end: datetime | None = None  # el fin se puede cambiar en vivo
 
     @classmethod
     def from_session(cls, session: SimulationSession) -> ControlSnapshot:
@@ -29,6 +31,7 @@ class ControlSnapshot:
                     for zone in session.zone_overrides
                 )
             ),
+            end=_scenario_end(session.scenario),
         )
 
     def targets(self) -> tuple[float, float, tuple[tuple[str, float], ...]]:
@@ -54,6 +57,14 @@ class ControlSnapshot:
             )
 
         return neighborhood_fn
+
+
+def _scenario_end(scenario: dict[str, object]) -> datetime | None:
+    end = scenario.get("end")
+    if not end:
+        return None
+    # Sin zona horaria, igual que scenario_from_mapping.
+    return datetime.fromisoformat(str(end)).replace(tzinfo=None)
 
 
 @functools.lru_cache(maxsize=256)

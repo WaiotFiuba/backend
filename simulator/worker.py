@@ -140,12 +140,21 @@ async def _run_session(
 
         previous_controls: ControlSnapshot | None = None
 
-        period_iterator = (
-            range(config.periods) if config.periods > 0 else itertools.count()
-        )
-        for period in period_iterator:
+        total_periods = max(config.periods, 0)
+        for period in itertools.count():
             session_state = await _wait_until_runnable(client, simulation_id)
             if session_state is None:
+                break
+            controls = ControlSnapshot.from_session(session_state)
+            end_period = config.periods_until(controls.end)
+            if end_period != total_periods:
+                total_periods = end_period
+                await client.update_progress(
+                    simulation_id, {"total_periods": total_periods}
+                )
+            if 0 < total_periods <= period:
+                await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
+                logger.info("Simulacion %s completada.", simulation_id)
                 break
 
             simulated_time = config.start + timedelta(
@@ -153,7 +162,6 @@ async def _run_session(
             )
             simulated_time = _as_utc(simulated_time)
 
-            controls = ControlSnapshot.from_session(session_state)
             if previous_controls is None or (
                 controls.targets() != previous_controls.targets()
             ):
@@ -197,7 +205,7 @@ async def _run_session(
                 config.frequency_minutes, speedup, tick_elapsed
             )
 
-            total_periods_str = str(config.periods) if config.periods > 0 else "∞"
+            total_periods_str = str(total_periods) if total_periods > 0 else "∞"
             logger.info(
                 "Simulacion %s tick %s/%s: tiempo=%s mediciones=%s "
                 "recolecciones=%s alarmas=%s speedup=%sx demanda=%.3f (computo=%.2fs, espera=%.2fs).",
@@ -216,9 +224,6 @@ async def _run_session(
 
             if not await _wait_between_ticks(client, simulation_id, remaining_delay):
                 break
-        else:
-            await client.finish_session(simulation_id, SimulationStatus.COMPLETED)
-            logger.info("Simulacion %s completada.", simulation_id)
     except asyncio.CancelledError:
         await client.finish_session(
             simulation_id, SimulationStatus.FAILED, "Worker cancelado."

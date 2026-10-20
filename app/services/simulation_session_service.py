@@ -225,6 +225,8 @@ async def update_simulation_controls(
     )
     if payload.speedup is not None:
         session.speedup = payload.speedup
+    if payload.end is not None:
+        _set_session_end(session, payload.end)
     if payload.transition_minutes is not None:
         session.transition_minutes = payload.transition_minutes
     if payload.global_demand_multiplier is not None:
@@ -602,6 +604,20 @@ async def _simulation_read(
             for item in overrides
         ],
     )
+
+
+def _set_session_end(session: SimulationSession, end: datetime) -> None:
+    """Guarda un nuevo fin; el simulador lo relee en cada tick."""
+    if session.status == SimulationStatus.PENDING:
+        raise HTTPException(status_code=409, detail="La simulacion todavia no arranco.")
+    end = _as_utc(end)
+    if session.simulated_time is not None and end <= _as_utc(session.simulated_time):
+        raise HTTPException(
+            status_code=422,
+            detail="El fin tiene que ser posterior al tiempo simulado actual.",
+        )
+    # El escenario guarda las fechas sin zona, como las reporta el simulador.
+    session.scenario = {**session.scenario, "end": end.replace(tzinfo=None).isoformat()}
 
 
 def _as_utc(value: datetime) -> datetime:

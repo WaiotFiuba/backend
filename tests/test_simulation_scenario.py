@@ -18,7 +18,7 @@ from app.models.map.optimization import (
     RedistributionPlan,
 )
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
-from app.schemas.digital_twin import SimulationCreate
+from app.schemas.digital_twin import SimulationControlsUpdate, SimulationCreate
 from simulator.simulation.scenario import (
     ScenarioConfig,
     scenario_from_mapping,
@@ -264,3 +264,49 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(updated.scenario, effective)
         self.assertEqual(updated.total_periods, 24)
+
+    async def _running(self, simulated_time: datetime):
+        created = await self._create({"start": "2026-10-06T06:00:00"})
+        async with self.session_maker() as db:
+            await svc.update_simulation_progress(
+                db,
+                created.id,
+                status="running",
+                scenario=scenario_to_record(
+                    scenario_from_mapping({**created.scenario, "periods": 24})
+                ),
+                total_periods=24,
+                simulated_time=simulated_time,
+            )
+        return created
+
+    async def _set_end(self, simulation_id: int, end: datetime):
+        async with self.session_maker() as db:
+            return await svc.update_simulation_controls(
+                db, simulation_id, SimulationControlsUpdate(end=end)
+            )
+
+    async def test_the_new_end_is_stored_for_the_simulator(self):
+        created = await self._running(datetime(2026, 10, 6, 12, 0))
+
+        updated = await self._set_end(created.id, datetime(2026, 10, 8, 6, 0))
+
+        self.assertEqual(updated.scenario["end"], "2026-10-08T06:00:00")
+        # Los períodos los recalcula el simulador, no el backend.
+        self.assertEqual(updated.total_periods, 24)
+
+    async def test_the_end_cannot_be_before_the_current_simulated_time(self):
+        created = await self._running(datetime(2026, 10, 7, 6, 0))
+
+        with self.assertRaises(HTTPException) as ctx:
+            await self._set_end(created.id, datetime(2026, 10, 7, 5, 0))
+
+        self.assertEqual(ctx.exception.status_code, 422)
+
+    async def test_the_end_cannot_change_before_the_simulation_starts(self):
+        created = await self._create({"start": "2026-10-06T06:00:00"})
+
+        with self.assertRaises(HTTPException) as ctx:
+            await self._set_end(created.id, datetime(2026, 10, 8, 6, 0))
+
+        self.assertEqual(ctx.exception.status_code, 409)

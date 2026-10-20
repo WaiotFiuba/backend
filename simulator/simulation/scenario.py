@@ -60,6 +60,12 @@ class ScenarioConfig:
     def total_hours(self) -> float:
         return self.periods * self.frequency_minutes / 60
 
+    def periods_until(self, end: datetime | None) -> int:
+        """Períodos desde el inicio hasta end (0 = sin fin); sin end, los del escenario."""
+        if end is None:
+            return max(self.periods, 0)
+        return _periods_between(self.start, end, self.frequency_minutes)
+
 
 def read_scenario_file(path: str | Path) -> dict[str, Any]:
     """Contenido de un escenario YAML o JSON, sin los defaults."""

@@ -97,6 +97,7 @@ class SimulationControlsUpdate(BaseModel):
     global_demand_multiplier: float | None = Field(default=None, gt=0, le=1100)
     transition_minutes: int | None = Field(default=None, ge=0, le=10080)
     zone_overrides: list[ZoneDemandOverride] | None = None
+    end: datetime | None = None
 
 
 class SimulationProgressUpdate(BaseModel):
