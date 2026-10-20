@@ -144,7 +144,8 @@ class TruckFleetSimulator:
 
             total_sites = len(route.site_ids)
             if total_sites <= num_hours:
-                sites_to_collect = route.site_ids
+                # Ruta corta: una sola pasada en la primera hora
+                sites_to_collect = route.site_ids if hour_idx == 0 else []
                 end_idx = total_sites
             else:
                 start_idx = int(hour_idx * total_sites / num_hours)

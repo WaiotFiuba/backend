@@ -100,7 +100,8 @@ class TestCollectionRoutesFromTopology(unittest.TestCase):
             route.site_ids = []
         sim.truck_fleet.routes["1184"].site_ids = ["2"]
 
-        tick = sim.run_tick(datetime(2026, 9, 2, 22, 0))
+        # 21 h: una ruta corta hace su única pasada en la primera hora del turno.
+        tick = sim.run_tick(datetime(2026, 9, 2, 21, 0))
 
         self.assertEqual([c.container_id for c in tick.collections], ["5"])
 

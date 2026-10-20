@@ -295,8 +295,9 @@ class TestTruckSimulation(unittest.TestCase):
         self.assertEqual(len(events), 0)
         self.assertEqual(truck.status, TruckStatus.AT_DEPOT)
 
-        # 2. Night step (22:00 hs) -> dispatches
-        night_time = datetime(2026, 9, 2, 22, 0, 0)
+        # 2. Night step (21:00 hs) -> dispatches: una ruta corta hace su única
+        # pasada en la primera hora del turno.
+        night_time = datetime(2026, 9, 2, 21, 0, 0)
         events = simulator.step(
             night_time,
             dt_seconds=300.0,
@@ -412,10 +413,46 @@ class TestTruckSimulation(unittest.TestCase):
         ]
         self.assertEqual(stops, [("RODRIGO_BUENO", "158")])
 
-        # Tick a las 05:45
-        tick = sim.run_tick(datetime(2026, 9, 2, 5, 45))
+        # Tick a las 21:45: una ruta corta hace su única pasada en la primera hora.
+        tick = sim.run_tick(datetime(2026, 9, 2, 21, 45))
         self.assertEqual(len(tick.collections), 1)
         self.assertLess(sim.state.levels["328"], 10.0)
+
+    def test_short_route_makes_a_single_pass_at_the_start_of_the_shift(self):
+        # Ruta de 3 paradas con 10 horas de recolección: recorre las 3 en la
+        # primera hora (21 h) y no vuelve a pasar esa noche.
+        sites = ["S1", "S2", "S3"]
+        routes = {
+            "7": TruckRoute(route_id="7", zone=1, service_name="Corta", site_ids=sites)
+        }
+        simulator = TruckFleetSimulator(
+            routes=routes,
+            sites_dict={s: (-34.6, -58.4) for s in sites},
+            collection_hours=(21, 22, 23, 0, 1, 2, 3, 4, 5, 6),
+        )
+        containers_by_site = {
+            s: [{"id": f"C-{s}", "current_level": 50.0}] for s in sites
+        }
+
+        collected_at: dict[str, list[int]] = {s: [] for s in sites}
+        night = [datetime(2026, 9, 2, h) for h in (21, 22, 23)] + [
+            datetime(2026, 9, 3, h) for h in range(0, 7)
+        ]
+        for moment in night:
+            # Los contenedores se vuelven a llenar entre horas: si la ruta pasara
+            # de nuevo, los recolectaría otra vez.
+            for site_containers in containers_by_site.values():
+                site_containers[0]["current_level"] = 50.0
+            events = simulator.step(
+                moment,
+                dt_seconds=3600.0,
+                speedup=1.0,
+                containers_by_site=containers_by_site,
+            )
+            for event in events:
+                collected_at[event["site_id"]].append(moment.hour)
+
+        self.assertEqual(collected_at, {"S1": [21], "S2": [21], "S3": [21]})
 
     def test_no_collection_days_blocks_trucks(self):
         routes = {
