@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Callable
 from simulator.trucks.truck_depots import (
     get_depot_for_zone,
 )
-from simulator.trucks.truck_routes import TruckRoute, build_collection_routes
+from simulator.trucks.truck_routes import (
+    TruckRoute,
+    build_collection_routes,
+    route_index,
+)
 
 if TYPE_CHECKING:
     from simulator.simulation.scenario import ScenarioConfig
@@ -87,7 +91,7 @@ class TruckFleetSimulator:
             if route.waypoints:
                 start_lat, start_lon = route.waypoints[0]
             else:
-                idx = int(r_id) if r_id.isdigit() else hash(r_id)
+                idx = route_index(r_id)
                 start_lat = depot.latitude + ((idx % 7) - 3) * 0.00035
                 start_lon = depot.longitude + (((idx // 7) % 7) - 3) * 0.00035
             self.trucks[truck_id] = TruckState(

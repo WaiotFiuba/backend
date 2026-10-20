@@ -22,6 +22,7 @@ from simulator.trucks.truck_routes import (
     build_collection_routes,
     resolve_green_routes_csv_path,
     resolve_routes_csv_path,
+    route_index,
 )
 
 
@@ -49,6 +50,26 @@ class TestTruckSimulation(unittest.TestCase):
             "se esperaba encontrar al menos una calle con 'ñ' ya corregida",
         )
         self.assertFalse(any("±" in name for name in all_street_names))
+
+    def test_parse_routes_csv_splits_routes_that_share_a_code(self):
+        # El GCBA repite el mismo cod_ruta_d en distintas zonas: cada zona es
+        # una ruta distinta.
+        routes = _parse_routes_csv(resolve_routes_csv_path())
+
+        self.assertNotIn("1025", routes)
+        split = {r_id: r for r_id, r in routes.items() if r_id.startswith("1025-")}
+        self.assertIn("1025-Z4", split)
+        self.assertGreater(len(split), 1)
+        for route in routes.values():
+            self.assertEqual({seg.zone for seg in route.segments}, {route.zone})
+            self.assertEqual(
+                {seg.service_name for seg in route.segments}, {route.service_name}
+            )
+
+    def test_route_index_is_stable(self):
+        self.assertEqual(route_index("1184"), 1184)
+        self.assertEqual(route_index("1025-Z4"), route_index("1025-Z4"))
+        self.assertEqual(route_index("1025-Z4"), 3663921560)
 
     def test_parse_green_routes_csv(self):
         routes = _parse_routes_csv(resolve_green_routes_csv_path())

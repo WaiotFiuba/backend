@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import logging
+import zlib
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -156,7 +158,7 @@ def _parse_routes_csv(csv_path: Path | str) -> dict[str, TruckRoute]:
         logger.warning("Archivo de rutas no encontrado en %s", csv_path)
         return {}
 
-    routes: dict[str, TruckRoute] = {}
+    grouped: dict[tuple[str, int], TruckRoute] = {}
 
     with open(csv_path, mode="r", encoding="utf-8", errors="ignore") as f:
         reader = csv.DictReader(f)
@@ -226,17 +228,29 @@ def _parse_routes_csv(csv_path: Path | str) -> dict[str, TruckRoute]:
                 barrio=row.get(k_barrio, "") if k_barrio else "",
             )
 
-            if raw_id not in routes:
-                routes[raw_id] = TruckRoute(
+            key = (raw_id, zona_int)
+            if key not in grouped:
+                grouped[key] = TruckRoute(
                     route_id=raw_id,
                     zone=zona_int,
                     service_name=service_name,
                     segments=[seg],
                 )
             else:
-                routes[raw_id].segments.append(seg)
+                grouped[key].segments.append(seg)
 
+    routes_per_code = Counter(code for code, _ in grouped)
+    routes: dict[str, TruckRoute] = {}
+    for (code, zona), route in grouped.items():
+        if routes_per_code[code] > 1:
+            route.route_id = f"{code}-Z{zona}"
+        routes[route.route_id] = route
     return routes
+
+
+def route_index(route_id: str) -> int:
+    """Número estable para un id de ruta (hash() cambia en cada ejecución)."""
+    return int(route_id) if route_id.isdigit() else zlib.crc32(route_id.encode())
 
 
 def resolve_green_routes_csv_path() -> Path:
@@ -313,7 +327,7 @@ def _fill_fallback_waypoints(routes: dict[str, TruckRoute]) -> None:
     for r in routes.values():
         if not r.waypoints:
             depot = get_depot_for_zone(r.zone)
-            idx = int(r.route_id) if r.route_id.isdigit() else hash(r.route_id)
+            idx = route_index(r.route_id)
             angle = (idx % 12) * (math.pi / 6.0)
             r.waypoints = [
                 (
