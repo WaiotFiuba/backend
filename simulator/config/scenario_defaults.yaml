@@ -40,9 +40,9 @@ fire_probability: 0.0
 signal_loss_probability: 0.0
 low_battery_probability: 0.0
 
-# Factor relativo de llenado por tipo de residuo. Multiplica la demanda que el
-# density processor le asigna a cada contenedor.
+# Factor relativo de llenado por tipo de residuo (la clase que manda el backend
+# en cada contenedor). Multiplica la demanda que el density processor le asigna
+# a cada contenedor.
 waste_type_factors:
-  reciclables: 0.55
-  residuos_humedos: 1.0
-  vidrio: 0.55
+  humedo: 1.0
+  reciclable: 0.55

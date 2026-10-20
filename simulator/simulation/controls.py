@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from simulator.domain.entities import SimulationSession
@@ -18,6 +18,7 @@ class ControlSnapshot:
     global_target: float
     zones: tuple[tuple[str, float, float], ...]  # (barrio, actual, objetivo)
     end: datetime | None = None  # el fin se puede cambiar en vivo
+    waste_type_multipliers: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def from_session(cls, session: SimulationSession) -> ControlSnapshot:
@@ -32,6 +33,7 @@ class ControlSnapshot:
                 )
             ),
             end=_scenario_end(session.scenario),
+            waste_type_multipliers=session.scenario.get("waste_type_multipliers") or {},
         )
 
     def targets(self) -> tuple[float, float, tuple[tuple[str, float], ...]]:

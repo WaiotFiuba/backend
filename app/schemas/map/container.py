@@ -1,6 +1,10 @@
 from pydantic import BaseModel, ConfigDict
-from typing import List
+from typing import List, Literal
 from datetime import datetime
+
+
+# Clase de residuo de un contenedor o sitio: la del filtro de sitios del mapa.
+WasteFilter = Literal["humedo", "reciclable"]
 
 
 class WasteTypeMapSchema(BaseModel):
@@ -37,6 +41,7 @@ class ContainersMapOutputSchema(BaseModel):
     container_type: ContainersMapTypeSchema
     zone: str | None = None
     density_factor: float = 1.0
+    waste_filter: WasteFilter | None = None
 
 
 class ContainerCluster(BaseModel):

@@ -7,6 +7,7 @@ from simulator.domain.entities import (
     Container,
     Device,
     Site,
+    WasteType,
 )
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
@@ -105,14 +106,14 @@ def test_simulation_differentiates_multifamily_vs_singlefamily_over_weekend():
                 id="C_MULTI",
                 site_id="SITE_MULTI",
                 name="Contenedor Multi",
-                waste_type="residuos",
+                waste_type=WasteType.HUMEDO,
                 height_cm=145,
             ),
             Container(
                 id="C_SINGLE",
                 site_id="SITE_SINGLE",
                 name="Contenedor Single",
-                waste_type="residuos",
+                waste_type=WasteType.HUMEDO,
                 height_cm=145,
             ),
         ],
@@ -165,14 +166,14 @@ def _build_multi_single_topology() -> SimulationTopology:
                 id="C_MULTI",
                 site_id="SITE_MULTI",
                 name="Contenedor Multi",
-                waste_type="residuos",
+                waste_type=WasteType.HUMEDO,
                 height_cm=145,
             ),
             Container(
                 id="C_SINGLE",
                 site_id="SITE_SINGLE",
                 name="Contenedor Single",
-                waste_type="residuos",
+                waste_type=WasteType.HUMEDO,
                 height_cm=145,
             ),
         ],

@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from simulator.domain.entities import WasteType
+
 # Valores por defecto de los parametros del escenario (ver el archivo).
 DEFAULTS_PATH = (
     Path(__file__).resolve().parents[1] / "config" / "scenario_defaults.yaml"
@@ -50,11 +52,12 @@ class ScenarioConfig:
     api_payloads: bool = False
     waste_type_factors: dict[str, float] = field(
         default_factory=lambda: {
-            "reciclables": 0.55,
-            "residuos_humedos": 1.0,
-            "vidrio": 0.55,
+            WasteType.HUMEDO: 1.0,
+            WasteType.RECICLABLE: 0.55,
         }
     )
+    # Ajuste del usuario por tipo de residuo, encima de waste_type_factors.
+    waste_type_multipliers: dict[str, float] = field(default_factory=dict)
 
     @property
     def total_hours(self) -> float:

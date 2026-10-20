@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.simulation_status import SimulationStatus
+from app.schemas.map.container import WasteFilter
 
 
 class TelemetryValues(BaseModel):
@@ -45,6 +46,10 @@ class ZoneDemandOverride(BaseModel):
     multiplier: float = Field(gt=0, le=1100)
 
 
+# Multiplicador por tipo de residuo, con las claves del filtro de sitios del mapa.
+WasteTypeMultipliers = dict[WasteFilter, Annotated[float, Field(gt=0, le=1100)]]
+
+
 class ScenarioInput(BaseModel):
     """Escenario que manda el front al crear una simulacion.
 
@@ -63,6 +68,7 @@ class ScenarioInput(BaseModel):
     collection_hours: list[int] | None = None
     collection_days: list[int | str] | None = None
     no_collection_days: list[int | str] | None = None
+    waste_type_multipliers: WasteTypeMultipliers | None = None
 
     @field_validator("start", "end", "periods", mode="before")
     @classmethod
@@ -98,6 +104,7 @@ class SimulationControlsUpdate(BaseModel):
     transition_minutes: int | None = Field(default=None, ge=0, le=10080)
     zone_overrides: list[ZoneDemandOverride] | None = None
     end: datetime | None = None
+    waste_type_multipliers: WasteTypeMultipliers | None = None
 
 
 class SimulationProgressUpdate(BaseModel):

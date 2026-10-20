@@ -20,7 +20,10 @@ from app.schemas.map.site import (
     SiteLevelHistoryPoint,
     SiteMapOutputSchema,
 )
-from app.services.map.container_service import _zoom_to_grid_size
+from app.services.map.container_service import (
+    WASTE_FILTER_PATTERNS,
+    _zoom_to_grid_size,
+)
 from app.services.map.reference_time_service import get_reference_time
 from app.services.simulation_session_service import get_active_simulation_session
 
@@ -115,13 +118,11 @@ def _containers_query(target_c=Container, site_ids: list[int] | None = None):
 def _waste_filter_conditions(
     waste_filter: Literal["all", "humedo", "reciclable"],
 ):
-    if waste_filter == "reciclable":
-        waste_name = func.lower(func.coalesce(WasteType.name, ""))
-        return [waste_name.like("%seca%")]
-    if waste_filter == "humedo":
-        waste_name = func.lower(func.coalesce(WasteType.name, "húmeda"))
-        return [waste_name.like("%húmed%")]
-    return []
+    if waste_filter == "all":
+        return []
+    # La misma regla que waste_filter_of: sin tipo de residuo cuenta como húmedo.
+    waste_name = func.lower(func.coalesce(WasteType.name, "húmeda"))
+    return [waste_name.like(f"%{WASTE_FILTER_PATTERNS[waste_filter]}%")]
 
 
 async def _fetch_containers_by_site(

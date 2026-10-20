@@ -12,7 +12,7 @@ from simulator.density_processor import (
     _to_metric,
     get_density_processor,
 )
-from simulator.domain.entities import Container, Device, Site
+from simulator.domain.entities import Container, Device, Site, WasteType
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import (
@@ -93,7 +93,7 @@ def test_topology_from_backend_records_applies_density():
             current_level=20,
             device_imei="IMEI-001",
             container_type="Carga Lateral 3.2m3",
-            waste_type="residuos",
+            waste_type=WasteType.HUMEDO,
             height_cm=145.0,
             volume_m3=3.2,
             zone="Almagro",
@@ -127,7 +127,7 @@ def test_simulation_engine_fills_proportionally():
         id="C1",
         site_id="S1",
         name="Cont 1",
-        waste_type="residuos_humedos",
+        waste_type=WasteType.HUMEDO,
         height_cm=145.0,
         volume_m3=3.2,
     )

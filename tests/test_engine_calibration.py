@@ -4,10 +4,11 @@ import unittest
 from datetime import datetime
 from types import SimpleNamespace
 
+from simulator.domain.entities import WasteType
 from simulator.generators.filling import calibration_factor
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
-from simulator.simulation.state import build_container_arrays, waste_type_factor
+from simulator.simulation.state import build_container_arrays
 from simulator.topology import Container, Device, SimulationTopology, Site
 from simulator.zone_classifier import get_zone_classifier
 
@@ -44,7 +45,7 @@ class TestCalibrationKeepsDailyCurve(unittest.TestCase):
             id="1",
             site_id="1",
             name="RSU",
-            waste_type="RSU Fracción Húmeda",
+            waste_type=WasteType.HUMEDO,
             height_cm=145,
         )
         topology = SimulationTopology(
@@ -69,23 +70,6 @@ class TestCalibrationKeepsDailyCurve(unittest.TestCase):
 
 
 class TestWasteTypeFactors(unittest.TestCase):
-    def test_recyclable_backend_waste_type_uses_recyclable_factor(self):
-        config = ScenarioConfig()
-
-        self.assertEqual(
-            waste_type_factor(
-                "RSU Fraccion Seca (Reciclables)", config.waste_type_factors
-            ),
-            config.waste_type_factors["reciclables"],
-        )
-        self.assertEqual(
-            waste_type_factor(
-                "RSU Fracci\u00f3n Seca (Reciclables)",
-                config.waste_type_factors,
-            ),
-            config.waste_type_factors["reciclables"],
-        )
-
     def test_container_arrays_apply_recyclable_factor(self):
         site = Site(
             id="S1",
@@ -99,7 +83,7 @@ class TestWasteTypeFactors(unittest.TestCase):
             id="C1",
             site_id="S1",
             name="RSU Fraccion Seca - Carga Lateral",
-            waste_type="RSU Fraccion Seca (Reciclables)",
+            waste_type=WasteType.RECICLABLE,
             height_cm=145,
         )
         device = Device(id="D1", container_id="C1")

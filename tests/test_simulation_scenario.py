@@ -303,6 +303,24 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ctx.exception.status_code, 422)
 
+    async def test_waste_type_multipliers_use_the_map_filter_keys(self):
+        created = await self._running(datetime(2026, 10, 6, 12, 0))
+        async with self.session_maker() as db:
+            updated = await svc.update_simulation_controls(
+                db,
+                created.id,
+                SimulationControlsUpdate(waste_type_multipliers={"reciclable": 2.0}),
+            )
+
+        self.assertEqual(
+            scenario_from_mapping(updated.scenario).waste_type_multipliers,
+            {"reciclable": 2.0},
+        )
+        for invalid in ({"reciclables": 2.0}, {"humedo": 0}):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    SimulationControlsUpdate(waste_type_multipliers=invalid)
+
     async def test_the_end_cannot_change_before_the_simulation_starts(self):
         created = await self._create({"start": "2026-10-06T06:00:00"})
 

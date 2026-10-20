@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import URLError
 
+from simulator.domain.entities import WasteType
 from simulator.exporters.files import export_simulation
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import (
@@ -150,7 +151,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
                     current_level=41,
                     device_imei="imei-123",
                     container_type="negro",
-                    waste_type="residuos_humedos",
+                    waste_type=WasteType.HUMEDO,
                     height_cm=150,
                     volume_m3=3.2,
                 )
@@ -184,6 +185,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
                     },
                     "site_name": "Sitio real",
                     "device_imei": "imei-456",
+                    "waste_filter": "reciclable",
                 }
             ]
         )
@@ -192,7 +194,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertEqual(topology.containers[0].id, "456")
         self.assertEqual(topology.containers[0].height_cm, 150)
         self.assertEqual(topology.containers[0].volume_m3, 3.2)
-        self.assertEqual(topology.containers[0].waste_type, "reciclables")
+        self.assertEqual(topology.containers[0].waste_type, "reciclable")
         self.assertEqual(topology.devices[0].id, "imei-456")
         self.assertEqual(topology.initial_levels["456"], 28)
 
@@ -227,6 +229,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
                         "volume_m3": 3.2,
                         "waste_types": [{"name": "Organico", "color": "#00AA00"}],
                     },
+                    "waste_filter": "humedo",
                 }
             ]
         )
@@ -242,7 +245,7 @@ class SyntheticDataSimulatorTest(unittest.TestCase):
         self.assertIn("imei-456,,", content)
         self.assertIn("Container Media Manzana", content)
         self.assertIn("Sitio 456", content)
-        self.assertIn("Organico", content)
+        self.assertIn("humedo", content)
 
     def test_exports_time_series_as_csv_by_default(self) -> None:
         config = ScenarioConfig(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
+from simulator.domain.entities import WasteType
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import Container, Device, SimulationTopology, Site
@@ -79,7 +80,7 @@ class TestCollectionRoutesFromTopology(unittest.TestCase):
                 id=container_id,
                 site_id=site_id,
                 name="RSU",
-                waste_type="RSU Fracción Húmeda",
+                waste_type=WasteType.HUMEDO,
                 height_cm=145,
             )
             for container_id, site_id in (("2", "1"), ("5", "2"))
@@ -134,8 +135,8 @@ class TestBuildTruckFleet(unittest.TestCase):
                 height_cm=145,
             )
             for site_id, waste_type in (
-                ("negro", "RSU Fracción Húmeda"),
-                ("verde", "RSU Fracción Seca"),
+                ("negro", WasteType.HUMEDO),
+                ("verde", WasteType.RECICLABLE),
             )
         ]
         topology = SimulationTopology(

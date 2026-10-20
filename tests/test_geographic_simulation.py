@@ -7,7 +7,7 @@ from app.commands.import_neighborhood_demographics import (
     density_factor,
     normalize_neighborhood,
 )
-from simulator.domain.entities import Container, Device, Site
+from simulator.domain.entities import Container, Device, Site, WasteType
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
 from simulator.topology import SimulationTopology
@@ -71,14 +71,14 @@ def test_incremental_engine_preserves_state_and_applies_geographic_demand():
             id="1",
             site_id="LOW",
             name="Low container",
-            waste_type="residuos_humedos",
+            waste_type=WasteType.HUMEDO,
             height_cm=150,
         ),
         Container(
             id="2",
             site_id="HIGH",
             name="High container",
-            waste_type="residuos_humedos",
+            waste_type=WasteType.HUMEDO,
             height_cm=150,
         ),
     ]

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable
 
+from simulator.domain.entities import WasteType
 from simulator.trucks.truck_depots import (
     get_depot_for_zone,
 )
@@ -28,12 +29,7 @@ def _is_green_route(route: TruckRoute) -> bool:
 
 
 def _is_recyclable_container(container: dict) -> bool:
-    w_type = str(container.get("waste_type") or "").lower()
-    c_type = str(container.get("container_type") or "").lower()
-    return any(
-        token in w_type or token in c_type
-        for token in ("seca", "recicl", "verde", "vidrio")
-    )
+    return container.get("waste_type") == WasteType.RECICLABLE
 
 
 class TruckStatus:

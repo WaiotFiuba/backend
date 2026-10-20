@@ -7,6 +7,7 @@ from simulator.domain.entities import (
     Container,
     Device,
     Site,
+    WasteType,
 )
 from simulator.geo.addresses import (
     normalize_street_name,
@@ -148,14 +149,14 @@ class TestStreetPairingAndSpillover(unittest.TestCase):
             id="c-a",
             site_id="site-a",
             name="Contenedor A",
-            waste_type="residuos",
+            waste_type=WasteType.HUMEDO,
             height_cm=145.0,
         )
         container_b = Container(
             id="c-b",
             site_id="site-b",
             name="Contenedor B",
-            waste_type="residuos",
+            waste_type=WasteType.HUMEDO,
             height_cm=145.0,
         )
 

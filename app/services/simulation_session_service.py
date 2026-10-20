@@ -227,6 +227,12 @@ async def update_simulation_controls(
         session.speedup = payload.speedup
     if payload.end is not None:
         _set_session_end(session, payload.end)
+    if payload.waste_type_multipliers is not None:
+        # Como el fin: va en el escenario y el simulador lo relee en cada tick.
+        session.scenario = {
+            **session.scenario,
+            "waste_type_multipliers": payload.waste_type_multipliers,
+        }
     if payload.transition_minutes is not None:
         session.transition_minutes = payload.transition_minutes
     if payload.global_demand_multiplier is not None:

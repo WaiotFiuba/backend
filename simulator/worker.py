@@ -174,6 +174,7 @@ async def _run_session(
                 simulated_time,
                 global_demand_multiplier=controls.global_current,
                 neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
+                waste_type_multipliers=controls.waste_type_multipliers,
             )
 
             await client.update_progress(

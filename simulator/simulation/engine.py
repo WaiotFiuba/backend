@@ -135,6 +135,7 @@ class SyntheticDataSimulator:
         timestamp: datetime,
         global_demand_multiplier: float = 1.0,
         neighborhood_multiplier: Callable[[str], float] | None = None,
+        waste_type_multipliers: dict[str, float] | None = None,
     ) -> SimulationResult:
         state = self.state or self.initialize()
         containers = state.topology.containers
@@ -167,9 +168,15 @@ class SyntheticDataSimulator:
             arrays.calibration_factor,
             neighborhood_multiplier,
         )
+        waste_factors = arrays.waste_factors
+        multipliers = waste_type_multipliers or self.config.waste_type_multipliers
+        if multipliers:
+            waste_factors = waste_factors * np.array(
+                [multipliers.get(c.waste_type, 1.0) for c in containers]
+            )
         increments = filling_increments(
             arrays.demand_bases,
-            arrays.waste_factors,
+            waste_factors,
             zone_mults,
             global_demand_multiplier,
             self.config,

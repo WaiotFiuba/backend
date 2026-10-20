@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from simulator.density_processor import get_density_processor
-from simulator.domain.entities import Container, Device, Site
+from simulator.domain.entities import Container, Device, Site, WasteType
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class BackendContainerRecord:
     current_level: int = 0
     device_imei: str | None = None
     container_type: str | None = None
-    waste_type: str | None = None
+    waste_type: WasteType | None = None
     height_cm: float | None = None
     volume_m3: float | None = None
     zone: str | None = None
@@ -82,7 +82,8 @@ def topology_from_backend_records(
                 id=container_id,
                 site_id=site_id,
                 name=record.container_type or f"Container {container_id}",
-                waste_type=record.waste_type or record.container_type or "residuos",
+                # Sin clase cuenta como húmedo, igual que en el backend.
+                waste_type=record.waste_type or WasteType.HUMEDO,
                 height_cm=float(record.height_cm or 145),
                 volume_m3=record.volume_m3,
                 serie_id=record.serie_id,
@@ -114,7 +115,6 @@ def topology_from_backend_api(
 def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRecord:
     container_type = item.get("container_type")
     container_type_name = None
-    waste_type_name = None
     height_cm = None
     volume_m3 = None
 
@@ -127,14 +127,6 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
         height_cm = float(raw_height_cm) if raw_height_cm is not None else None
         raw_volume_m3 = container_type.get("volume_m3")
         volume_m3 = float(raw_volume_m3) if raw_volume_m3 is not None else None
-        waste_types = container_type.get("waste_types")
-        if isinstance(waste_types, list) and waste_types:
-            first_waste_type = waste_types[0]
-            if isinstance(first_waste_type, dict):
-                raw_waste_type_name = first_waste_type.get("name")
-                waste_type_name = (
-                    str(raw_waste_type_name) if raw_waste_type_name else None
-                )
 
     container_id = item["id"]
     site_id = item.get("site_id")
@@ -151,7 +143,10 @@ def _record_from_backend_api_item(item: dict[str, object]) -> BackendContainerRe
         current_level=int(item.get("current_level", 0)),
         device_imei=str(item["device_imei"]) if item.get("device_imei") else None,
         container_type=container_type_name,
-        waste_type=waste_type_name,
+        # La clase de residuo que define el backend: "humedo" o "reciclable".
+        waste_type=(
+            WasteType(item["waste_filter"]) if item.get("waste_filter") else None
+        ),
         height_cm=height_cm,
         volume_m3=volume_m3,
         zone=str(item["zone"]) if item.get("zone") else None,

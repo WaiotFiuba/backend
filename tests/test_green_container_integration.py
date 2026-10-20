@@ -4,7 +4,7 @@ from app.core.map_migrations import (
     _container_type_for_file,
     _normalize_source_serie_id,
 )
-from app.services.map.container_service import _row_to_container
+from app.services.map.container_service import _row_to_container, waste_filter_of
 
 
 def test_container_type_mapping_is_fixed_for_black_and_green_sources():
@@ -74,3 +74,12 @@ def test_container_response_fallback_uses_existing_serie_id_without_black_prefix
         container.container_type.waste_types[0].name
         == "RSU Fracción Seca (Reciclables)"
     )
+    assert container.waste_filter == "reciclable"
+
+
+def test_waste_filter_follows_the_map_site_filter():
+    assert waste_filter_of("RSU Fracción Seca (Reciclables)") == "reciclable"
+    assert waste_filter_of("RSU Fracción Húmeda") == "humedo"
+    # Sin tipo de residuo cuenta como húmedo, igual que en el filtro de sitios.
+    assert waste_filter_of(None) == "humedo"
+    assert waste_filter_of("Otro") is None

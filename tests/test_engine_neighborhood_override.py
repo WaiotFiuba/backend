@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
+from simulator.domain.entities import WasteType
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
@@ -30,7 +31,7 @@ def _topology() -> SimulationTopology:
             id=site.id,
             site_id=site.id,
             name="RSU",
-            waste_type="RSU Fracción Húmeda",
+            waste_type=WasteType.HUMEDO,
             height_cm=145,
         )
         for site in sites
@@ -71,6 +72,30 @@ class TestNeighborhoodOverride(unittest.TestCase):
 
         self.assertAlmostEqual(adjusted["1"], 2 * base["1"], places=2)
         self.assertAlmostEqual(adjusted["2"], base["2"], places=4)
+
+
+class TestWasteTypeMultipliers(unittest.TestCase):
+    def test_the_multiplier_scales_only_its_waste_type(self):
+        def generated(multipliers):
+            topology = _topology()
+            topology.containers[1] = topology.containers[1].model_copy(
+                update={"waste_type": WasteType.RECICLABLE}
+            )
+            sim = SyntheticDataSimulator(
+                ScenarioConfig(seed=1, collection_hours=(3,)), topology=topology
+            )
+            sim.initialize()
+            sim.run_tick(
+                datetime(2026, 10, 7, 12, 0), waste_type_multipliers=multipliers
+            )
+            return dict(sim.state.levels)
+
+        base = generated(None)
+        adjusted = generated({"reciclable": 2.0})
+
+        # El factor de los secos (0,55) por 2; los húmedos no cambian.
+        self.assertAlmostEqual(adjusted["2"], 2 * base["2"], places=2)
+        self.assertAlmostEqual(adjusted["1"], base["1"], places=4)
 
 
 if __name__ == "__main__":

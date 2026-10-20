@@ -19,6 +19,13 @@ class SimulationStatus(StrEnum):
         return self in (SimulationStatus.COMPLETED, SimulationStatus.FAILED)
 
 
+class WasteType(StrEnum):
+    """Clase de residuo de un contenedor, la que define el backend (waste_filter)."""
+
+    HUMEDO = "humedo"
+    RECICLABLE = "reciclable"
+
+
 class SimulationZoneState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -74,7 +81,7 @@ class Container(BaseModel):
     id: str
     site_id: str
     name: str
-    waste_type: str
+    waste_type: WasteType
     height_cm: float
     volume_m3: float | None = None
     serie_id: str | None = None

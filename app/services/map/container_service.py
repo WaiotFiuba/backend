@@ -10,6 +10,7 @@ from app.models.map.container_type import ContainerType, container_type_waste_ty
 from app.models.map.neighborhood import Neighborhood
 from app.models.map.waste_type import WasteType
 from app.schemas.map.container import (
+    WasteFilter,
     ContainerChanges,
     ContainerCluster,
     ContainersMapOutputSchema,
@@ -31,6 +32,22 @@ def _zoom_to_grid_size(zoom: int) -> float | None:
         return 0.003
     else:
         return None
+
+
+# Lo que tiene que contener el nombre del tipo de residuo (en minúsculas) para
+# cada clase. Sin tipo de residuo cuenta como húmedo.
+WASTE_FILTER_PATTERNS: dict[WasteFilter, str] = {
+    "reciclable": "seca",
+    "humedo": "húmed",
+}
+
+
+def waste_filter_of(waste_type_name: str | None) -> WasteFilter | None:
+    name = (waste_type_name or "húmeda").lower()
+    return next(
+        (key for key, pattern in WASTE_FILTER_PATTERNS.items() if pattern in name),
+        None,
+    )
 
 
 def _row_to_container(row) -> ContainersMapOutputSchema:
@@ -56,6 +73,7 @@ def _row_to_container(row) -> ContainersMapOutputSchema:
         updated_at=row["updated_at"],
         zone=row["zone"],
         density_factor=row["density_factor"] or 1.0,
+        waste_filter=waste_filter_of(row["waste_type_name"]),
         # Construimos el objeto anidado para ContainerType y su lista de WasteTypes
         container_type={
             "id": row["container_type_id"],

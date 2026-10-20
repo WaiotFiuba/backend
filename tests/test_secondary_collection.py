@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+from simulator.domain.entities import WasteType
 from simulator.generators.collections import collect_probabilistic
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import ScenarioConfig
@@ -34,7 +35,7 @@ def _topology(sites: int = 12, containers_per_site: int = 2) -> SimulationTopolo
             id=f"s{i}-c{j}",
             site_id=f"s{i}",
             name="RSU",
-            waste_type="RSU Fracción Húmeda",
+            waste_type=WasteType.HUMEDO,
             height_cm=145,
         )
         for i in range(sites)

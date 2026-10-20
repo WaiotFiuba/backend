@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
+from simulator.domain.entities import WasteType
 from simulator.trucks.truck_depots import (
     DEPOTS_BY_ZONE,
     TRANSFER_STATIONS,
@@ -372,7 +373,7 @@ class TestTruckSimulation(unittest.TestCase):
                 {
                     "id": "contenedores_verdes|1",
                     "current_level": 80.0,
-                    "waste_type": "RSU Fraccion Seca Reciclable",
+                    "waste_type": WasteType.RECICLABLE,
                 }
             ]
         }
@@ -411,7 +412,7 @@ class TestTruckSimulation(unittest.TestCase):
             id="328",
             site_id="158",
             name="RSU",
-            waste_type="RSU Fracción Húmeda",
+            waste_type=WasteType.HUMEDO,
             height_cm=145,
             volume_m3=3.2,
         )
