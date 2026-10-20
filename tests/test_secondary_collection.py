@@ -109,6 +109,38 @@ class TestSecondaryCollection(unittest.TestCase):
             self.assertFalse(outcome.collected[1::2].any())
             self.assertTrue((outcome.levels <= np.array(levels)).all())
 
+    def test_every_collection_is_detected_by_the_sensor(self):
+        sim = _simulator()
+        n = len(sim.state.topology.containers)
+        events = [
+            event
+            for hour in range(len(NIGHT))
+            for event in _collect(
+                sim, [6.0] * n, MONDAY_NIGHT + timedelta(hours=hour)
+            ).events
+        ]
+        self.assertEqual(len(events), n)
+        self.assertTrue(all(e.detected_by_sensor for e in events))
+
+
+class TestCollectionFlag(unittest.TestCase):
+    def test_the_flag_marks_every_collection_even_if_the_level_barely_drops(self):
+        # Con los contenedores casi vacíos el nivel baja pocos puntos al
+        # recolectar, pero el acelerómetro igual marca la recolección.
+        sim = _simulator()
+        for container in sim.state.topology.containers:
+            sim.state.levels[container.id] = 5.0
+        collected, flagged = set(), set()
+        for hour in range(len(NIGHT)):
+            result = sim.run_tick(MONDAY_NIGHT + timedelta(hours=hour))
+            collected |= {e.container_id for e in result.collections}
+            flagged |= {
+                m.container_id for m in result.measurements if m.is_collection_detected
+            }
+
+        self.assertTrue(collected)
+        self.assertEqual(flagged, collected)
+
 
 class TestFleetFailureFallsBackToSecondaryCollection(unittest.TestCase):
     def test_without_route_stops_the_session_collects_without_trucks(self):

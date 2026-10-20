@@ -121,7 +121,7 @@ def collect_probabilistic(
             kind="partial" if is_partial[idx] else "total",
             level_before_pct=float(np.round(levels[idx], 2)),
             level_after_pct=float(new_levels[idx]),
-            detected_by_sensor=bool((levels[idx] - new_levels[idx]) >= 20.0),
+            detected_by_sensor=True,
         )
         for idx in np.where(collected)[0]
     ]

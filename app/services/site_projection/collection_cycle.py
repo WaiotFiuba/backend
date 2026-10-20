@@ -41,7 +41,11 @@ class CollectionCycle:
 @dataclass(frozen=True)
 class CollectionCycleDetectionConfig:
     strong_drop_threshold: float = 25.0
-    partial_drop_threshold: float = 10.0
+    # Respaldo sin alarma: el sitio estaba al menos así de lleno, se vació esa
+    # fracción de lo que tenía y quedó debajo de max_level_after.
+    min_level_before: float = 10.0
+    min_emptied_fraction: float = 0.8
+    max_level_after: float = 10.0
 
 
 def detect_collection_cycles(
@@ -116,13 +120,12 @@ def detect_collection_event(
             is_partial=_is_partial_drop(drop_points, config),
         )
 
-    if previous_bucket is None:
+    if previous_bucket is None or not is_inferred_collection(
+        previous_bucket.level, bucket.level, config
+    ):
         return None
 
     drop_points = _drop_points(previous_bucket, bucket)
-    if drop_points is None or drop_points < config.partial_drop_threshold:
-        return None
-
     return CollectionEvent(
         site_id=bucket.site_id,
         timestamp=bucket.timestamp,
@@ -131,6 +134,21 @@ def detect_collection_event(
         current_level=bucket.level,
         drop_points=drop_points,
         is_partial=_is_partial_drop(drop_points, config),
+    )
+
+
+def is_inferred_collection(
+    previous_level: float,
+    current_level: float,
+    config: CollectionCycleDetectionConfig | None = None,
+) -> bool:
+    """Recolección sin alarma: el sitio tenía residuo y quedó casi vacío."""
+    config = config or CollectionCycleDetectionConfig()
+    return (
+        previous_level >= config.min_level_before
+        and current_level < config.max_level_after
+        and previous_level - current_level
+        >= config.min_emptied_fraction * previous_level
     )
 
 

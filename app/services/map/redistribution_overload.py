@@ -24,9 +24,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.core.thresholds import get_level_thresholds
-from app.services.site_projection.collection_cycle import (
-    CollectionCycleDetectionConfig,
-)
 from app.services.site_projection.history import SiteLevelBucket
 
 FULL_LEVEL = float(get_level_thresholds().full)
@@ -40,8 +37,8 @@ SATURATION_LEVEL = 99.5
 # Mientras el sitio está lleno se supone que se siguió llenando al ritmo
 # promedio de esta cantidad de buckets previos.
 RECENT_RISES = 3
-# Caída de nivel que se considera recolección (la misma que usa detect_collection_event).
-COLLECTION_DROP = CollectionCycleDetectionConfig().partial_drop_threshold
+# Caída de nivel que se considera recolección.
+COLLECTION_DROP = 10.0
 
 
 @dataclass(frozen=True)
@@ -108,7 +105,7 @@ def accumulated_from_levels(
     """Igual que accumulated_since_collection, a partir de la serie ya ordenada.
 
     Hay recolección cuando el bucket tiene señal de recolección o el nivel cae
-    al menos `COLLECTION_DROP` puntos (la misma regla que detect_collection_event).
+    al menos `COLLECTION_DROP` puntos.
     En el bucket de una recolección el nivel ya es el de después de vaciar, así
     que el acumulado arranca de ese nivel. Mientras el sitio está lleno, se
     supone que siguió subiendo al ritmo promedio de los buckets previos.

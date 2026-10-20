@@ -186,7 +186,6 @@ class SyntheticDataSimulator:
 
         # 2. Recolección (ver simulator/generators/collections.py): con la flota
         # de camiones o, si no se pudo armar, con el método secundario.
-        level_before_collection = levels.copy()
         if self.truck_fleet is not None:
             collection = collect_with_trucks(
                 self.truck_fleet, levels, timestamp, containers, arrays, self.config
@@ -198,8 +197,6 @@ class SyntheticDataSimulator:
         levels = collection.levels
         collected = collection.collected
         collection_events.extend(collection.events)
-
-        collection_detected = (level_before_collection - levels) >= 20.0
 
         # 3. Fallas sorteadas y 4. lecturas de los sensores (ver
         # simulator/generators/anomalies.py y sensors.py).
@@ -219,7 +216,8 @@ class SyntheticDataSimulator:
             state.batteries[device.id] = float(readings.batteries[idx])
 
         # 5. Build results & update state
-        is_collection_detected = collection_detected & (readings.accelerations >= 1.2)
+        # Como el sensor de Waiot: la recolección la marca solo el acelerómetro.
+        is_collection_detected = readings.accelerations >= 1.2
         final_anomalies = np.where(anomalies.fire, "incendio", anomalies.sensor)
 
         for idx, container in enumerate(containers):
