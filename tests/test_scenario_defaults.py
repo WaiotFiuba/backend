@@ -124,3 +124,14 @@ class TestCliGlobalDemand(unittest.TestCase):
         # No es un campo del escenario: el worker usa el control de la sesión.
         self.assertFalse(hasattr(config, "global_demand_multiplier"))
         self.assertEqual(config.seed, 7)
+
+
+class TestZoneProfilesInScenario(unittest.TestCase):
+    def test_the_scenario_keeps_the_zone_profile_changes(self):
+        from simulator.simulation.scenario import scenario_to_record
+
+        changes = {"office": {"demand_multiplier": 0.7, "hour_weights": {"13": 2.0}}}
+        config = scenario_from_mapping(with_defaults({"zone_profiles": changes}))
+
+        self.assertEqual(config.zone_profiles, changes)
+        self.assertEqual(scenario_to_record(config)["zone_profiles"], changes)

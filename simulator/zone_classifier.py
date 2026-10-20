@@ -215,6 +215,7 @@ class ZoneClassifier:
         land_use_radio_csv: str | Path | None = None,
         land_use_barrio_csv: str | Path | None = None,
         zone_profiles_yaml: str | Path | None = None,
+        profile_overrides: dict[str, dict] | None = None,
     ) -> None:
         self._radio_profiles: dict[str, ZoneProfile] = {}
         self._barrio_profiles: dict[str, ZoneProfile] = {}
@@ -241,6 +242,9 @@ class ZoneClassifier:
         )
         if yaml_path:
             self._load_zone_profiles_yaml(yaml_path)
+        # Los del YAML, antes de los cambios de la sesión: el front parte de acá.
+        self.default_profiles = self._profiles_by_land_use()
+        self._apply_profile_overrides(profile_overrides or {})
 
         radio_csv = self._resolve_path(
             land_use_radio_csv,
@@ -316,6 +320,35 @@ class ZoneClassifier:
             )
 
         logger.info(f"  {len(self._zone_hour_weights)} zone_types cargados del YAML")
+
+    def _profiles_by_land_use(self) -> dict[str, dict]:
+        """Volumen y curvas de cada tipo de uso del suelo (lo que se puede editar)."""
+        profiles: dict[str, dict] = {}
+        for use, volume in self._category_waste_weights.items():
+            profile: dict = {"demand_multiplier": volume}
+            if use in self._zone_hour_weights:
+                profile["hour_weights"] = dict(self._zone_hour_weights[use])
+                profile["weekday_factors"] = dict(self._zone_weekday_factors[use])
+            profiles[use] = profile
+        return profiles
+
+    def _apply_profile_overrides(self, overrides: dict[str, dict]) -> None:
+        """Cambios de la sesión sobre el YAML, antes de armar los perfiles. Una
+        curva que se manda reemplaza a la del YAML entera."""
+        for use, changes in overrides.items():
+            if use not in self.default_profiles:
+                logger.warning(f"  Tipo de uso desconocido en los perfiles: {use}")
+                continue
+            if changes.get("demand_multiplier") is not None:
+                self._category_waste_weights[use] = float(changes["demand_multiplier"])
+            if changes.get("hour_weights") and use in self._zone_hour_weights:
+                self._zone_hour_weights[use] = {
+                    int(h): float(w) for h, w in changes["hour_weights"].items()
+                }
+            if changes.get("weekday_factors") and use in self._zone_weekday_factors:
+                self._zone_weekday_factors[use] = {
+                    int(d): float(f) for d, f in changes["weekday_factors"].items()
+                }
 
     def _load_land_use_radio_csv(self, path: Path) -> None:
         logger.info(f"Cargando usos del suelo por radio censal desde: {path}")
@@ -491,12 +524,15 @@ def get_zone_classifier() -> ZoneClassifier:
     return _cached_classifier
 
 
-def reload_zone_classifier() -> ZoneClassifier:
-    """Vuelve a crear el ZoneClassifier, releyendo zone_profiles.yaml.
+def reload_zone_classifier(
+    profile_overrides: dict[str, dict] | None = None,
+) -> ZoneClassifier:
+    """Vuelve a crear el ZoneClassifier, releyendo zone_profiles.yaml, con los
+    cambios de perfiles de la sesión encima.
 
     El worker la llama al iniciar cada sesion, asi los cambios del YAML se
     aplican en la simulacion siguiente sin reiniciar el proceso.
     """
     global _cached_classifier
-    _cached_classifier = ZoneClassifier()
+    _cached_classifier = ZoneClassifier(profile_overrides=profile_overrides)
     return _cached_classifier

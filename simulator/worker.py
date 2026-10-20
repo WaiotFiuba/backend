@@ -99,8 +99,11 @@ async def _run_session(
         # Lo que manda el front pisa scenario_defaults.yaml, que se relee en
         # cada sesion.
         config = scenario_from_mapping(with_defaults(session.scenario))
-        # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla.
-        classifier = await asyncio.to_thread(reload_zone_classifier)
+        # Releer zone_profiles.yaml: cada sesion usa el YAML vigente al iniciarla,
+        # con los cambios de perfiles que pidio el usuario.
+        classifier = await asyncio.to_thread(
+            reload_zone_classifier, config.zone_profiles
+        )
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.backend_url,

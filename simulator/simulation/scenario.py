@@ -58,6 +58,9 @@ class ScenarioConfig:
     )
     # Ajuste del usuario por tipo de residuo, encima de waste_type_factors.
     waste_type_multipliers: dict[str, float] = field(default_factory=dict)
+    # Cambios del usuario a los perfiles de zona, por tipo de uso del suelo
+    # (demand_multiplier, hour_weights, weekday_factors), sobre zone_profiles.yaml.
+    zone_profiles: dict[str, dict] = field(default_factory=dict)
 
     @property
     def total_hours(self) -> float:

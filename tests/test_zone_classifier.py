@@ -299,6 +299,51 @@ def test_the_volume_comes_from_the_category_demand_weights(tmp_path):
     assert classifier.get_profile("sin_uso").demand_multiplier == 0.5
 
 
+def test_session_changes_go_on_top_of_the_yaml(tmp_path):
+    rows = [
+        {
+            "radio_code": "mitad",
+            "zone_type": "commercial",
+            "commercial_pct": 50,
+            "office_pct": 50,
+        }
+    ]
+    base = _classifier_with_radios(tmp_path, rows)
+    # Las claves llegan como texto desde el JSON de la sesion.
+    changed = ZoneClassifier(
+        land_use_radio_csv=tmp_path / "land_use_by_radio.csv",
+        profile_overrides={
+            "commercial": {"demand_multiplier": 2.0, "hour_weights": {"13": 3.0}},
+            "office": {
+                "weekday_factors": {
+                    "0": 1.0,
+                    "1": 1.0,
+                    "2": 1.0,
+                    "3": 1.0,
+                    "4": 1.0,
+                    "5": 1.0,
+                    "6": 1.0,
+                }
+            },
+            "desconocido": {"demand_multiplier": 5.0},
+        },
+    )
+
+    # Volumen: 50% comercial (ahora 2,0) + 50% oficinas (0,85).
+    assert base.get_profile("mitad").demand_multiplier == 1.125
+    assert changed.get_profile("mitad").demand_multiplier == 1.425
+    # Una curva que se manda reemplaza a la del YAML: comercial queda plana con
+    # un pico a las 13; oficinas, sin caida el fin de semana.
+    commercial = changed._type_profile("commercial")
+    assert commercial.get_hour_weight(13) == 3.0
+    assert commercial.get_hour_weight(1) == commercial.get_hour_weight(22)
+    assert changed._type_profile("office").weekend_factor == pytest.approx(1.0)
+    # Los valores por defecto siguen siendo los del YAML.
+    assert changed.default_profiles == base.default_profiles
+    assert changed.default_profiles["commercial"]["demand_multiplier"] == 1.4
+    assert set(changed.default_profiles["other"]) == {"demand_multiplier"}
+
+
 def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
     # La curva horaria y semanal de cada radio es la mezcla de las curvas de
     # sus tipos de uso, ponderada por % de parcelas x basura que genera cada
