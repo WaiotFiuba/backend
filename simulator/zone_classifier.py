@@ -47,8 +47,7 @@ class ZoneProfile:
     commercial_pct: float
     office_pct: float
     industrial_pct: float
-    demand_multiplier: float  # multiplicador base de demanda (del CSV de usos o YAML)
-    weekend_factor: float  # factor relativo fin-de-semana / hábil (del CSV o YAML)
+    demand_multiplier: float  # multiplicador base de demanda (del CSV de usos)
     hour_weights: dict[int, float] = field(default_factory=dict)  # del YAML de perfiles
     weekday_factors: dict[int, float] = field(
         default_factory=dict
@@ -66,6 +65,15 @@ class ZoneProfile:
     _cached_matrix: tuple[tuple[float, ...], ...] | None = field(
         default=None, init=False, repr=False
     )
+
+    @property
+    def weekend_factor(self) -> float:
+        """Sábado y domingo respecto de un día hábil promedio, según la curva."""
+        days = [
+            sum(self.effective_multiplier(h, d) for h in range(24)) for d in range(7)
+        ]
+        weekday = sum(days[:5]) / 5
+        return (days[5] + days[6]) / 2 / weekday if weekday else 1.0
 
     @property
     def residential_pct(self) -> float:
@@ -172,7 +180,6 @@ DEFAULT_PROFILE = ZoneProfile(
     office_pct=5.0,
     industrial_pct=5.0,
     demand_multiplier=1.0,
-    weekend_factor=0.75,
     hour_weights={3: 0.25, 7: 1.3, 8: 1.6, 9: 1.4, 20: 1.5, 21: 1.7, 22: 1.4},
     weekday_factors={0: 0.85, 5: 0.60, 6: 0.55},
 )
@@ -204,8 +211,6 @@ class ZoneClassifier:
         self._barrio_profiles: dict[str, ZoneProfile] = {}
         self._zone_hour_weights: dict[str, dict[int, float]] = {}
         self._zone_weekday_factors: dict[str, dict[int, float]] = {}
-        self._zone_base_multipliers: dict[str, float] = {}
-        self._zone_weekend_factors: dict[str, float] = {}
         # Cuánta basura genera cada tipo de uso (category_demand_weights del YAML):
         # pondera la mezcla de curvas, igual que el demand_multiplier de cada radio.
         self._category_waste_weights: dict[str, float] = {}
@@ -293,13 +298,8 @@ class ZoneClassifier:
             wf = {
                 int(k): float(v) for k, v in (cfg.get("weekday_factors") or {}).items()
             }
-            base_mult = float(cfg.get("base_demand_multiplier", 1.0))
-            weekend_fac = float(cfg.get("weekend_factor", 0.75))
-
             self._zone_hour_weights[zone_type] = hw
             self._zone_weekday_factors[zone_type] = wf
-            self._zone_base_multipliers[zone_type] = base_mult
-            self._zone_weekend_factors[zone_type] = weekend_fac
 
         for category, weights in (data.get("category_demand_weights") or {}).items():
             self._category_waste_weights[category] = float(
@@ -336,9 +336,13 @@ class ZoneClassifier:
         zone_type = row["zone_type"].strip()
         shape = self._mixed_shape(row)
         if shape is None:
-            # Sin porcentajes: la curva del tipo de zona.
-            hour_weights = self._zone_hour_weights.get(zone_type, {})
-            weekday_factors = self._zone_weekday_factors.get(zone_type, {})
+            # Sin porcentajes: la curva del tipo de zona, o la por defecto.
+            hour_weights = self._zone_hour_weights.get(
+                zone_type, DEFAULT_PROFILE.hour_weights
+            )
+            weekday_factors = self._zone_weekday_factors.get(
+                zone_type, DEFAULT_PROFILE.weekday_factors
+            )
         else:
             # Para mostrar en el mapa: la curva de un día hábil promedio y el
             # factor de cada día respecto de ese promedio.
@@ -358,18 +362,7 @@ class ZoneClassifier:
             commercial_pct=float(row.get("commercial_pct", 0)),
             office_pct=float(row.get("office_pct", 0)),
             industrial_pct=float(row.get("industrial_pct", 0)),
-            demand_multiplier=float(
-                row.get(
-                    "demand_multiplier",
-                    self._zone_base_multipliers.get(zone_type, 1.0),
-                )
-            ),
-            weekend_factor=float(
-                row.get(
-                    "weekend_factor",
-                    self._zone_weekend_factors.get(zone_type, 0.75),
-                )
-            ),
+            demand_multiplier=float(row.get("demand_multiplier") or 1.0),
             hour_weights=hour_weights,
             weekday_factors=weekday_factors,
             shape=shape,
@@ -413,7 +406,6 @@ class ZoneClassifier:
                 office_pct=0.0,
                 industrial_pct=0.0,
                 demand_multiplier=1.0,
-                weekend_factor=self._zone_weekend_factors.get(zone_type, 0.75),
                 hour_weights=self._zone_hour_weights.get(zone_type, {}),
                 weekday_factors=self._zone_weekday_factors.get(zone_type, {}),
             )
@@ -445,8 +437,6 @@ class ZoneClassifier:
         # 2. Búsqueda directa si se pasa el zone_type
         low_key = key.lower()
         if low_key in self._zone_hour_weights:
-            base_mult = self._zone_base_multipliers.get(low_key, 1.0)
-            base_wknd = self._zone_weekend_factors.get(low_key, 0.75)
             return ZoneProfile(
                 zone_key=low_key,
                 barrio=low_key,
@@ -460,8 +450,7 @@ class ZoneClassifier:
                 commercial_pct=100.0 if low_key == "commercial" else 0.0,
                 office_pct=100.0 if low_key == "office" else 0.0,
                 industrial_pct=100.0 if low_key == "industrial" else 0.0,
-                demand_multiplier=base_mult,
-                weekend_factor=base_wknd,
+                demand_multiplier=1.0,
                 hour_weights=self._zone_hour_weights.get(low_key, {}),
                 weekday_factors=self._zone_weekday_factors.get(low_key, {}),
             )

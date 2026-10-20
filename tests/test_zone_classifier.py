@@ -246,7 +246,6 @@ def _classifier_with_radios(tmp_path, rows):
         "office_pct",
         "industrial_pct",
         "demand_multiplier",
-        "weekend_factor",
     ]
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
@@ -258,6 +257,18 @@ def _classifier_with_radios(tmp_path, rows):
 
 def _week(profile):
     return [[profile.effective_multiplier(h, d) for h in range(24)] for d in range(7)]
+
+
+def test_the_weekend_factor_comes_from_the_curve(tmp_path):
+    # Ya no se lee del YAML ni del CSV: es lo que la curva genera el sábado y
+    # el domingo respecto de un día hábil promedio.
+    office = _classifier_with_radios(tmp_path, []).get_profile("office")
+    days = [sum(office.effective_multiplier(h, d) for h in range(24)) for d in range(7)]
+
+    assert office.weekend_factor == pytest.approx(
+        (days[5] + days[6]) / 2 / (sum(days[:5]) / 5)
+    )
+    assert office.weekend_factor < 0.2
 
 
 def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
@@ -273,7 +284,6 @@ def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
                 "zone_type": "commercial",
                 "commercial_pct": 100,
                 "demand_multiplier": 1.4,
-                "weekend_factor": 1.2,
             },
             {
                 "radio_code": "mixto",
@@ -282,7 +292,6 @@ def test_each_radio_blends_the_curves_of_its_land_uses(tmp_path):
                 "commercial_pct": 50,
                 "res_multifamily_pct": 50,
                 "demand_multiplier": 1.25,
-                "weekend_factor": 0.9,
             },
         ],
     )

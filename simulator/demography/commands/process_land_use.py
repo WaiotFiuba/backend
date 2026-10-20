@@ -90,12 +90,12 @@ def _load_yaml_config(
         "residential_combined_min_pct": 40.0,
     }
     category_weights = {
-        "residential_multifamily": {"demand_multiplier": 1.10, "weekend_factor": 0.60},
-        "residential_singlefamily": {"demand_multiplier": 0.95, "weekend_factor": 0.85},
-        "commercial": {"demand_multiplier": 1.40, "weekend_factor": 1.20},
-        "office": {"demand_multiplier": 0.85, "weekend_factor": 0.10},
-        "industrial": {"demand_multiplier": 0.65, "weekend_factor": 0.20},
-        "other": {"demand_multiplier": 0.50, "weekend_factor": 0.75},
+        "residential_multifamily": {"demand_multiplier": 1.10},
+        "residential_singlefamily": {"demand_multiplier": 0.95},
+        "commercial": {"demand_multiplier": 1.40},
+        "office": {"demand_multiplier": 0.85},
+        "industrial": {"demand_multiplier": 0.65},
+        "other": {"demand_multiplier": 0.50},
     }
 
     if config_path and config_path.exists():
@@ -108,7 +108,6 @@ def _load_yaml_config(
                 for cat, val in data["category_demand_weights"].items():
                     category_weights[cat] = {
                         "demand_multiplier": float(val.get("demand_multiplier", 1.0)),
-                        "weekend_factor": float(val.get("weekend_factor", 0.75)),
                     }
         except Exception as err:
             logger.warning(
@@ -275,31 +274,6 @@ def _compute_demand_multiplier(
     ]
     w_other = (other_pct / 100.0) * category_weights["other"]["demand_multiplier"]
     return round(w_multi + w_single + w_comm + w_off + w_ind + w_other, 4)
-
-
-def _compute_weekend_factor(
-    res_multi_pct: float,
-    res_single_pct: float,
-    commercial_pct: float,
-    office_pct: float,
-    industrial_pct: float,
-    category_weights: dict[str, dict[str, float]],
-) -> float:
-    total = (
-        res_multi_pct + res_single_pct + commercial_pct + office_pct + industrial_pct
-    )
-    if total <= 0:
-        return category_weights["other"]["weekend_factor"]
-    w_multi = (res_multi_pct / total) * category_weights["residential_multifamily"][
-        "weekend_factor"
-    ]
-    w_single = (res_single_pct / total) * category_weights["residential_singlefamily"][
-        "weekend_factor"
-    ]
-    w_comm = (commercial_pct / total) * category_weights["commercial"]["weekend_factor"]
-    w_off = (office_pct / total) * category_weights["office"]["weekend_factor"]
-    w_ind = (industrial_pct / total) * category_weights["industrial"]["weekend_factor"]
-    return round(w_multi + w_single + w_comm + w_off + w_ind, 4)
 
 
 async def _load_streets_from_db_or_geojson(calles_path: Path | None, session=None):
@@ -608,7 +582,6 @@ async def process_land_use_async(
 
         zt = _derive_zone_type(rm, rs, cm, of, ind, thresholds)
         dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
-        wf = _compute_weekend_factor(rm, rs, cm, of, ind, category_weights)
 
         radio_rows.append(
             {
@@ -623,7 +596,6 @@ async def process_land_use_async(
                 "industrial_pct": ind,
                 "total_parcelas": total_p,
                 "demand_multiplier": dm,
-                "weekend_factor": wf,
             }
         )
 
@@ -643,7 +615,6 @@ async def process_land_use_async(
             "industrial_pct",
             "total_parcelas",
             "demand_multiplier",
-            "weekend_factor",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -667,7 +638,6 @@ async def process_land_use_async(
         ind = b_pct("industrial")
         zt = _derive_zone_type(rm, rs, cm, of, ind, thresholds)
         dm = _compute_demand_multiplier(rm, rs, cm, of, ind, category_weights)
-        wf = _compute_weekend_factor(rm, rs, cm, of, ind, category_weights)
         barrio_rows.append(
             {
                 "barrio": barrio,
@@ -679,7 +649,6 @@ async def process_land_use_async(
                 "industrial_pct": ind,
                 "total_parcelas": total_b,
                 "demand_multiplier": dm,
-                "weekend_factor": wf,
             }
         )
 
@@ -700,7 +669,6 @@ async def process_land_use_async(
             "industrial_pct",
             "total_parcelas",
             "demand_multiplier",
-            "weekend_factor",
         ]
         with open(target_path, mode="w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
