@@ -22,12 +22,16 @@ from app.schemas.digital_twin import (
     TelemetryIngestResult,
     ZoneDemandRead,
     ZoneProfileLayerPayload,
+    ZoneProfileSettings,
 )
 from app.schemas.map.container import ContainersMapOutputSchema
 from app.services.data_level_retention import purge_in_background
 from app.services.digital_twin_ingest_service import ingest_telemetry_batch
 from app.services.map.container_service import get_all_containers
-from app.services.map.zone_profile_service import save_zone_profiles_geojson
+from app.services.map.zone_profile_service import (
+    save_zone_profile_defaults,
+    save_zone_profiles_geojson,
+)
 from app.services.simulation_session_service import (
     create_saved_configuration,
     create_simulation,
@@ -267,6 +271,20 @@ async def worker_publish_zone_profiles(
     sesion (segun su zone_profiles.yaml). Reemplaza la capa anterior."""
     features = await save_zone_profiles_geojson(db, simulation_id, payload.model_dump())
     return {"features": features}
+
+
+@router.put("/worker/zone-profile-defaults")
+async def worker_publish_zone_profile_defaults(
+    payload: dict[str, ZoneProfileSettings],
+    db: MapDbDep,
+) -> dict[str, int]:
+    """El simulador publica los perfiles de zona de su zone_profiles.yaml, de
+    donde parte el editor del front. Reemplaza a los anteriores."""
+    profiles = {
+        use: settings.model_dump(mode="json", exclude_none=True)
+        for use, settings in payload.items()
+    }
+    return {"profiles": await save_zone_profile_defaults(db, profiles)}
 
 
 def _log_telemetry_ingest(mode: str, result: TelemetryIngestResult) -> None:

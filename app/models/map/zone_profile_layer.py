@@ -30,3 +30,20 @@ class ZoneProfileLayer(MapBase):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class ZoneProfileDefaults(MapBase):
+    """Perfiles de zona por defecto (los de zone_profiles.yaml) que publica el
+    simulador, para que el front tenga de donde partir al editarlos. Una sola
+    fila, con id LATEST_LAYER_ID."""
+
+    __tablename__ = "zone_profile_defaults"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profiles: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

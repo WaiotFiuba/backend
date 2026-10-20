@@ -4,7 +4,11 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.map.simulation import SimulationSession
-from app.models.map.zone_profile_layer import LATEST_LAYER_ID, ZoneProfileLayer
+from app.models.map.zone_profile_layer import (
+    LATEST_LAYER_ID,
+    ZoneProfileDefaults,
+    ZoneProfileLayer,
+)
 
 EMPTY_LAYER: dict = {"type": "FeatureCollection", "features": []}
 
@@ -38,3 +42,22 @@ async def save_zone_profiles_geojson(
         layer.geojson = geojson
     await db.commit()
     return len(geojson.get("features", []))
+
+
+async def get_zone_profile_defaults(db: AsyncSession) -> dict[str, dict]:
+    """Perfiles de zona por defecto que publico el simulador, por tipo de uso
+    del suelo. Vacio si el simulador todavia no los publico."""
+    row = await db.get(ZoneProfileDefaults, LATEST_LAYER_ID)
+    return row.profiles if row is not None else {}
+
+
+async def save_zone_profile_defaults(db: AsyncSession, profiles: dict) -> int:
+    """Guarda los perfiles por defecto que publica el simulador. Devuelve la
+    cantidad de tipos de uso."""
+    row = await db.get(ZoneProfileDefaults, LATEST_LAYER_ID)
+    if row is None:
+        db.add(ZoneProfileDefaults(id=LATEST_LAYER_ID, profiles=profiles))
+    else:
+        row.profiles = profiles
+    await db.commit()
+    return len(profiles)

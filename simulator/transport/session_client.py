@@ -60,6 +60,13 @@ class SimulationSessionClient:
         )
         return res is not None
 
+    async def publish_zone_profile_defaults(self, profiles: dict[str, dict]) -> bool:
+        """Manda los perfiles de zona del YAML, de donde parte el editor del front."""
+        res = await asyncio.to_thread(
+            _request_json, self._url("zone-profile-defaults"), profiles, "PUT", 30.0
+        )
+        return res is not None
+
     async def finish_session(
         self,
         simulation_id: int,

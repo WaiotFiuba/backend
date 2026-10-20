@@ -50,6 +50,20 @@ class ZoneDemandOverride(BaseModel):
 WasteTypeMultipliers = dict[WasteFilter, Annotated[float, Field(gt=0, le=1100)]]
 
 
+Weight = Annotated[float, Field(ge=0, le=10)]
+
+
+class ZoneProfileSettings(BaseModel):
+    """Volumen y curvas de un tipo de uso del suelo, como en zone_profiles.yaml.
+    Una curva que se manda reemplaza entera a la del YAML."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    demand_multiplier: float | None = Field(default=None, gt=0, le=10)
+    hour_weights: dict[Annotated[int, Field(ge=0, le=23)], Weight] | None = None
+    weekday_factors: dict[Annotated[int, Field(ge=0, le=6)], Weight] | None = None
+
+
 class ScenarioInput(BaseModel):
     """Escenario que manda el front al crear una simulacion.
 

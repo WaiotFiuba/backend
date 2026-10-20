@@ -18,6 +18,8 @@ from app.models.map.optimization import (
     RedistributionPlan,
 )
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
+from app.models.map.zone_profile_layer import ZoneProfileDefaults
+from app.services.map import zone_profile_service
 from app.schemas.digital_twin import SimulationControlsUpdate, SimulationCreate
 from simulator.simulation.scenario import (
     ScenarioConfig,
@@ -70,6 +72,7 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                         RedistributionPlan.__table__,
                         OptimizationWhatIfLevel.__table__,
                         OptimizationWhatIfTotals.__table__,
+                        ZoneProfileDefaults.__table__,
                     ],
                 )
             )
@@ -334,6 +337,21 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.no_collection_days, (1, 3, 4, 5, 6))
         with self.assertRaises(ValueError):
             SimulationControlsUpdate(collection_hours=[24])
+
+    async def test_the_zone_profile_defaults_are_saved_and_read(self):
+        async with self.session_maker() as db:
+            empty = await zone_profile_service.get_zone_profile_defaults(db)
+            self.assertEqual(empty, {})
+            for profiles in (
+                {"office": {"demand_multiplier": 0.85}},
+                {"office": {"demand_multiplier": 0.9}, "other": {}},
+            ):
+                await zone_profile_service.save_zone_profile_defaults(db, profiles)
+            # El ultimo publicado reemplaza al anterior.
+            self.assertEqual(
+                await zone_profile_service.get_zone_profile_defaults(db),
+                {"office": {"demand_multiplier": 0.9}, "other": {}},
+            )
 
     async def test_the_end_cannot_change_before_the_simulation_starts(self):
         created = await self._create({"start": "2026-10-06T06:00:00"})

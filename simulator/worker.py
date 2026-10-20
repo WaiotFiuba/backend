@@ -28,7 +28,7 @@ from simulator.transport.telemetry_sender import (
 from simulator.transport.topology_client import (
     load_topology_from_backend_api,
 )
-from simulator.zone_classifier import reload_zone_classifier
+from simulator.zone_classifier import get_zone_classifier, reload_zone_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ async def run_worker() -> None:
         success = await client.fail_interrupted_sessions()
         if success:
             logger.info("Conectado con éxito a la API. Esperando simulaciones...")
+            # Para que el front tenga los perfiles por defecto antes de la primera
+            # simulacion.
+            await client.publish_zone_profile_defaults(
+                (await asyncio.to_thread(get_zone_classifier)).default_profiles
+            )
             break
         if first_wait:
             logger.info(
@@ -104,6 +109,7 @@ async def _run_session(
         classifier = await asyncio.to_thread(
             reload_zone_classifier, config.zone_profiles
         )
+        await client.publish_zone_profile_defaults(classifier.default_profiles)
         topology = await asyncio.to_thread(
             load_topology_from_backend_api,
             settings.backend_url,
