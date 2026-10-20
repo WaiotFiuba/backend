@@ -15,6 +15,10 @@ if TYPE_CHECKING:
     from simulator.simulation.state import ContainerArrays
     from simulator.trucks.truck_engine import TruckFleetSimulator
 
+# Hora en que empieza un turno de recolección: desde acá se ordenan sus horas
+# (acá y en TruckFleetSimulator.step). Un cambio de horas se aplica a esa hora.
+TURN_START_HOUR = 18
+
 
 @dataclass(frozen=True)
 class CollectionOutcome:
@@ -92,7 +96,7 @@ def collect_probabilistic(
       (probabilidad partial_collection_probability): baja 25-55 puntos.
     """
     n = len(containers)
-    hours = sorted(config.collection_hours, key=lambda h: (h - 18) % 24)
+    hours = sorted(config.collection_hours, key=lambda h: (h - TURN_START_HOUR) % 24)
     collected = np.zeros(n, dtype=bool)
     if timestamp.hour in hours and timestamp.weekday() not in config.no_collection_days:
         turn = hours.index(timestamp.hour)

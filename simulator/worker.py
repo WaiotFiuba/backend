@@ -11,6 +11,7 @@ from simulator.domain.entities import (
     SimulationStatus,
 )
 from simulator.exporters.zone_profiles import build_zone_profiles_geojson
+from simulator.generators.collections import TURN_START_HOUR
 from simulator.simulation.controls import ControlSnapshot
 from simulator.simulation.engine import SyntheticDataSimulator
 from simulator.simulation.scenario import (
@@ -161,6 +162,16 @@ async def _run_session(
                 minutes=period * config.frequency_minutes
             )
             simulated_time = _as_utc(simulated_time)
+            if simulated_time.hour == TURN_START_HOUR:
+                schedule = simulator.config.with_collection_schedule(
+                    controls.collection_hours, controls.collection_days
+                )
+                if schedule != simulator.config:
+                    simulator.set_config(schedule)
+                    logger.info(
+                        "Simulacion %s: nuevas horas y dias de recoleccion.",
+                        simulation_id,
+                    )
 
             if previous_controls is None or (
                 controls.targets() != previous_controls.targets()

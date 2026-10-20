@@ -36,5 +36,19 @@ class TestControlSnapshotEnd(unittest.TestCase):
         self.assertEqual(snapshot.end, datetime(2026, 10, 8, 6, 0))
 
 
+class TestControlSnapshotCollectionSchedule(unittest.TestCase):
+    def test_the_schedule_comes_from_the_session_scenario(self):
+        snapshot = ControlSnapshot.from_session(
+            _session({"collection_hours": [21, 22], "collection_days": [0, 2]})
+        )
+        self.assertEqual(snapshot.collection_hours, (21, 22))
+        self.assertEqual(snapshot.collection_days, (0, 2))
+
+    def test_without_schedule_there_is_no_change(self):
+        snapshot = ControlSnapshot.from_session(_session({}))
+        self.assertIsNone(snapshot.collection_hours)
+        self.assertIsNone(snapshot.collection_days)
+
+
 if __name__ == "__main__":
     unittest.main()

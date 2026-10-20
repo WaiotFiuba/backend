@@ -97,6 +97,15 @@ class SyntheticDataSimulator:
 
         return self.state
 
+    def set_config(self, config: ScenarioConfig) -> None:
+        """Cambia el escenario de una simulación en curso (hoy, sus horas y días
+        de recolección): lo leen el método secundario y la flota."""
+        self.config = config
+        if self.truck_fleet is not None:
+            self.truck_fleet.set_schedule(
+                config.collection_hours, config.no_collection_days
+            )
+
     def run(
         self,
         global_demand_multiplier: float = 1.0,

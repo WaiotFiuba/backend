@@ -77,6 +77,12 @@ class TruckFleetSimulator:
         self.trucks: dict[str, TruckState] = {}
         self._init_fleet()
 
+    def set_schedule(
+        self, collection_hours: tuple[int, ...], no_collection_days: tuple[int, ...]
+    ) -> None:
+        self.collection_hours = collection_hours
+        self.no_collection_days = set(no_collection_days)
+
     def _init_fleet(self) -> None:
         """Crea 1 camión recolector por cada circuito de recolección en el punto de inicio de su recorrido."""
         for r_id, route in self.routes.items():

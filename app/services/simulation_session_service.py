@@ -227,6 +227,10 @@ async def update_simulation_controls(
         session.speedup = payload.speedup
     if payload.end is not None:
         _set_session_end(session, payload.end)
+    if payload.collection_hours is not None or payload.collection_days is not None:
+        _set_collection_schedule(
+            session, payload.collection_hours, payload.collection_days
+        )
     if payload.waste_type_multipliers is not None:
         # Como el fin: va en el escenario y el simulador lo relee en cada tick.
         session.scenario = {
@@ -624,6 +628,22 @@ def _set_session_end(session: SimulationSession, end: datetime) -> None:
         )
     # El escenario guarda las fechas sin zona, como las reporta el simulador.
     session.scenario = {**session.scenario, "end": end.replace(tzinfo=None).isoformat()}
+
+
+def _set_collection_schedule(
+    session: SimulationSession,
+    hours: list[int] | None,
+    days: list[int] | None,
+) -> None:
+    """Horas y días de recolección; el simulador los aplica desde el próximo
+    turno."""
+    scenario = dict(session.scenario)
+    if hours is not None:
+        scenario["collection_hours"] = hours
+    if days is not None:
+        scenario["collection_days"] = days
+        scenario.pop("no_collection_days", None)
+    session.scenario = scenario
 
 
 def _as_utc(value: datetime) -> datetime:

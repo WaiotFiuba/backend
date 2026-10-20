@@ -105,6 +105,9 @@ class SimulationControlsUpdate(BaseModel):
     zone_overrides: list[ZoneDemandOverride] | None = None
     end: datetime | None = None
     waste_type_multipliers: WasteTypeMultipliers | None = None
+    # El simulador los aplica desde el próximo turno.
+    collection_hours: list[Annotated[int, Field(ge=0, le=23)]] | None = None
+    collection_days: list[Annotated[int, Field(ge=0, le=6)]] | None = None
 
 
 class SimulationProgressUpdate(BaseModel):

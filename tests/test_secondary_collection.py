@@ -143,6 +143,23 @@ class TestCollectionFlag(unittest.TestCase):
         self.assertEqual(flagged, collected)
 
 
+class TestCollectionScheduleChange(unittest.TestCase):
+    def test_a_new_schedule_reaches_the_scenario_and_the_fleet(self):
+        sim = _simulator()
+        self.assertIsNotNone(sim.truck_fleet)
+
+        sim.set_config(sim.config.with_collection_schedule((8, 9), (0,)))
+
+        self.assertEqual(sim.config.collection_hours, (8, 9))
+        self.assertEqual(sim.config.no_collection_days, (1, 2, 3, 4, 5, 6))
+        self.assertEqual(sim.truck_fleet.collection_hours, (8, 9))
+        self.assertEqual(sim.truck_fleet.no_collection_days, {1, 2, 3, 4, 5, 6})
+
+    def test_without_changes_the_scenario_is_the_same(self):
+        config = _simulator().config
+        self.assertEqual(config.with_collection_schedule(None, None), config)
+
+
 class TestFleetFailureFallsBackToSecondaryCollection(unittest.TestCase):
     def test_without_route_stops_the_session_collects_without_trucks(self):
         # Sin CSV de rutas ninguna ruta queda con paradas: antes la flota quedaba

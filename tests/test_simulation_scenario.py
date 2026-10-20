@@ -321,6 +321,20 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ValueError):
                     SimulationControlsUpdate(waste_type_multipliers=invalid)
 
+    async def test_the_collection_schedule_is_stored_for_the_simulator(self):
+        created = await self._running(datetime(2026, 10, 6, 12, 0))
+        schedule = SimulationControlsUpdate(
+            collection_hours=[8, 9], collection_days=[0, 2]
+        )
+        async with self.session_maker() as db:
+            updated = await svc.update_simulation_controls(db, created.id, schedule)
+
+        config = scenario_from_mapping(updated.scenario)
+        self.assertEqual(config.collection_hours, (8, 9))
+        self.assertEqual(config.no_collection_days, (1, 3, 4, 5, 6))
+        with self.assertRaises(ValueError):
+            SimulationControlsUpdate(collection_hours=[24])
+
     async def test_the_end_cannot_change_before_the_simulation_starts(self):
         created = await self._create({"start": "2026-10-06T06:00:00"})
 

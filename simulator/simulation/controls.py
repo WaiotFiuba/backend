@@ -19,6 +19,8 @@ class ControlSnapshot:
     zones: tuple[tuple[str, float, float], ...]  # (barrio, actual, objetivo)
     end: datetime | None = None  # el fin se puede cambiar en vivo
     waste_type_multipliers: dict[str, float] = field(default_factory=dict)
+    collection_hours: tuple[int, ...] | None = None
+    collection_days: tuple[int, ...] | None = None
 
     @classmethod
     def from_session(cls, session: SimulationSession) -> ControlSnapshot:
@@ -34,6 +36,8 @@ class ControlSnapshot:
             ),
             end=_scenario_end(session.scenario),
             waste_type_multipliers=session.scenario.get("waste_type_multipliers") or {},
+            collection_hours=_as_tuple(session.scenario.get("collection_hours")),
+            collection_days=_as_tuple(session.scenario.get("collection_days")),
         )
 
     def targets(self) -> tuple[float, float, tuple[tuple[str, float], ...]]:
@@ -59,6 +63,10 @@ class ControlSnapshot:
             )
 
         return neighborhood_fn
+
+
+def _as_tuple(values: object) -> tuple[int, ...] | None:
+    return tuple(values) if isinstance(values, list) else None
 
 
 def _scenario_end(scenario: dict[str, object]) -> datetime | None:

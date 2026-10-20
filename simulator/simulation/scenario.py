@@ -69,6 +69,18 @@ class ScenarioConfig:
             return max(self.periods, 0)
         return _periods_between(self.start, end, self.frequency_minutes)
 
+    def with_collection_schedule(
+        self, hours: tuple[int, ...] | None, days: tuple[int, ...] | None
+    ) -> ScenarioConfig:
+        """El mismo escenario con otras horas y días de recolección (None: sin
+        cambio). Los días sin recolección se vuelven a calcular."""
+        record = scenario_to_record(self)
+        if hours is not None:
+            record["collection_hours"] = list(hours)
+        if days is not None:
+            record["collection_days"] = list(days)
+        return scenario_from_mapping(record)
+
 
 def read_scenario_file(path: str | Path) -> dict[str, Any]:
     """Contenido de un escenario YAML o JSON, sin los defaults."""
