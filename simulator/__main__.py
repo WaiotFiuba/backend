@@ -6,7 +6,11 @@ from pathlib import Path
 
 from simulator.exporters.files import export_simulation
 from simulator.simulation.engine import SyntheticDataSimulator
-from simulator.simulation.scenario import load_scenario
+from simulator.simulation.scenario import (
+    read_scenario_file,
+    scenario_from_mapping,
+    with_defaults,
+)
 from simulator.validation.checks import validate_result
 
 
@@ -110,7 +114,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config = load_scenario(args.scenario)
+    scenario_data = read_scenario_file(args.scenario)
+    config = scenario_from_mapping(with_defaults(scenario_data))
+    # En el worker la demanda global es un control de la sesión; la CLI la toma del escenario.
+    global_demand = float(scenario_data.get("global_demand_multiplier", 1.0))
     container_limit = (
         args.container_limit if args.container_limit is not None else args.limit
     )
@@ -126,7 +133,9 @@ def main() -> None:
         if args.from_backend
         else None
     )
-    result = SyntheticDataSimulator(config, topology=topology).run()
+    result = SyntheticDataSimulator(config, topology=topology).run(
+        global_demand_multiplier=global_demand
+    )
     report = validate_result(result)
     if not report.ok:
         raise SystemExit("Validacion fallida: " + "; ".join(report.errors))

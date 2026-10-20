@@ -99,7 +99,7 @@ class SyntheticDataSimulator:
 
     def run(
         self,
-        global_demand_multiplier: float | None = None,
+        global_demand_multiplier: float = 1.0,
         neighborhood_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         state = self.state or self.initialize()
@@ -133,7 +133,7 @@ class SyntheticDataSimulator:
     def run_tick(
         self,
         timestamp: datetime,
-        global_demand_multiplier: float | None = None,
+        global_demand_multiplier: float = 1.0,
         neighborhood_multiplier: Callable[[str], float] | None = None,
     ) -> SimulationResult:
         state = self.state or self.initialize()
@@ -167,16 +167,11 @@ class SyntheticDataSimulator:
             arrays.calibration_factor,
             neighborhood_multiplier,
         )
-        global_mult = (
-            self.config.high_demand_multiplier
-            if global_demand_multiplier is None
-            else global_demand_multiplier
-        )
         increments = filling_increments(
             arrays.demand_bases,
             arrays.waste_factors,
             zone_mults,
-            global_mult,
+            global_demand_multiplier,
             self.config,
             self.np_rng,
         )

@@ -94,13 +94,7 @@ def filling_increments(
     noises = np.maximum(0.2, noises)
     time_ratio = config.frequency_minutes / 60.0
     increments = (
-        demand_bases
-        * time_ratio
-        * waste_factors
-        * global_mult
-        * zone_mults
-        * config.overflow_stress_multiplier
-        * noises
+        demand_bases * time_ratio * waste_factors * global_mult * zone_mults * noises
     )
     return np.round(increments, 4)
 

@@ -164,9 +164,7 @@ async def _run_session(
 
             tick = simulator.run_tick(
                 simulated_time,
-                global_demand_multiplier=(
-                    controls.global_current * config.high_demand_multiplier
-                ),
+                global_demand_multiplier=controls.global_current,
                 neighborhood_multiplier=controls.neighborhood_multiplier_fn(),
             )
 

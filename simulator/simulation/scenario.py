@@ -42,8 +42,6 @@ class ScenarioConfig:
     partial_collection_probability: float = (
         0.03  # valores para la recoleccion secundaria
     )
-    high_demand_multiplier: float = 1.0
-    overflow_stress_multiplier: float = 1.0
     noisy_sensor_probability: float = 0.0
     stuck_sensor_probability: float = 0.0
     fire_probability: float = 0.0
@@ -63,18 +61,19 @@ class ScenarioConfig:
         return self.periods * self.frequency_minutes / 60
 
 
+def read_scenario_file(path: str | Path) -> dict[str, Any]:
+    """Contenido de un escenario YAML o JSON, sin los defaults."""
+    source = Path(path)
+    raw = source.read_text(encoding="utf-8")
+    if source.suffix.lower() == ".json":
+        return json.loads(raw)
+    return yaml.safe_load(raw) or {}
+
+
 def load_scenario(path: str | Path | None = None) -> ScenarioConfig:
     """Escenario de la CLI: los defaults del archivo, pisados por el escenario
     de path (si hay)."""
-    data: dict[str, Any] = {}
-    if path is not None:
-        source = Path(path)
-        raw = source.read_text(encoding="utf-8")
-        if source.suffix.lower() == ".json":
-            data = json.loads(raw)
-        else:
-            data = yaml.safe_load(raw) or {}
-
+    data = read_scenario_file(path) if path is not None else {}
     return scenario_from_mapping(with_defaults(data))
 
 

@@ -33,12 +33,6 @@ collection_probability: 0.98
 # parcial (baja 25-55 puntos) en vez de vaciarlo.
 partial_collection_probability: 0.03
 
-# Multiplicador general de demanda. Valores > 1 llenan mas rapido.
-high_demand_multiplier: 1.0
-
-# Multiplicador extra para forzar escenarios de desborde.
-overflow_stress_multiplier: 1.0
-
 # Probabilidad por contenedor y por tick de cada falla de sensor.
 noisy_sensor_probability: 0.0
 stuck_sensor_probability: 0.0

@@ -125,9 +125,8 @@ El escenario base es
 - `container_limit`: máximo de contenedores reales cargados desde el backend.
 - `reading_jitter_minutes`: variación del timestamp de cada dispositivo.
 - `collection_hours` y probabilidades de recolección.
-- `high_demand_multiplier`: demanda general propia del escenario.
-- `overflow_stress_multiplier`: presión adicional para escenarios de desborde.
 - `waste_type_factors`: demanda relativa por tipo de residuo.
+- `global_demand_multiplier`: solo en la CLI, multiplicador global de demanda (1.0 por defecto). En el worker la demanda global es un control de la sesión, que manda el front.
 - probabilidades de anomalías y fallas.
 
 Si se define `end`, la cantidad de períodos se calcula usando `start`, `end` y

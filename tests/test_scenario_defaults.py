@@ -9,6 +9,7 @@ from simulator.simulation.scenario import (
     ScenarioConfig,
     load_scenario,
     load_scenario_defaults,
+    read_scenario_file,
     scenario_from_mapping,
     with_defaults,
 )
@@ -106,3 +107,20 @@ class TestLoadScenario(unittest.TestCase):
         self.assertEqual(
             config.collection_probability, defaults["collection_probability"]
         )
+
+
+class TestCliGlobalDemand(unittest.TestCase):
+    def test_the_scenario_file_keeps_the_global_demand_for_the_cli(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "escenario.yaml"
+            path.write_text(
+                "global_demand_multiplier: 1.3\nseed: 7\n", encoding="utf-8"
+            )
+
+            data = read_scenario_file(path)
+            config = scenario_from_mapping(with_defaults(data))
+
+        self.assertEqual(data["global_demand_multiplier"], 1.3)
+        # No es un campo del escenario: el worker usa el control de la sesión.
+        self.assertFalse(hasattr(config, "global_demand_multiplier"))
+        self.assertEqual(config.seed, 7)
