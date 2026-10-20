@@ -61,3 +61,14 @@ async def save_zone_profile_defaults(db: AsyncSession, profiles: dict) -> int:
         row.profiles = profiles
     await db.commit()
     return len(profiles)
+
+
+async def validate_zone_profile_types(db: AsyncSession, types: list[str]) -> None:
+    """Los tipos de uso que se editan tienen que ser de los que publico el
+    simulador. Si todavia no publico ninguno, no se puede validar y pasan."""
+    if not types:
+        return
+    known = await get_zone_profile_defaults(db)
+    unknown = sorted(set(types) - set(known)) if known else []
+    if unknown:
+        raise HTTPException(status_code=422, detail={"unknown_zone_profiles": unknown})

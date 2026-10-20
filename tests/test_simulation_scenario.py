@@ -353,6 +353,40 @@ class TestSimulationScenarioBackend(unittest.IsolatedAsyncioTestCase):
                 {"office": {"demand_multiplier": 0.9}, "other": {}},
             )
 
+    async def test_zone_profiles_are_checked_against_the_published_defaults(self):
+        changes = {"office": {"demand_multiplier": 0.7, "hour_weights": {"13": 2.0}}}
+        # Sin valores por defecto publicados todavia, no se puede validar: pasa.
+        created = await self._create({"zone_profiles": changes})
+        self.assertEqual(created.scenario["zone_profiles"], changes)
+
+        async with self.session_maker() as db:
+            await zone_profile_service.save_zone_profile_defaults(
+                db, {"office": {"demand_multiplier": 0.85}, "other": {}}
+            )
+            self.assertEqual(
+                await zone_profile_service.get_zone_profile_defaults(db),
+                {"office": {"demand_multiplier": 0.85}, "other": {}},
+            )
+        await self._create({"zone_profiles": changes})
+        with self.assertRaises(HTTPException) as ctx:
+            await self._create({"zone_profiles": {"oficinas": {}}})
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertEqual(ctx.exception.detail, {"unknown_zone_profiles": ["oficinas"]})
+
+    async def test_zone_profile_values_are_validated(self):
+        invalid = [
+            {"office": {"hour_weights": {"24": 1.0}}},
+            {"office": {"weekday_factors": {"7": 1.0}}},
+            {"office": {"demand_multiplier": 0}},
+            {"office": {"hour_weights": {"13": -1}}},
+            {"office": {"weekend_factor": 0.5}},
+        ]
+        for zone_profiles in invalid:
+            with self.subTest(zone_profiles=zone_profiles):
+                with self.assertRaises(HTTPException) as ctx:
+                    await self._create({"zone_profiles": zone_profiles})
+                self.assertEqual(ctx.exception.status_code, 422)
+
     async def test_the_end_cannot_change_before_the_simulation_starts(self):
         created = await self._create({"start": "2026-10-06T06:00:00"})
 

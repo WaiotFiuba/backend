@@ -83,6 +83,8 @@ class ScenarioInput(BaseModel):
     collection_days: list[int | str] | None = None
     no_collection_days: list[int | str] | None = None
     waste_type_multipliers: WasteTypeMultipliers | None = None
+    # Por tipo de uso del suelo; los tipos son los que publica el simulador.
+    zone_profiles: dict[str, ZoneProfileSettings] | None = None
 
     @field_validator("start", "end", "periods", mode="before")
     @classmethod

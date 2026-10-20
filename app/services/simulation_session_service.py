@@ -16,6 +16,7 @@ from app.models.map.caba_geo_extension import Barrio
 from app.models.map.neighborhood_demographic import NeighborhoodDemographic
 from app.models.map.saved_configuration import SavedConfiguration
 from app.models.map.simulation import SimulationSession, SimulationZoneOverride
+from app.services.map.zone_profile_service import validate_zone_profile_types
 from app.schemas.digital_twin import (
     SavedConfigurationCreate,
     SavedConfigurationRead,
@@ -94,6 +95,7 @@ async def create_simulation(
         db,
         [item.neighborhood for item in payload.zone_overrides],
     )
+    await validate_zone_profile_types(db, list(scenario.get("zone_profiles") or {}))
     session = SimulationSession(
         status=SimulationStatus.PENDING,
         scenario=scenario,
