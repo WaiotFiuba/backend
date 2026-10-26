@@ -113,22 +113,22 @@ renovarlo sin volver a loguearse se usa el `refresh_token` con
 La API se configura con variables de entorno o con el archivo `.env` (ver
 `.env.example`). Las del simulador están en [simulator/README.md](simulator/README.md).
 
-| Variable | Default | Uso |
-| --- | --- | --- |
-| `MAP_DATABASE_URL` | `postgresql+asyncpg://waiot:waiot_pass@postgis:5432/waiot_map` | Conexión a la base. |
-| `MAP_DB_POOL_SIZE`, `MAP_DB_MAX_OVERFLOW` | `5`, `0` | Pool de conexiones a la base. |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` | `waiot_map`, `waiot`, `waiot_pass`, `5432` | Credenciales con las que Docker crea la base y con las que se importan las capas geográficas. |
-| `SECRET_KEY` | `change-me` | Clave para firmar los tokens. **Cambiarla fuera de desarrollo.** |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Vigencia del `access_token`. |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Vigencia del `refresh_token`. |
-| `CORS_ALLOWED_ORIGINS` | `*` | Orígenes permitidos, separados por coma. Con `*` no se aceptan credenciales. |
-| `LEVEL_THRESHOLD_NORMAL`, `LEVEL_THRESHOLD_HIGH`, `LEVEL_THRESHOLD_CRITICAL` | `40`, `70`, `80` | Umbrales de llenado (%) que usan el mapa, los KPIs, la proyección y la redistribución. |
-| `DATA_LEVEL_RETENTION_PERIODS` | `1920` | Períodos de telemetría que se conservan (cada uno ocupa ~17 MB). `0` = sin límite. |
-| `DATA_LEVEL_SIZE_WARNING_GB` | `70` | Tamaño de `data_level` a partir del cual se loguea un aviso. |
-| `CHRONOS_FORECAST_QUANTILE` | `0.6` | Cuantil de Chronos-2 que se toma como nivel previsto (entre 0,1 y 0,9). |
-| `SIMULATION_CLAIM_TIMEOUT_SECONDS` | `60` | Tiempo para que un simulador tome una simulación nueva antes de marcarla como fallida. |
-| `SIMULATION_STARTUP_TIMEOUT_MINUTES` | `10` | Tiempo para que el simulador termine de preparar la simulación. |
-| `LOG_LEVEL` | `INFO` | Nivel de logs. |
+| Variable | Uso |
+| --- | --- |
+| `MAP_DATABASE_URL` | Conexión a la base. |
+| `MAP_DB_POOL_SIZE`, `MAP_DB_MAX_OVERFLOW` | Pool de conexiones a la base. |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` | Credenciales con las que Docker crea la base y con las que se importan las capas geográficas. |
+| `SECRET_KEY` | Clave para firmar los tokens. **Cambiarla fuera de desarrollo.** |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Vigencia del `access_token`. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Vigencia del `refresh_token`. |
+| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos, separados por coma. Con `*` no se aceptan credenciales. |
+| `LEVEL_THRESHOLD_NORMAL`, `LEVEL_THRESHOLD_HIGH`, `LEVEL_THRESHOLD_CRITICAL` | Umbrales de llenado (%) que usan el mapa, los KPIs, la proyección y la redistribución. |
+| `DATA_LEVEL_RETENTION_PERIODS` | Períodos de telemetría que se conservan (cada uno ocupa ~17 MB). `0` = sin límite. |
+| `DATA_LEVEL_SIZE_WARNING_GB` | Tamaño de `data_level` a partir del cual se loguea un aviso. |
+| `CHRONOS_FORECAST_QUANTILE` | Cuantil de Chronos-2 que se toma como nivel previsto (entre 0,1 y 0,9). |
+| `SIMULATION_CLAIM_TIMEOUT_SECONDS` | Tiempo para que un simulador tome una simulación nueva antes de marcarla como fallida. |
+| `SIMULATION_STARTUP_TIMEOUT_MINUTES` | Tiempo para que el simulador termine de preparar la simulación. |
+| `LOG_LEVEL` | Nivel de logs. |
 
 Las variables se leen al arrancar la API: un cambio requiere reiniciarla.
 
