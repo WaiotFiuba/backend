@@ -74,8 +74,8 @@ async def create_simulation(
     if active_sessions:
         await db.flush()
 
-    await reset_database_container_levels(db)
     await clear_level_readings(db)
+    await reset_database_container_levels(db)
     await reset_virtual_levels(db)
 
     scenario_data = dict(payload.scenario)
