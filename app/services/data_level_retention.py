@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.map_database import MapSessionLocal
+from app.core.map_database import IngestSessionLocal
 from app.models.map.container import Container
 from app.models.map.data_level import DataLevel
 from app.services.data_level_partitions import (
@@ -52,7 +52,7 @@ async def purge_readings_up_to(
 
 
 async def purge_if_due(
-    session_factory: Callable[[], AsyncSession] = MapSessionLocal,
+    session_factory: Callable[[], AsyncSession] = IngestSessionLocal,
     retention_periods: int | None = None,
     container_count: int | None = None,
 ) -> int | None:

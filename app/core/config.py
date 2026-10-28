@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     map_db_pool_size: int = 5
     map_db_max_overflow: int = 0
+    ingest_db_pool_size: int = 4
+    ingest_db_max_overflow: int = 2
     cors_allowed_origins: str = "*"
     simulation_claim_timeout_seconds: int = 60
     simulation_startup_timeout_minutes: int = 10
