@@ -13,9 +13,24 @@ map_engine = create_async_engine(
     pool_pre_ping=True,
 )
 MapSessionLocal = async_sessionmaker(map_engine, expire_on_commit=False)
+# Pool aparte para la telemetría
+ingest_engine = create_async_engine(
+    settings.map_database_url,
+    echo=False,
+    future=True,
+    pool_size=settings.ingest_db_pool_size,
+    max_overflow=settings.ingest_db_max_overflow,
+    pool_pre_ping=True,
+)
+IngestSessionLocal = async_sessionmaker(ingest_engine, expire_on_commit=False)
 MapBase = declarative_base()
 
 
 async def get_map_db() -> AsyncSession:
     async with MapSessionLocal() as session:
+        yield session
+
+
+async def get_ingest_db() -> AsyncSession:
+    async with IngestSessionLocal() as session:
         yield session

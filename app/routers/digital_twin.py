@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.map_database import get_map_db
+from app.core.map_database import get_ingest_db, get_map_db
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.schemas.digital_twin import (
@@ -48,13 +48,14 @@ router = APIRouter(prefix="/digital-twin", tags=["digital-twin"])
 logger = logging.getLogger(__name__)
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+IngestDbDep = Annotated[AsyncSession, Depends(get_ingest_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 @router.post("/telemetry", response_model=TelemetryIngestResult)
 async def ingest_telemetry(
     payload: TelemetryIngestPayload,
-    db: MapDbDep,
+    db: IngestDbDep,
     background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     result = await ingest_telemetry_batch(db, [payload])
@@ -66,7 +67,7 @@ async def ingest_telemetry(
 @router.post("/telemetry/batch", response_model=TelemetryIngestResult)
 async def ingest_telemetry_batch_endpoint(
     request: Request,
-    db: MapDbDep,
+    db: IngestDbDep,
     background_tasks: BackgroundTasks,
 ) -> TelemetryIngestResult:
     import time
@@ -191,7 +192,7 @@ async def delete_configuration_endpoint(
 # Endpoints utilizados por el Simulator Worker (sin acceso directo a BD)
 @router.get("/worker/active-session", response_model=SimulationRead | None)
 async def read_worker_active_session(
-    db: MapDbDep,
+    db: IngestDbDep,
 ) -> SimulationRead | None:
     try:
         return await get_active_simulation(db)
@@ -223,7 +224,7 @@ async def worker_fail_interrupted(
 async def worker_update_progress(
     simulation_id: int,
     payload: SimulationProgressUpdate,
-    db: MapDbDep,
+    db: IngestDbDep,
 ) -> SimulationRead:
     return await update_simulation_progress(
         db=db,
@@ -247,7 +248,7 @@ async def worker_update_progress(
 async def worker_finish_simulation(
     simulation_id: int,
     payload: SimulationFinish,
-    db: MapDbDep,
+    db: IngestDbDep,
 ) -> SimulationRead:
     return await finish_simulation_session(
         db=db,
