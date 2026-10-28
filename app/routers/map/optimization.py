@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.map_database import get_map_db
+from app.core.map_database import get_map_db, get_map_db_quick
 from app.models.user import User
 from app.schemas.map.optimization import (
     OptimizationConfig,
@@ -29,6 +29,7 @@ from app.services.map.optimization_whatif_service import (
 router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+MapQuickDbDep = Annotated[AsyncSession, Depends(get_map_db_quick)]
 # El router de /map ya exige el usuario; acá se lo recibe para registrar quién
 # genera cada plan (FastAPI reutiliza el mismo usuario, sin otra consulta).
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
@@ -72,7 +73,7 @@ async def create_redistribution_plan(
     summary="Obtener el plan de redistribución What-If activo (null si no hay)",
 )
 async def get_active_whatif_plan(
-    db: MapDbDep,
+    db: MapQuickDbDep,
 ) -> RedistributionPlanRead | None:
     return await get_active_plan(db)
 
@@ -126,6 +127,6 @@ async def deactivate_plan_whatif(
 )
 async def get_plan_comparison(
     plan_id: int,
-    db: MapDbDep,
+    db: MapQuickDbDep,
 ) -> WhatIfComparisonResponse:
     return await get_comparison_metrics(db, plan_id)

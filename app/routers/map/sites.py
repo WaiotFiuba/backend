@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.map_database import get_map_db
+from app.core.map_database import get_map_db, get_map_db_quick
 from app.core.thresholds import get_level_thresholds
 from app.schemas.map.site import (
     SiteChanges,
@@ -26,6 +26,7 @@ from app.services.site_projection.service import project_site_level
 router = APIRouter(prefix="/sites", tags=["sites"])
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+MapQuickDbDep = Annotated[AsyncSession, Depends(get_map_db_quick)]
 
 
 @router.get(
@@ -34,7 +35,7 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
     summary="Obtener sitios en un bounding box o clusters según zoom",
 )
 async def get_sites_by_bbox(
-    db: MapDbDep,
+    db: MapQuickDbDep,
     lat_min: float = Query(...),
     lat_max: float = Query(...),
     lng_min: float = Query(...),
@@ -67,7 +68,7 @@ async def get_sites_by_bbox(
     summary="Obtener cambios incrementales en sitios a partir de un cursor",
 )
 async def get_sites_change_feed(
-    db: MapDbDep,
+    db: MapQuickDbDep,
     after: int = Query(0, ge=0),
     level_aggregation: Literal["avg", "max"] = Query("avg"),
     limit: int = Query(5000, ge=1, le=50000),

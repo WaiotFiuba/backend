@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.map_database import get_ingest_db, get_map_db
+from app.core.map_database import get_ingest_db, get_map_db, get_map_db_quick
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.schemas.digital_twin import (
@@ -49,6 +49,7 @@ router = APIRouter(prefix="/digital-twin", tags=["digital-twin"])
 logger = logging.getLogger(__name__)
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+MapQuickDbDep = Annotated[AsyncSession, Depends(get_map_db_quick)]
 IngestDbDep = Annotated[AsyncSession, Depends(get_ingest_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
@@ -100,7 +101,7 @@ async def start_simulation(
 
 @router.get("/simulations/active", response_model=SimulationRead)
 async def read_active_simulation(
-    db: MapDbDep,
+    db: MapQuickDbDep,
     _current_user: CurrentUserDep,
 ) -> SimulationRead:
     return await get_active_simulation(db)
