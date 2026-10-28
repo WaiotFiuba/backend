@@ -43,6 +43,7 @@ from app.services.simulation_session_service import (
     update_saved_configuration,
     update_simulation_progress,
 )
+from app.services.table_compaction import compact_in_background
 
 router = APIRouter(prefix="/digital-twin", tags=["digital-twin"])
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ async def ingest_telemetry(
 ) -> TelemetryIngestResult:
     result = await ingest_telemetry_batch(db, [payload])
     background_tasks.add_task(purge_in_background)
+    background_tasks.add_task(compact_in_background)
     _log_telemetry_ingest("individual", result)
     return result
 
@@ -77,6 +79,7 @@ async def ingest_telemetry_batch_endpoint(
     raw_measurements = body.get("measurements", []) if isinstance(body, dict) else []
     result = await ingest_telemetry_batch(db, raw_measurements)
     background_tasks.add_task(purge_in_background)
+    background_tasks.add_task(compact_in_background)
     logger.info(
         "/telemetry/batch completado en %.3fs para %d mediciones.",
         time.perf_counter() - t0,
