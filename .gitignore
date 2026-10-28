@@ -15,7 +15,6 @@ venv/
 .env
 .env.*
 !.env.example
-!.env.production.example
 !.env.oracle.example
 
 # Datos locales
