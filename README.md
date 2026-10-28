@@ -198,16 +198,11 @@ línea, fin de archivo, YAML válido y archivos de más de 15 MB.
 | --- | --- | --- |
 | `tests.yml` | Push a `dev` y pull requests a `main` que tocan archivos `.py` | Corre `pytest`. |
 | `pre-commit.yml` | Push a `dev` y pull requests a `main` | Corre los hooks de pre-commit. |
-| `release-production.yml` | Push a `main`, o a mano desde Actions | Corre los tests y, si pasan, despliega en dos lugares, de forma independiente. |
+| `release-production.yml` | Push a `main`, o a mano desde Actions | Corre los tests y, si pasan, despliega en la VM de Oracle Cloud. |
 
-El despliegue de `release-production.yml` tiene dos destinos:
+El despliegue se conecta por SSH a la VM de Oracle Cloud y ejecuta su script de
+deploy, que actualiza el código a `origin/main` y reconstruye los servicios con
+`docker compose`. Después espera hasta 5 minutos a que la API responda.
 
-- **Render + Supabase:** aplica las migraciones sobre la base de Supabase y
-  dispara el deploy de Render.
-- **VM de Oracle Cloud:** se conecta por SSH y ejecuta el script de deploy de la
-  VM, que actualiza el código a `origin/main` y reconstruye los servicios con
-  `docker compose`. Después espera hasta 5 minutos a que la API responda.
-
-Los secretos que usa (URL de la base, deploy hook de Render, clave SSH, host)
-están configurados en el repositorio de GitHub. La configuración de cada destino
-está en [docs/HOSTING.md](docs/HOSTING.md).
+Los secretos que usa (clave SSH y host) están configurados en el repositorio de
+GitHub. La configuración de la VM está en [docs/HOSTING.md](docs/HOSTING.md).

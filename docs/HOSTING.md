@@ -9,11 +9,8 @@ La arquitectura actual es:
 - **Frontend:** Render.
 - **Backend API, base de datos y simulador:** una VM de Oracle Cloud, con Docker
   Compose. Caddy expone la API por HTTPS.
-- **API secundaria:** Render Free Web Service, con la base en Supabase Free
-  Postgres con PostGIS.
 
-El frontend usa la API de la VM. El workflow de release sigue desplegando
-tambien la version de Render + Supabase.
+El frontend usa la API de la VM.
 
 ## Flujo de ramas
 
@@ -28,97 +25,10 @@ feature/*
 - `dev`: integracion de features. Cada push corre tests y pre-commit.
 - `feature/*`: trabajo puntual desde `dev`.
 
-## 1. Supabase: base Postgres + PostGIS
+## 1. Release, migraciones y seed
 
-Base de la API secundaria de Render.
-
-Crear un proyecto en Supabase y habilitar PostGIS:
-
-1. Ir a **Database**.
-2. Entrar a **Extensions**.
-3. Buscar `postgis`.
-4. Habilitar la extension.
-
-Tambien se puede habilitar desde SQL:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA extensions;
-```
-
-En Supabase, copiar el connection string de Postgres y convertirlo al driver async
-que usa este backend:
-
-```text
-postgresql://USER:PASSWORD@HOST:PORT/postgres
-```
-
-queda:
-
-```text
-postgresql+asyncpg://USER:PASSWORD@HOST:PORT/postgres
-```
-
-Usar esa URL en `MAP_DATABASE_URL`.
-
-## 2. Render: backend API
-
-Configuracion sugerida:
-
-- Service type: **Web Service**.
-- Runtime: **Docker**.
-- Branch: `main`.
-- Root directory: vacio si el repo conectado es `backend`; usar `backend` solo si
-  Render esta conectado al monorepo raiz.
-- Dockerfile path: `./Dockerfile`.
-- Start command: dejar vacio para usar el `CMD` del Dockerfile.
-- Auto deploy: desactivado.
-- Plan: Free para demo.
-
-Variables de entorno (ver `.env.production.example`):
-
-```env
-APP_ENV=production
-ENABLE_MAP_DB=true
-MAP_DB_POOL_SIZE=5
-MAP_DB_MAX_OVERFLOW=0
-SECRET_KEY=replace-with-a-long-random-secret
-MAP_DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@HOST:PORT/postgres
-CORS_ALLOWED_ORIGINS=https://your-frontend.onrender.com
-```
-
-El resto de las variables de la API estan en el [README](../README.md#configuración).
-
-Limitaciones esperadas en Render Free:
-
-- La API puede dormir luego de inactividad.
-- El primer request despues de dormir puede tardar cerca de un minuto.
-- No usar filesystem local para persistencia.
-- No correr el simulador como worker continuo en Free.
-
-El deploy de backend lo dispara GitHub Actions despues de correr tests y
-migraciones. En Render, copiar el deploy hook desde:
-
-```text
-Backend service -> Settings -> Deploy Hook
-```
-
-Guardarlo en GitHub como secret:
-
-```text
-RENDER_BACKEND_DEPLOY_HOOK_URL
-```
-
-## 3. Migraciones y seed
-
-Guardar la URL de Supabase con prefijo `postgresql+asyncpg://` en GitHub como
-secret:
-
-```text
-PRODUCTION_MAP_DATABASE_URL
-```
-
-Las migraciones de Supabase las ejecuta el workflow `Release production backend`,
-que corre con cada push a `main`. Tambien se puede lanzar a mano:
+El workflow `Release production backend` corre con cada push a `main`. Tambien
+se puede lanzar a mano:
 
 ```text
 Actions -> Release production backend -> Run workflow
@@ -129,28 +39,17 @@ Ese workflow:
 1. valida que se ejecute desde `main`;
 2. instala dependencias;
 3. corre tests;
-4. ejecuta `alembic upgrade head` contra Supabase;
-5. dispara el deploy de Render;
-6. en paralelo, despliega en la VM de Oracle (ver [seccion 6](#6-oracle-cloud-api-base-y-simulador)).
+4. si pasan, despliega en la VM de Oracle (ver [seccion 4](#4-oracle-cloud-api-base-y-simulador)).
 
-Los dos despliegues son independientes: si falla uno, el otro sigue.
-
-Para ejecutar migraciones manualmente desde una maquina local:
+La API corre las migraciones y el seed al arrancar, y el seed no duplica
+contenedores que ya existen. Para ejecutar migraciones manualmente desde una
+maquina local:
 
 ```bash
 uv run alembic upgrade head
 ```
 
-En Supabase, el seed inicial sigue siendo manual:
-
-```bash
-uv run python -m app.commands.seed
-```
-
-En la VM no hace falta: la API corre las migraciones y el seed al arrancar, y el
-seed no duplica contenedores que ya existen.
-
-## 4. Render: frontend
+## 2. Render: frontend
 
 Configuracion sugerida:
 
@@ -179,17 +78,17 @@ VITE_MIN_TICK_SECONDS=16
 VITE_ENABLE_SIMULATOR=true
 ```
 
-`VITE_BACKEND_URL` apunta a la API de la VM (`API_DOMAIN`, ver [seccion 6](#6-oracle-cloud-api-base-y-simulador)). Cuando
+`VITE_BACKEND_URL` apunta a la API de la VM (`API_DOMAIN`, ver [seccion 4](#4-oracle-cloud-api-base-y-simulador)). Cuando
 Render entregue la URL final del frontend, agregarla en la API:
 
 ```env
 CORS_ALLOWED_ORIGINS=https://your-frontend.onrender.com
 ```
 
-## 5. Simulador
+## 3. Simulador
 
 El simulador corre en la VM como el servicio `simulator`, junto con la API (ver
-[seccion 6](#6-oracle-cloud-api-base-y-simulador)). Toma las simulaciones que se crean desde el frontend y envia las
+[seccion 4](#4-oracle-cloud-api-base-y-simulador)). Toma las simulaciones que se crean desde el frontend y envia las
 mediciones a la API por la red interna de Docker (`BACKEND_URL=http://api:8000`).
 
 La configuracion del simulador esta en [simulator/README.md](../simulator/README.md).
@@ -204,11 +103,7 @@ BACKEND_URL=https://<api-domain>
 uv run python -m simulator.worker
 ```
 
-Contra Render Free no conviene simular todos los contenedores de CABA en cada
-tick: `SIMULATOR_CONTAINER_LIMIT=2000` limita la topologia que carga el worker
-para reducir escrituras y evitar timeouts.
-
-## 6. Oracle Cloud: API, base y simulador
+## 4. Oracle Cloud: API, base y simulador
 
 La VM corre todo con Docker Compose: `postgis`, `api`, `simulator` y `caddy`.
 Caddy expone la API por HTTPS con un certificado de Let's Encrypt.
@@ -284,18 +179,14 @@ docker compose down
 - Backend levanta localmente.
 - Frontend compila con `npm run build`.
 - Migraciones revisadas.
-- Supabase tiene PostGIS habilitado.
 - Mapa carga desde el frontend de Render.
-- API responde en la VM y en Render.
+- API responde en la VM.
 - CORS permite el dominio del frontend.
 - Simulador inicia, pausa, reanuda y frena.
 - No hay seeds destructivos automaticos.
 
 ## Limitaciones
 
-- Supabase Free tiene limites de espacio, CPU/RAM compartidos y puede pausar por
-  inactividad.
-- Render Free puede tener cold starts.
 - La VM es una sola maquina: si se cae, se caen la API, la base y el simulador.
 - La base de la VM no tiene backup automatico.
 - Si cambia la IP publica de la VM, cambian `API_DOMAIN`, el certificado,

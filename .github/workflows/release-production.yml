@@ -1,9 +1,7 @@
 name: Release production backend
 
-# Con cada push a main (o a mano desde Actions) despliega en los dos lugares:
-# - Render + Supabase, como hasta ahora;
-# - la VM de Oracle Cloud (ver deploy_oracle.md).
-# Los dos deploys son independientes: si falla uno, el otro sigue.
+# Con cada push a main (o a mano desde Actions) corre los tests y, si pasan,
+# despliega en la VM de Oracle Cloud (ver docs/HOSTING.md).
 on:
   push:
     branches: [main]
@@ -38,39 +36,6 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
-
-  render:
-    name: Migrate Supabase and deploy Render
-    needs: tests
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Sync dependencies
-        run: uv sync --frozen
-
-      - name: Run Alembic migrations
-        env:
-          APP_ENV: production
-          ENABLE_MAP_DB: "true"
-          MAP_DATABASE_URL: ${{ secrets.PRODUCTION_MAP_DATABASE_URL }}
-        run: uv run alembic upgrade head
-
-      - name: Trigger Render deploy
-        env:
-          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
-        run: |
-          curl --fail --show-error --silent --request POST "${RENDER_BACKEND_DEPLOY_HOOK_URL}"
 
   oracle:
     name: Deploy Oracle VM

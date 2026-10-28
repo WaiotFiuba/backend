@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.map_database import get_map_db
+from app.core.map_database import get_map_db, get_map_db_quick
 from app.schemas.map.kpis import (
     NetworkKpiSummaryResponse,
     WhatIfKpiComparisonResponse,
@@ -19,6 +19,7 @@ from app.services.map.kpi_service import (
 router = APIRouter(prefix="/kpis", tags=["kpis"])
 
 MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
+MapQuickDbDep = Annotated[AsyncSession, Depends(get_map_db_quick)]
 
 
 @router.get(
@@ -27,7 +28,7 @@ MapDbDep = Annotated[AsyncSession, Depends(get_map_db)]
     summary="Obtener métricas y KPIs operacionales agregadas a nivel sitio",
 )
 async def get_network_kpis(
-    db: MapDbDep,
+    db: MapQuickDbDep,
     whatif: bool = Query(
         False, description="Si es True, calcula métricas sobre la red What-If simulada"
     ),
@@ -48,7 +49,7 @@ async def get_network_kpis(
     summary="Obtener comparativa ejecutiva instantánea entre red real y plan What-If",
 )
 async def get_whatif_comparison(
-    db: MapDbDep,
+    db: MapQuickDbDep,
     plan_id: int | None = Query(
         None, description="ID del plan a comparar. None = usa el plan activo"
     ),
