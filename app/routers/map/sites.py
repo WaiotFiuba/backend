@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -126,6 +127,16 @@ async def get_single_site_projection(
     level_aggregation: Annotated[Literal["avg", "max"], Query()] = "avg",
     lookback_days: Annotated[int, Query(ge=1, le=365)] = 14,
     stop_at_full: Annotated[bool, Query()] = True,
+    as_of: Annotated[
+        datetime | None,
+        Query(
+            description=(
+                "Instante desde el que se proyecta, con el nivel que tenia el sitio "
+                "en ese momento. Por defecto, el reloj de la simulacion activa o la "
+                "ultima lectura."
+            )
+        ),
+    ] = None,
 ) -> SiteProjectionResponse:
     return await project_site_level(
         db=db,
@@ -137,6 +148,7 @@ async def get_single_site_projection(
         level_aggregation=level_aggregation,
         lookback_days=lookback_days,
         stop_at_full=stop_at_full,
+        as_of=as_of,
     )
 
 

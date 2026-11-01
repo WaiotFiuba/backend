@@ -572,6 +572,34 @@ class TestSiteServices(unittest.IsolatedAsyncioTestCase):
                 projection.points[0].timestamp, latest + timedelta(hours=1)
             )
 
+            # Desde un instante dado: parte del nivel que tenía el sitio en ese momento.
+            session.add(
+                DataLevel(
+                    id=2,
+                    reading_date=latest + timedelta(hours=1),
+                    container_id=1,
+                    container_current_level=60,
+                    fire_alarm=False,
+                    freeze_alarm=False,
+                    crash_alarm=False,
+                    garbage_collection_alarm=False,
+                    reported_low_consumption_voltage=False,
+                    reported_high_consumption_voltage=False,
+                )
+            )
+            await session.commit()
+            as_of = latest + timedelta(minutes=30)
+
+            projection = await project_site_level(
+                session, site_id=1, horizon_hours=3, as_of=as_of
+            )
+
+            self.assertEqual(projection.generated_at, as_of)
+            self.assertEqual(projection.current_level, 30)
+            self.assertEqual(
+                projection.points[0].timestamp, latest + timedelta(hours=1)
+            )
+
     async def test_site_history_without_active_simulation(self):
         """Con sensores reales no hay simulación: el historial igual devuelve datos."""
         async with self.session_maker() as session:
